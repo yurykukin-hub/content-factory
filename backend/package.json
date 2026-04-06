@@ -1,0 +1,27 @@
+{
+  "name": "content-factory-backend",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "bun --watch src/index.ts",
+    "start": "bun src/index.ts",
+    "db:generate": "bunx prisma generate",
+    "db:migrate": "bunx prisma migrate dev",
+    "db:studio": "bunx prisma studio",
+    "db:seed": "bun src/seed.ts"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.4.1",
+    "hono": "^4.7.5",
+    "jose": "^5.10.0",
+    "nanoid": "^5.1.7",
+    "sharp": "^0.34.5",
+    "zod": "^3.24.2",
+    "@openrouter/sdk": "^0.1.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "prisma": "^6.4.1",
+    "typescript": "^5.7.3"
+  }
+}

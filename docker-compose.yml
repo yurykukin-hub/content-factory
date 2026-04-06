@@ -1,0 +1,15 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: contentfactory_postgres
+    environment:
+      POSTGRES_DB: contentfactory
+      POSTGRES_USER: contentfactory
+      POSTGRES_PASSWORD: secret
+    ports:
+      - "5441:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:

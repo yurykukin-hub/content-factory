@@ -1,0 +1,311 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// ENUMS
+// ============================================================
+
+enum UserRole {
+  ADMIN
+  EDITOR
+  VIEWER
+}
+
+enum Platform {
+  VK
+  TELEGRAM
+  INSTAGRAM
+}
+
+enum AccountType {
+  GROUP     // VK community / группа
+  PERSONAL  // VK personal page / личная стена
+  CHANNEL   // Telegram channel
+  BOT       // Telegram bot (future)
+  BUSINESS  // Instagram business (future)
+}
+
+enum PostType {
+  TEXT
+  PHOTO
+  VIDEO
+  REELS
+  STORIES
+}
+
+enum PostStatus {
+  DRAFT
+  REVIEW
+  APPROVED
+  SCHEDULED
+  PUBLISHED
+  FAILED
+}
+
+enum ContentPlanStatus {
+  DRAFT
+  ACTIVE
+  COMPLETED
+}
+
+enum PublishStatus {
+  SUCCESS
+  FAILED
+  RATE_LIMITED
+}
+
+// ============================================================
+// MODELS
+// ============================================================
+
+/// Оператор системы (логин/пароль, JWT auth)
+model User {
+  id           String   @id @default(cuid())
+  login        String   @unique
+  passwordHash String   @map("password_hash")
+  name         String
+  role         UserRole @default(EDITOR)
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@map("users")
+}
+
+/// Бренд/проект (KB, НаWоде, Inpulse, Личный)
+model Business {
+  id          String   @id @default(cuid())
+  slug        String   @unique
+  name        String
+  description String?
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  // ERP-интеграция (для in-house)
+  erpType    String? @map("erp_type") // "nawode" | "kukin" | "inpulse" | null
+  erpBaseUrl String? @map("erp_base_url")
+  erpApiKey  String? @map("erp_api_key")
+
+  brandProfile     BrandProfile?
+  platformAccounts PlatformAccount[]
+  contentPlans     ContentPlan[]
+  posts            Post[]
+  mediaFiles       MediaFile[]
+  aiUsageLogs      AiUsageLog[]
+  webhookRules     WebhookRule[]
+
+  @@map("businesses")
+}
+
+/// Профиль бренда (контекст для AI-промптов)
+model BrandProfile {
+  id              String   @id @default(cuid())
+  businessId      String   @unique @map("business_id")
+  tone            String   @default("") // "дружелюбный, профессиональный"
+  targetAudience  String   @default("") @map("target_audience")
+  brandVoice      String   @default("") @map("brand_voice") // описание стиля
+  hashtags        String[] @default([]) // постоянные хештеги бренда
+  keyTopics       String[] @default([]) @map("key_topics")
+  doNotMention    String[] @default([]) @map("do_not_mention")
+  examplePosts    Json?    @map("example_posts") // примеры хороших постов
+  postsPerWeek    Int      @default(3) @map("posts_per_week")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  business Business @relation(fields: [businessId], references: [id])
+
+  @@map("brand_profiles")
+}
+
+/// Привязка к соцсети (VK-группа, TG-канал, IG-аккаунт)
+model PlatformAccount {
+  id           String      @id @default(cuid())
+  businessId   String      @map("business_id")
+  platform     Platform
+  accountType  AccountType @default(GROUP) @map("account_type")
+  accountName  String      @map("account_name") // "SUP клуб НаWоде" или "@nawode"
+  accountId    String      @map("account_id") // VK group_id, TG chat_id, IG user_id
+  accessToken  String      @map("access_token")
+  tokenExpires DateTime?   @map("token_expires")
+  isActive     Boolean     @default(true) @map("is_active")
+  config       Json?       // доп. настройки (proxyUrl для IG и т.д.)
+  createdAt    DateTime    @default(now()) @map("created_at")
+  updatedAt    DateTime    @updatedAt @map("updated_at")
+
+  business     Business      @relation(fields: [businessId], references: [id])
+  postVersions PostVersion[]
+
+  @@unique([businessId, platform, accountId])
+  @@map("platform_accounts")
+}
+
+/// Контент-план на период
+model ContentPlan {
+  id           String            @id @default(cuid())
+  businessId   String            @map("business_id")
+  title        String            // "Контент-план Июнь 2026"
+  startDate    DateTime          @map("start_date")
+  endDate      DateTime          @map("end_date")
+  status       ContentPlanStatus @default(DRAFT)
+  generatedBy  String            @default("manual") @map("generated_by") // "ai" | "manual"
+  aiPromptUsed String?           @map("ai_prompt_used")
+  createdAt    DateTime          @default(now()) @map("created_at")
+  updatedAt    DateTime          @updatedAt @map("updated_at")
+
+  business Business          @relation(fields: [businessId], references: [id])
+  items    ContentPlanItem[]
+
+  @@map("content_plans")
+}
+
+/// Ячейка контент-плана
+model ContentPlanItem {
+  id            String   @id @default(cuid())
+  contentPlanId String   @map("content_plan_id")
+  date          DateTime
+  dayOfWeek     String   @map("day_of_week") // "Понедельник"
+  topic         String
+  postType      PostType @default(TEXT) @map("post_type")
+  description   String?
+  status        String   @default("PLANNED") // PLANNED, IN_PROGRESS, PUBLISHED, SKIPPED
+  postId        String?  @map("post_id") // связь с реальным постом
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  contentPlan ContentPlan @relation(fields: [contentPlanId], references: [id], onDelete: Cascade)
+  post        Post?       @relation(fields: [postId], references: [id])
+
+  @@map("content_plan_items")
+}
+
+/// Основной контент (мастер-текст)
+model Post {
+  id                String     @id @default(cuid())
+  businessId        String     @map("business_id")
+  title             String?    // заголовок (опционально)
+  body              String     // мастер-текст
+  postType          PostType   @default(TEXT) @map("post_type")
+  hashtags          String[]   @default([])
+  status            PostStatus @default(DRAFT)
+  scheduledAt       DateTime?  @map("scheduled_at")
+  createdBy         String     @default("manual") @map("created_by") // "ai" | "manual"
+  aiModel           String?    @map("ai_model")
+  aiPromptUsed      String?    @map("ai_prompt_used")
+  contentPlanItemId String?    @map("content_plan_item_id")
+  createdAt         DateTime   @default(now()) @map("created_at")
+  updatedAt         DateTime   @updatedAt @map("updated_at")
+
+  business         Business          @relation(fields: [businessId], references: [id])
+  versions         PostVersion[]
+  mediaFiles       MediaFile[]
+  contentPlanItems ContentPlanItem[]
+
+  @@map("posts")
+}
+
+/// Адаптация поста под конкретную платформу
+model PostVersion {
+  id                String     @id @default(cuid())
+  postId            String     @map("post_id")
+  platformAccountId String     @map("platform_account_id")
+  body              String     // адаптированный текст
+  hashtags          String[]   @default([])
+  status            PostStatus @default(DRAFT)
+  scheduledAt       DateTime?  @map("scheduled_at")
+  publishedAt       DateTime?  @map("published_at")
+  externalPostId    String?    @map("external_post_id") // ID в соцсети
+  externalUrl       String?    @map("external_url") // ссылка на пост
+  createdAt         DateTime   @default(now()) @map("created_at")
+  updatedAt         DateTime   @updatedAt @map("updated_at")
+
+  post            Post             @relation(fields: [postId], references: [id], onDelete: Cascade)
+  platformAccount PlatformAccount  @relation(fields: [platformAccountId], references: [id])
+  publishLogs     PublishLog[]
+
+  @@unique([postId, platformAccountId])
+  @@map("post_versions")
+}
+
+/// Лог публикации (каждая попытка)
+model PublishLog {
+  id            String        @id @default(cuid())
+  postVersionId String        @map("post_version_id")
+  status        PublishStatus
+  response      Json?         // ответ API соцсети
+  errorMessage  String?       @map("error_message")
+  attemptedAt   DateTime      @default(now()) @map("attempted_at")
+
+  postVersion PostVersion @relation(fields: [postVersionId], references: [id], onDelete: Cascade)
+
+  @@map("publish_logs")
+}
+
+/// Медиафайлы (изображения, видео)
+model MediaFile {
+  id        String   @id @default(cuid())
+  postId    String?  @map("post_id")
+  businessId String  @map("business_id")
+  filename  String
+  url       String
+  thumbUrl  String?  @map("thumb_url")
+  mimeType  String   @map("mime_type")
+  sizeBytes Int      @map("size_bytes")
+  altText   String?  @map("alt_text")
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  post     Post?    @relation(fields: [postId], references: [id])
+  business Business @relation(fields: [businessId], references: [id])
+
+  @@map("media_files")
+}
+
+/// Трекинг расходов на AI
+model AiUsageLog {
+  id           String   @id @default(cuid())
+  businessId   String?  @map("business_id")
+  action       String   // "generate_plan", "generate_post", "adapt_platform", "generate_hashtags"
+  model        String   // "anthropic/claude-3.5-haiku"
+  tokensIn     Int      @map("tokens_in")
+  tokensOut    Int      @map("tokens_out")
+  cachedTokens Int      @default(0) @map("cached_tokens")
+  costUsd      Float    @default(0) @map("cost_usd")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  business Business? @relation(fields: [businessId], references: [id])
+
+  @@map("ai_usage_logs")
+}
+
+/// Правила webhook-интеграции с ERP
+model WebhookRule {
+  id             String   @id @default(cuid())
+  businessId     String   @map("business_id")
+  erpEvent       String   @map("erp_event") // "tour_created", "event_created"
+  action         String   // "generate_draft", "generate_and_approve", "notify_only"
+  templatePrompt String?  @map("template_prompt")
+  platforms      String[] @default([]) // ["VK", "TELEGRAM"]
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  business Business @relation(fields: [businessId], references: [id])
+
+  @@map("webhook_rules")
+}
+
+/// Глобальные настройки приложения (key-value)
+model AppConfig {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("app_config")
+}
