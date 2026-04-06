@@ -29,41 +29,49 @@ content-factory/
 │   │   ├── config.ts           # Env validation (zod)
 │   │   ├── eventBus.ts         # SSE events
 │   │   ├── middleware/auth.ts  # JWT httpOnly cookie
-│   │   ├── routes/             # API endpoints
-│   │   │   ├── auth.ts         # login/logout/me
+│   │   ├── routes/             # API endpoints (~10 файлов)
+│   │   │   ├── auth.ts         # login/logout/me (JWT вручную в /me)
 │   │   │   ├── businesses.ts   # CRUD + brand profile
-│   │   │   ├── platforms.ts    # VK/TG/IG accounts
-│   │   │   ├── posts.ts        # CRUD + approve
+│   │   │   ├── platforms.ts    # platformsByBiz + platformsById (split routing)
+│   │   │   ├── posts.ts        # CRUD + approve + POST /:id/versions
 │   │   │   ├── content-plans.ts
-│   │   │   ├── ai.ts           # AI generation endpoints
-│   │   │   ├── publish.ts      # publish + webhooks
+│   │   │   ├── ai.ts           # generate-post, generate-image, adapt
+│   │   │   ├── publish.ts      # publish (с медиа) + schedule + webhooks
+│   │   │   ├── media.ts        # upload/delete/attach медиафайлов
+│   │   │   ├── settings.ts     # AppConfig CRUD (API keys в БД)
 │   │   │   ├── dashboard.ts    # metrics
 │   │   │   └── sse.ts          # Server-Sent Events
 │   │   └── services/
 │   │       ├── scheduler.ts    # Отложенная публикация (setInterval)
 │   │       ├── ai/
-│   │       │   ├── openrouter.ts    # OpenRouter API wrapper
-│   │       │   └── prompt-builder.ts # Промпт-конструктор
+│   │       │   ├── openrouter.ts      # OpenRouter wrapper (DB key → .env fallback)
+│   │       │   ├── prompt-builder.ts  # Промпт-конструктор
+│   │       │   └── image-generation.ts # AI image gen (Gemini → PNG)
 │   │       └── publishers/
-│   │           ├── base.ts     # Publisher interface
-│   │           ├── vk.ts       # VK API wall.post
-│   │           └── telegram.ts # Telegram Bot API
+│   │           ├── base.ts     # Publisher interface + MediaFileForPublish
+│   │           ├── vk.ts       # VK API wall.post + photo/video upload
+│   │           └── telegram.ts # TG sendPhoto/Video/MediaGroup/Audio
 │   ├── package.json
 │   ├── Dockerfile
 │   └── .env.example
 ├── src/                        # Vue 3 frontend
-│   ├── api/client.ts           # HTTP client
-│   ├── router/index.ts         # 9 routes
+│   ├── api/client.ts           # HTTP client (fetch + cookies + TAB_ID)
+│   ├── router/index.ts         # 9 routes + auth guard
 │   ├── stores/                 # auth, businesses, theme
-│   ├── views/                  # 9 views
-│   └── components/layout/      # Sidebar, Header
+│   ├── views/                  # 9 views (3 ready, 4 stubs, 2 placeholder)
+│   ├── components/
+│   │   ├── layout/             # TheSidebar, TheHeader
+│   │   ├── MediaUpload.vue     # Drag & drop + gallery
+│   │   └── settings/           # ChannelsTab, BrandProfilesTab, ProfileTab, AiTab
 ├── docker-compose.yml          # Dev (postgres only)
 ├── docker-compose.prod.yml     # Prod (postgres + backend)
 └── scripts/deploy.sh, backup-db.sh
 ```
 
-## Schema (12 моделей)
-User, Business, BrandProfile, PlatformAccount, ContentPlan, ContentPlanItem, Post, PostVersion, PublishLog, MediaFile, AiUsageLog, WebhookRule
+## Schema (13 моделей, 8 enums)
+User, Business, BrandProfile, PlatformAccount, ContentPlan, ContentPlanItem, Post, PostVersion, PublishLog, MediaFile, AiUsageLog, WebhookRule, AppConfig
+
+Enums: UserRole, Platform, AccountType, PostType, PostStatus, ContentPlanStatus, PublishStatus
 
 ## Команды разработки
 
@@ -86,10 +94,12 @@ cp backend/.env.example backend/.env
 ```
 
 ## AI Pipeline
-1. **Контент-план** (Haiku) → JSON [{date, topic, postType}]
-2. **Генерация поста** (Sonnet) → мастер-текст 500-1500 символов
-3. **Адаптация** (Haiku x3) → VK (длинный), TG (короткий), IG (эмоциональный)
-4. **Хештеги** (Haiku) → 5-20 штук по правилам платформы
+1. **Генерация поста** (Sonnet) → мастер-текст 500-1500 символов ✅
+2. **AI-картинка** (Gemini) → PNG через OpenRouter image gen ✅
+3. **Адаптация** (Haiku x N платформ) → VK/TG/IG версии + хештеги ✅
+4. **Контент-план** (Haiku) → JSON [{date, topic, postType}] (TODO)
+
+API key: сначала из БД (AppConfig), fallback на .env
 
 ## Brand Colors
 - Primary: Fuchsia/Magenta (#d946ef)
