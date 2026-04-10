@@ -29,40 +29,49 @@ content-factory/
 │   │   ├── config.ts           # Env validation (zod)
 │   │   ├── eventBus.ts         # SSE events
 │   │   ├── middleware/auth.ts  # JWT httpOnly cookie
-│   │   ├── routes/             # API endpoints (~10 файлов)
+│   │   ├── routes/             # API endpoints (~12 файлов)
 │   │   │   ├── auth.ts         # login/logout/me (JWT вручную в /me)
 │   │   │   ├── businesses.ts   # CRUD + brand profile
 │   │   │   ├── platforms.ts    # platformsByBiz + platformsById (split routing)
 │   │   │   ├── posts.ts        # CRUD + approve + POST /:id/versions
-│   │   │   ├── content-plans.ts
-│   │   │   ├── ai.ts           # generate-post, generate-image, adapt
-│   │   │   ├── publish.ts      # publish (с медиа) + schedule + webhooks
+│   │   │   ├── content-plans.ts # CRUD + create-post/ai-generate from item + batch
+│   │   │   ├── ai.ts           # generate-post, generate-image, adapt, generate-plan
+│   │   │   ├── publish.ts      # publish (с медиа + storiesOptions) + schedule
 │   │   │   ├── media.ts        # upload/delete/attach медиафайлов
 │   │   │   ├── settings.ts     # AppConfig CRUD (API keys в БД)
+│   │   │   ├── vk-oauth.ts     # VK OAuth 2.1 PKCE (init, callback, refresh, disconnect)
 │   │   │   ├── dashboard.ts    # metrics
 │   │   │   └── sse.ts          # Server-Sent Events
 │   │   └── services/
 │   │       ├── scheduler.ts    # Отложенная публикация (setInterval)
+│   │       ├── vk-oauth.ts     # VK OAuth service (PKCE, token refresh, ensureValidToken)
+│   │       ├── image-overlay.ts # Sharp text overlay for Stories (fallback)
 │   │       ├── ai/
 │   │       │   ├── openrouter.ts      # OpenRouter wrapper (DB key → .env fallback)
-│   │       │   ├── prompt-builder.ts  # Промпт-конструктор
+│   │       │   ├── prompt-builder.ts  # Промпт-конструктор (posts, plans, adapt, hashtags)
 │   │       │   └── image-generation.ts # AI image gen (Gemini → PNG)
 │   │       └── publishers/
-│   │           ├── base.ts     # Publisher interface + MediaFileForPublish
-│   │           ├── vk.ts       # VK API wall.post + photo/video upload
+│   │           ├── base.ts     # Publisher interface + storiesOptions
+│   │           ├── vk.ts       # VK wall.post + photo/video + Stories (canvas WYSIWYG)
 │   │           └── telegram.ts # TG sendPhoto/Video/MediaGroup/Audio
 │   ├── package.json
 │   ├── Dockerfile
 │   └── .env.example
 ├── src/                        # Vue 3 frontend
 │   ├── api/client.ts           # HTTP client (fetch + cookies + TAB_ID)
-│   ├── router/index.ts         # 9 routes + auth guard
+│   ├── router/index.ts         # 10 routes (+ /stories/:id) + auth guard
 │   ├── stores/                 # auth, businesses, theme
-│   ├── views/                  # 9 views (3 ready, 4 stubs, 2 placeholder)
+│   ├── composables/useToast.ts # Toast notification system
+│   ├── views/                  # 10 views
+│   │   ├── PostEditorView      # Wall posts editor (text + media + platform tabs)
+│   │   ├── StoryEditorView     # Stories editor (canvas WYSIWYG + phone mockup)
+│   │   ├── ContentPlansView    # AI plans (table + calendar + batch generate)
+│   │   └── ...                 # Dashboard, Login, Settings, Businesses, Analytics
 │   ├── components/
 │   │   ├── layout/             # TheSidebar, TheHeader
+│   │   ├── ToastContainer.vue  # Toast notifications
 │   │   ├── MediaUpload.vue     # Drag & drop + gallery
-│   │   └── settings/           # ChannelsTab, BrandProfilesTab, ProfileTab, AiTab
+│   │   └── settings/           # ChannelsTab, BrandProfilesTab, VkOAuthTab, ProfileTab, AiTab
 ├── docker-compose.yml          # Dev (postgres only)
 ├── docker-compose.prod.yml     # Prod (postgres + backend)
 └── scripts/deploy.sh, backup-db.sh
@@ -97,7 +106,8 @@ cp backend/.env.example backend/.env
 1. **Генерация поста** (Sonnet) → мастер-текст 500-1500 символов ✅
 2. **AI-картинка** (Gemini) → PNG через OpenRouter image gen ✅
 3. **Адаптация** (Haiku x N платформ) → VK/TG/IG версии + хештеги ✅
-4. **Контент-план** (Haiku) → JSON [{date, topic, postType}] (TODO)
+4. **Контент-план** (Haiku) → JSON [{date, topic, postType}] ✅
+5. **Stories** → canvas WYSIWYG (drag, zoom, text overlay, export JPEG) ✅
 
 API key: сначала из БД (AppConfig), fallback на .env
 
