@@ -66,17 +66,24 @@
 ## Блокеры
 - [2026-04-05] VK фото-постинг: Community Token не поддерживает photos.getWallUploadServer (error 27). Нужен User Token через OAuth (VK Standalone App). Заявка на доступ подана — ждём ответ поддержки VK. До получения — фото в VK не публикуются, только текст.
 
+## Решения (продолжение 5)
+- [2026-04-06] Content Plans: POST /api/ai/generate-plan реализован (Haiku, JSON парсинг, ContentPlan + Items)
+- [2026-04-06] buildPlanPrompt расширен: postsPerWeek, focus, rubrics параметры
+- [2026-04-06] Plan→Post endpoints: POST /plan-items/:id/create-post и /ai-generate
+- [2026-04-06] ContentPlansView: список + таблица/календарь + AI модалка (период, частота, 8 рубрик)
+- [2026-04-06] CalendarView → redirect на ContentPlansView
+
 ## TODO (MVP)
-- [ ] Реализовать AI-генерацию контент-плана (routes/ai.ts → generate-plan)
+- [x] Реализовать AI-генерацию контент-плана (routes/ai.ts → generate-plan)
 - [x] Реализовать AI-генерацию поста (routes/ai.ts → generate-post)
-- [ ] Реализовать AI-адаптацию под платформы (routes/ai.ts → adapt)
+- [x] Реализовать AI-адаптацию под платформы (routes/ai.ts → adapt)
 - [x] Подключить VkPublisher к scheduler и publish route
 - [x] Подключить TelegramPublisher к scheduler и publish route
 - [x] Протестировать реальную публикацию в VK (пост #826 на стене НаWоде)
 - [x] Фронтенд: PostsView (список + создание)
-- [x] Фронтенд: PostEditorView (редактор + AI + превью платформ)
+- [x] Фронтенд: PostEditorView (редактор + AI + превью платформ + медиа)
 - [x] Фронтенд: BusinessesView (управление + бренд-профиль + платформы)
-- [ ] Фронтенд: ContentPlansView (генерация + просмотр)
+- [x] Фронтенд: ContentPlansView (AI генерация + таблица/календарь)
 - [ ] Шифрование accessToken (AES-256-GCM)
 
 ## Паттерны

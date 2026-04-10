@@ -13,6 +13,13 @@ export interface PublishParams {
   hashtags?: string[]
   mediaFiles?: MediaFileForPublish[]
   platformAccount: PlatformAccount
+  postType?: string  // TEXT | PHOTO | VIDEO | STORIES
+  storiesOptions?: {
+    linkText?: string     // VK link button: 'more' | 'book' | 'order' | 'buy' и др.
+    linkUrl?: string      // URL для кнопки
+    overlayText?: boolean // наложить текст на фото
+    textPosition?: 'top' | 'center' | 'bottom'
+  }
 }
 
 export interface PublishResult {

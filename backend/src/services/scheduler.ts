@@ -35,6 +35,7 @@ export function startPublishScheduler(): void {
             text: version.body,
             hashtags: version.hashtags,
             platformAccount: version.platformAccount,
+            postType: version.post.postType,
           })
 
           console.log(`[Scheduler] Published ${version.id} to ${version.platformAccount.platform}: ${result.success}`)

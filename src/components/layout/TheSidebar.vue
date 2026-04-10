@@ -4,7 +4,6 @@ import { useRoute } from 'vue-router'
 import {
   LayoutDashboard,
   FileText,
-  Calendar,
   ClipboardList,
   Building2,
   BarChart3,
@@ -16,7 +15,6 @@ const route = useRoute()
 const navItems = [
   { name: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, path: '/' },
   { name: 'posts', label: 'Посты', icon: FileText, path: '/posts' },
-  { name: 'calendar', label: 'Календарь', icon: Calendar, path: '/calendar' },
   { name: 'plans', label: 'Контент-планы', icon: ClipboardList, path: '/plans' },
   { name: 'businesses', label: 'Бизнесы', icon: Building2, path: '/businesses' },
   { name: 'analytics', label: 'Аналитика', icon: BarChart3, path: '/analytics' },

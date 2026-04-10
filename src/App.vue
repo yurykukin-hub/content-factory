@@ -5,6 +5,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useBusinessesStore } from '@/stores/businesses'
 import TheSidebar from '@/components/layout/TheSidebar.vue'
 import TheHeader from '@/components/layout/TheHeader.vue'
+import ToastContainer from '@/components/ToastContainer.vue'
 
 const auth = useAuthStore()
 const businesses = useBusinessesStore()
@@ -49,4 +50,6 @@ function handleUnauthorized() {
       </main>
     </div>
   </div>
+
+  <ToastContainer />
 </template>

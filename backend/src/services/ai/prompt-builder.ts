@@ -65,23 +65,48 @@ export async function buildBrandContext(businessId: string): Promise<string> {
 /**
  * System prompt для генерации контент-плана.
  */
-export function buildPlanPrompt(brandContext: string): string {
-  return `Ты — SMM-стратег. Составь контент-план для бренда.
+export function buildPlanPrompt(
+  brandContext: string,
+  params?: { postsPerWeek?: number; focus?: string; rubrics?: string[] }
+): string {
+  const parts: string[] = [
+    `Ты — опытный SMM-стратег. Составь детальный контент-план для бренда.`,
+    '',
+    brandContext,
+    '',
+    '## Требования',
+  ]
 
-${brandContext}
+  if (params?.postsPerWeek) {
+    parts.push(`- Публикуй ${params.postsPerWeek} постов в неделю (равномерно распределяй по будням)`)
+  } else {
+    parts.push('- 3-5 постов в неделю')
+  }
 
-## Требования
-- Микс типов: информационные, развлекательные, продающие, вовлекающие
-- Учитывай сезонность и актуальные события
-- Каждый пост: дата, тема (2-5 слов), тип контента (TEXT/PHOTO/VIDEO), краткое описание (1 предложение)
+  if (params?.rubrics?.length) {
+    parts.push(`- Используй эти рубрики: ${params.rubrics.join(', ')}`)
+    parts.push(`- Чередуй рубрики для разнообразия`)
+  } else {
+    parts.push('- Микс типов: информационные, развлекательные, продающие, вовлекающие')
+  }
 
-## Формат ответа — строго JSON
-[
-  {"date": "2026-06-01", "dayOfWeek": "Понедельник", "topic": "...", "postType": "PHOTO", "description": "..."},
-  ...
-]
+  parts.push('- Учитывай сезонность и актуальные события')
+  parts.push('- Каждый пост: дата, тема (2-5 слов), тип контента (TEXT/PHOTO/VIDEO), краткое описание (1 предложение)')
 
-Только JSON, без пояснений.`
+  if (params?.focus) {
+    parts.push(`- Тематический фокус периода: ${params.focus}`)
+  }
+
+  parts.push('')
+  parts.push('## Формат ответа — строго JSON массив')
+  parts.push('[')
+  parts.push('  {"date": "2026-06-01", "dayOfWeek": "Понедельник", "topic": "...", "postType": "PHOTO", "description": "..."},')
+  parts.push('  ...')
+  parts.push(']')
+  parts.push('')
+  parts.push('Только JSON, без пояснений, без markdown.')
+
+  return parts.join('\n')
 }
 
 /**

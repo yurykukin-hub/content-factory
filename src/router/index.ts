@@ -24,6 +24,11 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/PostEditorView.vue'),
   },
   {
+    path: '/stories/:id',
+    name: 'story-editor',
+    component: () => import('@/views/StoryEditorView.vue'),
+  },
+  {
     path: '/calendar',
     name: 'calendar',
     component: () => import('@/views/CalendarView.vue'),

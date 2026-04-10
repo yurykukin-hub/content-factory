@@ -124,13 +124,13 @@ media.get('/posts/:postId/media', async (c) => {
   return c.json(files)
 })
 
-// POST /api/media/:id/attach — привязать файл к посту
+// POST /api/media/:id/attach — привязать/отвязать файл к посту
 media.post('/:id/attach', async (c) => {
   const { id } = c.req.param()
-  const { postId } = await c.req.json<{ postId: string }>()
+  const { postId } = await c.req.json<{ postId: string | null }>()
   const file = await db.mediaFile.update({
     where: { id },
-    data: { postId },
+    data: { postId: postId || null },
   })
   return c.json(file)
 })

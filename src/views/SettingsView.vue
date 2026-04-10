@@ -1,14 +1,16 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { Radio, Palette, User, Sparkles } from 'lucide-vue-next'
+import { Radio, Palette, User, Sparkles, Link } from 'lucide-vue-next'
 import ChannelsTab from '@/components/settings/ChannelsTab.vue'
 import BrandProfilesTab from '@/components/settings/BrandProfilesTab.vue'
+import VkOAuthTab from '@/components/settings/VkOAuthTab.vue'
 import ProfileTab from '@/components/settings/ProfileTab.vue'
 import AiTab from '@/components/settings/AiTab.vue'
 
 const tabs = [
   { key: 'channels', label: 'Каналы', icon: Radio },
   { key: 'brands', label: 'Бренд-профили', icon: Palette },
+  { key: 'vk-oauth', label: 'VK OAuth', icon: Link },
   { key: 'profile', label: 'Профиль и тема', icon: User },
   { key: 'ai', label: 'AI', icon: Sparkles },
 ] as const
@@ -42,6 +44,7 @@ const activeTab = ref<TabKey>('channels')
     <!-- Tab content -->
     <ChannelsTab v-if="activeTab === 'channels'" />
     <BrandProfilesTab v-if="activeTab === 'brands'" />
+    <VkOAuthTab v-if="activeTab === 'vk-oauth'" />
     <ProfileTab v-if="activeTab === 'profile'" />
     <AiTab v-if="activeTab === 'ai'" />
   </div>

@@ -16,6 +16,7 @@ import { dashboard } from './routes/dashboard'
 import { sse } from './routes/sse'
 import { media } from './routes/media'
 import { settings } from './routes/settings'
+import { vkOauthRoutes } from './routes/vk-oauth'
 import { startPublishScheduler } from './services/scheduler'
 
 const app = new Hono()
@@ -47,9 +48,11 @@ app.route('/api/businesses', contentPlans) // /api/businesses/:bizId/plans
 app.route('/api/businesses', posts) // GET /api/businesses/:bizId/posts
 app.route('/api/posts', posts)
 app.route('/api/plans', contentPlans)
+app.route('/api', contentPlans)       // /api/plan-items/:id/*
 app.route('/api/ai', ai)
 app.route('/api/media', media)
 app.route('/api/settings', settings)
+app.route('/api/vk-oauth', vkOauthRoutes)
 app.route('/api', publish) // /api/post-versions/:id/publish|schedule
 app.route('/api/dashboard', dashboard)
 app.route('/api/sse', sse)

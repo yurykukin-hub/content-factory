@@ -8,6 +8,13 @@ const publish = new Hono()
 // POST /api/post-versions/:id/publish — опубликовать сейчас
 publish.post('/post-versions/:id/publish', async (c) => {
   const { id } = c.req.param()
+  // Принимаем опциональные storiesOptions из body
+  let storiesOptions: any = undefined
+  try {
+    const body = await c.req.json()
+    storiesOptions = body?.storiesOptions
+  } catch {} // Body может быть пустым
+
   const version = await db.postVersion.findUnique({
     where: { id },
     include: { platformAccount: true, post: true },
@@ -22,15 +29,21 @@ publish.post('/post-versions/:id/publish', async (c) => {
 
   // Получить publisher для платформы и опубликовать
   const publisher = getPublisher(version.platformAccount.platform)
+
+  // Для Stories: overlay текст = post.body (короткий), не version.body (AI-адаптация)
+  const publishText = version.post.postType === 'STORIES' ? version.post.body : version.body
+
   const result = await publisher.publish({
-    text: version.body,
-    hashtags: version.hashtags,
+    text: publishText,
+    hashtags: version.post.postType === 'STORIES' ? [] : version.hashtags,
     mediaFiles: mediaFiles.map(mf => ({
       url: mf.url,
       mimeType: mf.mimeType,
       filename: mf.filename,
     })),
     platformAccount: version.platformAccount,
+    postType: version.post.postType,
+    storiesOptions,
   })
 
   // Записать лог публикации

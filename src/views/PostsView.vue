@@ -73,21 +73,34 @@ async function generatePost() {
 }
 
 async function createPost() {
-  if (!businesses.currentBusiness || !newPost.value.body.trim()) return
+  if (!businesses.currentBusiness) return
   createLoading.value = true
   try {
     const post = await http.post<Post>('/posts', {
       businessId: businesses.currentBusiness.id,
-      ...newPost.value,
+      title: '',
+      body: ' ',
+      postType: 'TEXT',
     })
-    showCreateModal.value = false
-    newPost.value = { title: '', body: '', postType: 'TEXT' }
     router.push(`/posts/${post.id}`)
   } catch (e: any) {
     alert('Ошибка: ' + (e.message || e))
   } finally {
     createLoading.value = false
   }
+}
+
+async function createStories() {
+  if (!businesses.currentBusiness) return
+  createLoading.value = true
+  try {
+    const post = await http.post<Post>('/posts', {
+      businessId: businesses.currentBusiness.id,
+      title: '', body: ' ', postType: 'STORIES',
+    })
+    router.push(`/stories/${post.id}`)
+  } catch (e: any) { alert('Ошибка: ' + (e.message || e)) }
+  finally { createLoading.value = false }
 }
 
 async function deletePost(id: string) {
@@ -143,11 +156,21 @@ watch(statusFilter, loadPosts)
           AI генерация
         </button>
         <button
-          @click="showCreateModal = true"
-          class="flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium transition-colors"
+          @click="createPost"
+          :disabled="createLoading"
+          class="flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium transition-colors disabled:opacity-50"
+        >
+          <Loader2 v-if="createLoading" :size="16" class="animate-spin" />
+          <Plus v-else :size="16" />
+          Создать пост
+        </button>
+        <button
+          @click="createStories"
+          :disabled="createLoading"
+          class="flex items-center gap-2 px-4 py-2 rounded-lg bg-orange-500 hover:bg-orange-600 text-white text-sm font-medium transition-colors disabled:opacity-50"
         >
           <Plus :size="16" />
-          Создать пост
+          Stories
         </button>
       </div>
     </div>
@@ -185,7 +208,7 @@ watch(statusFilter, loadPosts)
         v-for="post in posts"
         :key="post.id"
         class="bg-white dark:bg-gray-900 rounded-xl p-5 border border-gray-200 dark:border-gray-800 hover:border-brand-300 dark:hover:border-brand-700 transition-colors cursor-pointer"
-        @click="router.push(`/posts/${post.id}`)"
+        @click="router.push(post.postType === 'STORIES' ? `/stories/${post.id}` : `/posts/${post.id}`)"
       >
         <div class="flex items-start justify-between gap-4">
           <div class="flex-1 min-w-0">
@@ -268,6 +291,19 @@ watch(statusFilter, loadPosts)
           Новый пост
         </h2>
         <div class="space-y-3">
+          <!-- Post type selector -->
+          <div>
+            <label class="block text-sm font-medium mb-1.5">Тип</label>
+            <div class="flex gap-2">
+              <button v-for="t in [{v:'TEXT',l:'Пост'},{v:'STORIES',l:'Stories'}]" :key="t.v"
+                @click="newPost.postType = t.v"
+                :class="['flex-1 py-2 rounded-lg text-sm font-medium border-2 transition-all',
+                  newPost.postType === t.v ? 'border-brand-500 bg-brand-50 dark:bg-brand-950 text-brand-700 dark:text-brand-300' : 'border-gray-200 dark:border-gray-700 text-gray-500']">
+                {{ t.l }}
+              </button>
+            </div>
+            <p v-if="newPost.postType === 'STORIES'" class="text-xs text-gray-400 mt-1">Загрузите вертикальное фото/видео (9:16, 1080x1920) в редакторе</p>
+          </div>
           <div>
             <label class="block text-sm font-medium mb-1.5">Заголовок (необязательно)</label>
             <input
@@ -277,11 +313,11 @@ watch(statusFilter, loadPosts)
             />
           </div>
           <div>
-            <label class="block text-sm font-medium mb-1.5">Текст поста</label>
+            <label class="block text-sm font-medium mb-1.5">{{ newPost.postType === 'STORIES' ? 'Описание (необязательно)' : 'Текст поста' }}</label>
             <textarea
               v-model="newPost.body"
-              rows="5"
-              placeholder="Текст вашего поста..."
+              :rows="newPost.postType === 'STORIES' ? 2 : 5"
+              :placeholder="newPost.postType === 'STORIES' ? 'Краткое описание для истории...' : 'Текст вашего поста...'"
               class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 focus:ring-2 focus:ring-brand-500 text-sm"
             />
           </div>
