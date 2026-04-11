@@ -21,7 +21,7 @@ const allNavItems = [
   { name: 'posts', label: 'Посты', icon: FileText, path: '/posts', adminOnly: false },
   { name: 'plans', label: 'Контент-планы', icon: ClipboardList, path: '/plans', adminOnly: false },
   { name: 'media', label: 'Медиа', icon: Image, path: '/media', adminOnly: false },
-  { name: 'businesses', label: 'Бизнесы', icon: Building2, path: '/businesses', adminOnly: true },
+  { name: 'businesses', label: 'Бизнесы', icon: Building2, path: '/businesses', adminOnly: false },
   { name: 'analytics', label: 'Аналитика', icon: BarChart3, path: '/analytics', adminOnly: true },
   { name: 'settings', label: 'Настройки', icon: Settings, path: '/settings', adminOnly: false },
 ]
