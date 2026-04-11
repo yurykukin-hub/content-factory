@@ -6,7 +6,8 @@ import { useRouter } from 'vue-router'
 import { useToast } from '@/composables/useToast'
 import { statusColor, statusLabel } from '@/composables/useStatus'
 import { formatDate } from '@/composables/useFormatters'
-import { FileText, Sparkles, Plus, Send, Clock, AlertCircle, Eye, Trash2, Loader2 } from 'lucide-vue-next'
+import { platformColor } from '@/composables/usePlatform'
+import { FileText, Sparkles, Plus, Send, Clock, AlertCircle, Eye, Trash2, Loader2, ChevronDown } from 'lucide-vue-next'
 
 interface PostVersion {
   id: string
@@ -105,6 +106,24 @@ async function createStories() {
     router.push(`/stories/${post.id}`)
   } catch (e: any) { toast.error(e.message || 'Произошла ошибка') }
   finally { createLoading.value = false }
+}
+
+// Quick publish
+const publishingId = ref<string | null>(null)
+const publishDropdownId = ref<string | null>(null)
+
+async function quickPublish(versionId: string, postId: string) {
+  publishingId.value = postId
+  publishDropdownId.value = null
+  try {
+    await http.post(`/post-versions/${versionId}/publish`, {})
+    toast.success('Опубликовано!')
+    await loadPosts()
+  } catch (e: any) {
+    toast.error(e.message || 'Ошибка публикации')
+  } finally {
+    publishingId.value = null
+  }
 }
 
 async function deletePost(id: string) {
@@ -219,12 +238,38 @@ watch(statusFilter, loadPosts)
           </div>
 
           <!-- Actions -->
-          <button
-            @click.stop="deletePost(post.id)"
-            class="p-2 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950 transition-colors shrink-0"
-          >
-            <Trash2 :size="16" />
-          </button>
+          <div class="flex items-center gap-1 shrink-0" @click.stop>
+            <!-- Quick publish (for posts with unpublished versions) -->
+            <div v-if="post.versions.some(v => v.status === 'DRAFT' || v.status === 'APPROVED')" class="relative">
+              <button
+                @click="publishDropdownId = publishDropdownId === post.id ? null : post.id"
+                :disabled="publishingId === post.id"
+                class="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-green-50 text-green-700 hover:bg-green-100 dark:bg-green-950 dark:text-green-300 dark:hover:bg-green-900 transition-colors disabled:opacity-50"
+              >
+                <Loader2 v-if="publishingId === post.id" :size="14" class="animate-spin" />
+                <Send v-else :size="14" />
+                <ChevronDown :size="12" />
+              </button>
+              <!-- Dropdown -->
+              <div v-if="publishDropdownId === post.id" class="absolute right-0 top-full mt-1 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 py-1 z-10 min-w-[160px]">
+                <button
+                  v-for="v in post.versions.filter(v => v.status === 'DRAFT' || v.status === 'APPROVED')"
+                  :key="v.id"
+                  @click="quickPublish(v.id, post.id)"
+                  class="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-700 text-left"
+                >
+                  <span :class="['font-medium', platformColor(v.platformAccount.platform)]">{{ v.platformAccount.platform }}</span>
+                  <span class="text-xs text-gray-400 truncate">{{ v.platformAccount.accountName }}</span>
+                </button>
+              </div>
+            </div>
+            <button
+              @click="deletePost(post.id)"
+              class="p-2 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950 transition-colors"
+            >
+              <Trash2 :size="16" />
+            </button>
+          </div>
         </div>
       </div>
     </div>

@@ -27,6 +27,7 @@ function toggleExpand(bizId: string) {
         brandVoice: biz.brandProfile?.brandVoice || '',
         hashtags: (biz.brandProfile?.hashtags || []).join(', '),
         keyTopics: (biz.brandProfile?.keyTopics || []).join(', '),
+        doNotMention: (biz.brandProfile?.doNotMention || []).join(', '),
         postsPerWeek: biz.brandProfile?.postsPerWeek || 3,
       }
     }
@@ -41,6 +42,7 @@ async function saveProfile(bizId: string) {
       ...form,
       hashtags: form.hashtags.split(',').map((h: string) => h.trim()).filter(Boolean),
       keyTopics: form.keyTopics.split(',').map((t: string) => t.trim()).filter(Boolean),
+      doNotMention: form.doNotMention.split(',').map((t: string) => t.trim()).filter(Boolean),
     })
     await businesses.load()
   } catch (e: any) {
@@ -75,45 +77,57 @@ onMounted(() => {
         <ChevronDown v-else :size="20" class="text-gray-400" />
       </div>
 
-      <div v-if="expandedId === biz.id && profileForms[biz.id]" class="p-5 pt-0 space-y-3">
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+      <div v-if="expandedId === biz.id && profileForms[biz.id]" class="p-5 pt-0 space-y-4">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label class="flex items-center gap-1.5 text-sm font-medium mb-1">
               <Megaphone :size="14" class="text-gray-400" /> Тон коммуникации
             </label>
             <input v-model="profileForms[biz.id].tone" placeholder="дружелюбный, профессиональный"
               class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 focus:ring-2 focus:ring-brand-500 text-sm" />
+            <p class="text-[11px] text-gray-400 mt-1">Примеры: дружелюбный, экспертный, ироничный, вдохновляющий, строгий</p>
           </div>
           <div>
             <label class="flex items-center gap-1.5 text-sm font-medium mb-1">
               <Users :size="14" class="text-gray-400" /> Целевая аудитория
             </label>
-            <input v-model="profileForms[biz.id].targetAudience" placeholder="молодые люди 20-35"
+            <input v-model="profileForms[biz.id].targetAudience" placeholder="молодые люди 20-35, Выборг"
               class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 focus:ring-2 focus:ring-brand-500 text-sm" />
+            <p class="text-[11px] text-gray-400 mt-1">Кто читает? Возраст, интересы, география, B2B/B2C</p>
           </div>
         </div>
 
         <div>
           <label class="flex items-center gap-1.5 text-sm font-medium mb-1">
-            <MessageSquare :size="14" class="text-gray-400" /> Стиль бренда
+            <MessageSquare :size="14" class="text-gray-400" /> Стиль бренда (голос)
           </label>
-          <textarea v-model="profileForms[biz.id].brandVoice" rows="2" placeholder="Живой, с юмором, без канцеляризмов..."
+          <textarea v-model="profileForms[biz.id].brandVoice" rows="2" placeholder="Живой, с юмором, без канцеляризмов. Показываем закулисье..."
             class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 focus:ring-2 focus:ring-brand-500 text-sm" />
+          <p class="text-[11px] text-gray-400 mt-1">Как бренд говорит? Формальный/неформальный, с юмором, экспертно, лично</p>
         </div>
 
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label class="flex items-center gap-1.5 text-sm font-medium mb-1">
               <Hash :size="14" class="text-gray-400" /> Постоянные хештеги
             </label>
             <input v-model="profileForms[biz.id].hashtags" placeholder="SUP, Выборг, НаWоде"
               class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 focus:ring-2 focus:ring-brand-500 text-sm" />
+            <p class="text-[11px] text-gray-400 mt-1">Через запятую. Будут добавляться к каждому посту</p>
           </div>
           <div>
             <label class="text-sm font-medium mb-1 block">Ключевые темы</label>
-            <input v-model="profileForms[biz.id].keyTopics" placeholder="SUP туры, прокат досок"
+            <input v-model="profileForms[biz.id].keyTopics" placeholder="SUP туры, прокат досок, закаты"
               class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 focus:ring-2 focus:ring-brand-500 text-sm" />
+            <p class="text-[11px] text-gray-400 mt-1">О чём писать? AI будет генерить контент на эти темы</p>
           </div>
+        </div>
+
+        <div>
+          <label class="text-sm font-medium mb-1 block text-red-500/80">Не упоминать</label>
+          <input v-model="profileForms[biz.id].doNotMention" placeholder="конкуренты, политика, негативные отзывы"
+            class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 focus:ring-2 focus:ring-brand-500 text-sm" />
+          <p class="text-[11px] text-gray-400 mt-1">Через запятую. AI не будет упоминать эти темы</p>
         </div>
 
         <div class="flex items-center justify-between pt-2">
