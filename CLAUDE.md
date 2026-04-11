@@ -29,7 +29,7 @@ AI-контент-фабрика для автоматизации SMM. Гене
 ```
 content-factory/
 ├── backend/
-│   ├── prisma/schema.prisma    # 14 моделей, 8 enums
+│   ├── prisma/schema.prisma    # 16 моделей, 8 enums
 │   ├── src/
 │   │   ├── app.ts              # Hono app (routes, middleware, error handler)
 │   │   ├── index.ts            # Server start + scheduler
@@ -40,10 +40,10 @@ content-factory/
 │   │   │   ├── auth.ts         # JWT httpOnly cookie + requireRole
 │   │   │   ├── business-access.ts  # requireBusinessAccess + getUserBusinessIds
 │   │   │   └── resource-access.ts  # verifyPost/Plan/Media/PostVersionAccess
-│   │   ├── routes/             # API endpoints (~13 файлов)
+│   │   ├── routes/             # API endpoints (~14 файлов)
 │   │   │   ├── auth.ts         # login/logout/me/refresh (access+refresh tokens)
 │   │   │   ├── users.ts        # CRUD пользователей (ADMIN-only)
-│   │   │   ├── businesses.ts   # CRUD + brand profile (filtered by access)
+│   │   │   ├── businesses.ts   # CRUD + brand profile + isActive toggle (ADMIN sees inactive)
 │   │   │   ├── platforms.ts    # platformsByBiz + platformsById
 │   │   │   ├── posts.ts        # CRUD + approve + versions (access checks)
 │   │   │   ├── content-plans.ts # CRUD + create-post/ai-generate + batch
@@ -52,6 +52,7 @@ content-factory/
 │   │   │   ├── media.ts        # upload/delete/attach + library + tags
 │   │   │   ├── settings.ts     # AppConfig CRUD (ADMIN-only, .env fallback)
 │   │   │   ├── vk-oauth.ts     # VK OAuth 2.1 PKCE
+│   │   │   ├── ideas.ts        # CRUD идей (per-user, ownership check)
 │   │   │   ├── dashboard.ts    # metrics (scoped by business access)
 │   │   │   └── sse.ts          # Server-Sent Events
 │   │   ├── services/
@@ -73,20 +74,21 @@ content-factory/
 │   └── .env.example
 ├── src/                        # Vue 3 frontend
 │   ├── api/client.ts           # HTTP client (auto-refresh on 401)
-│   ├── router/index.ts         # 12 routes + auth guard
+│   ├── router/index.ts         # 12 routes + auth guard (ideas вместо analytics)
 │   ├── stores/                 # auth, businesses, theme, sidebar
 │   ├── composables/            # useToast, useFormatters, useStatus, usePlatform
 │   ├── views/
 │   │   ├── BusinessesView      # Grid карточек бизнесов (клик → detail)
-│   │   ├── BusinessDetailView  # Хаб бизнеса: 3 таба (профиль/каналы/обзор)
+│   │   ├── BusinessDetailView  # Хаб бизнеса: 3 таба (профиль/каналы/обзор+доступы)
 │   │   ├── PostEditorView      # Редактор постов (текст + медиа + платформы)
-│   │   ├── StoryEditorView     # Stories (canvas WYSIWYG + шаблоны)
+│   │   ├── StoryEditorView     # Stories (canvas WYSIWYG + шаблоны, lock after publish)
 │   │   ├── ContentPlansView    # AI планы (таблица + календарь)
 │   │   ├── MediaLibraryView    # Медиа-библиотека (grid, теги, фильтры)
 │   │   ├── IdeasView           # Личный блокнот идей (inline edit, auto-save)
 │   │   └── ...                 # Dashboard, Login, Settings
 │   └── components/
-│       ├── layout/             # TheSidebar, TheHeader
+│       ├── layout/             # TheSidebar (mobile overlay), TheHeader (hamburger)
+│       ├── BusinessFilter.vue  # Pill-кнопки выбора бизнеса (везде pills)
 │       ├── ToastContainer.vue  # Toast notifications
 │       ├── MediaUpload.vue     # Drag & drop
 │       └── settings/           # VkOAuthTab, ProfileTab, AiTab, UsersTab
@@ -95,7 +97,7 @@ content-factory/
 └── scripts/deploy.sh, backup-db.sh
 ```
 
-## Schema (15 моделей, 8 enums)
+## Schema (16 моделей, 8 enums)
 User, UserBusiness, Business, BrandProfile, PlatformAccount, ContentPlan, ContentPlanItem, Post, PostVersion, PublishLog, MediaFile, AiUsageLog, WebhookRule, AppConfig, Idea
 
 Enums: UserRole, Platform, AccountType, PostType, PostStatus, ContentPlanStatus, PublishStatus
@@ -145,7 +147,7 @@ cp backend/.env.example backend/.env
 2. **AI-картинка** (Gemini) → PNG через OpenRouter image gen
 3. **Адаптация** (Haiku x N платформ) → VK/TG/IG версии + хештеги
 4. **Контент-план** (Haiku) → JSON [{date, topic, postType}]
-5. **Stories** → canvas WYSIWYG (drag, zoom, text overlay, шаблоны, export JPEG)
+5. **Stories** → canvas WYSIWYG (drag, zoom, text overlay, шаблоны, export JPEG без кнопки — VK рисует нативную)
 
 API key: сначала из БД (AppConfig), fallback на .env
 
@@ -161,7 +163,11 @@ API key: сначала из БД (AppConfig), fallback на .env
 ## Conventions
 - Паттерны из nawode-erp: Hono routes, JWT httpOnly, Prisma, SSE eventBus
 - AI-промпты включают BrandProfile (тон, ЦА, стиль, примеры)
-- Business = единый хаб (BusinessDetailView): бренд-профиль + каналы + обзор
-- Settings = только системные вещи (VK OAuth, пользователи, профиль, AI)
+- Business = единый хаб (BusinessDetailView): бренд-профиль + каналы + обзор (с управлением доступами)
+- BusinessFilter = pills везде (горизонтальный скролл на мобиле)
+- Settings = только системные вещи (VK OAuth, пользователи, профиль, AI). Не-админы: только "Профиль и тема"
 - Все routes с businessId проверяют доступ (resource-access middleware)
+- Stories-first UI: навигация "Stories" (не "Посты"), только STORIES тип, lock после публикации
+- Business isActive toggle: ADMIN видит неактивные, toggle на карточках
+- VK Stories: кнопка-ссылка рисуется ТОЛЬКО в превью canvas, НЕ в JPEG (VK рисует нативную)
 - Webhook для ERP-интеграции: POST /api/webhooks/erp

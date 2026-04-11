@@ -50,6 +50,15 @@ User, UserBusiness, Business, BrandProfile, PlatformAccount, ContentPlan, Conten
 - [2026-04-11] Prisma: модель Idea (id, title, body, userId, timestamps)
 - [2026-04-11] Route: ideas.ts (CRUD + ownership check + Zod validation)
 
+## UI Refactoring Round 2 (2026-04-11)
+- [2026-04-11] VK Stories fix: кнопка-ссылка drawScene(isExport=true) НЕ рисует кнопку в JPEG — VK рисует нативную через link_text/link_url API params
+- [2026-04-11] Lock after publish: isPublished computed, opacity-60 pointer-events-none на все секции настроек, canvas drag/zoom disabled, кнопка публикации скрыта
+- [2026-04-11] Business isActive toggle: updateSchema в businesses.ts (Zod + isActive), ADMIN видит неактивные, toggle на карточках (green/gray, @click.stop)
+- [2026-04-11] BusinessFilter: pills везде (убран mobile dropdown), overflow-x-auto + flex-nowrap на мобиле
+- [2026-04-11] Шаблоны: перенесены в блок "Текст на фото" (были в блоке Фото — баг)
+- [2026-04-11] BusinessDetailView overview: секция "Доступ к бизнесу" (ADMIN only, grant/revoke access)
+- [2026-04-11] Мелочи: "Назад к историям", "историй" вместо "постов"
+
 ## Паттерны
 - HTTP client: fetch + httpOnly cookie + X-Tab-ID (из nawode-erp)
 - Auth: JWT в httpOnly cookie, requireAuth middleware
