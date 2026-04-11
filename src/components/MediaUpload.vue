@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { http } from '@/api/client'
+import { useToast } from '@/composables/useToast'
 import { Upload, X, Loader2, Image, Film, Music } from 'lucide-vue-next'
 
 interface MediaFile {
@@ -23,6 +24,7 @@ const emit = defineEmits<{
   removed: [id: string]
 }>()
 
+const toast = useToast()
 const uploading = ref(false)
 const dragOver = ref(false)
 
@@ -50,7 +52,7 @@ async function uploadFile(file: File) {
     const mediaFile = await res.json() as MediaFile
     emit('uploaded', mediaFile)
   } catch (e: any) {
-    alert('Ошибка загрузки: ' + (e.message || e))
+    toast.error('Ошибка загрузки: ' + (e.message || ''))
   } finally {
     uploading.value = false
   }
@@ -61,7 +63,7 @@ async function removeFile(id: string) {
     await http.delete(`/media/${id}`)
     emit('removed', id)
   } catch (e: any) {
-    alert('Ошибка: ' + (e.message || e))
+    toast.error(e.message || 'Произошла ошибка')
   }
 }
 

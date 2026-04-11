@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { http } from '@/api/client'
+import { useToast } from '@/composables/useToast'
 import { FileText, Send, Clock, Sparkles } from 'lucide-vue-next'
+
+const toast = useToast()
 
 interface DashboardData {
   totalBusinesses: number
@@ -24,7 +27,7 @@ onMounted(async () => {
   try {
     data.value = await http.get<DashboardData>('/dashboard')
   } catch (e) {
-    console.error('Dashboard load error:', e)
+    toast.error('Ошибка загрузки дашборда')
   } finally {
     loading.value = false
   }

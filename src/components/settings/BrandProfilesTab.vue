@@ -2,12 +2,14 @@
 import { ref, onMounted } from 'vue'
 import { http } from '@/api/client'
 import { useBusinessesStore } from '@/stores/businesses'
+import { useToast } from '@/composables/useToast'
 import {
   ChevronDown, ChevronUp, Save, Loader2,
   Megaphone, Users, MessageSquare, Hash
 } from 'lucide-vue-next'
 
 const businesses = useBusinessesStore()
+const toast = useToast()
 const expandedId = ref<string | null>(null)
 const profileForms = ref<Record<string, any>>({})
 const savingId = ref<string | null>(null)
@@ -42,7 +44,7 @@ async function saveProfile(bizId: string) {
     })
     await businesses.load()
   } catch (e: any) {
-    alert('Ошибка: ' + (e.message || e))
+    toast.error(e.message || 'Произошла ошибка')
   } finally {
     savingId.value = null
   }

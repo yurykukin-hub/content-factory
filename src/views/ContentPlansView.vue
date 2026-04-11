@@ -3,6 +3,8 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { http } from '@/api/client'
 import { useBusinessesStore } from '@/stores/businesses'
 import { useRouter } from 'vue-router'
+import { useToast } from '@/composables/useToast'
+import { formatDate, formatDateFull } from '@/composables/useFormatters'
 import {
   ClipboardList, Sparkles, Plus, Loader2, Table, CalendarDays,
   Pencil, Wand2, ExternalLink, X, ChevronLeft, ChevronRight, Trash2
@@ -33,6 +35,7 @@ interface ContentPlan {
 
 const businesses = useBusinessesStore()
 const router = useRouter()
+const toast = useToast()
 
 const plans = ref<ContentPlan[]>([])
 const activePlan = ref<ContentPlan | null>(null)
@@ -69,7 +72,7 @@ async function loadPlans() {
   try {
     plans.value = await http.get<ContentPlan[]>(`/businesses/${businesses.currentBusiness.id}/plans`)
   } catch (e) {
-    console.error('Load plans error:', e)
+    toast.error('Ошибка загрузки планов')
   } finally {
     loading.value = false
   }
@@ -82,7 +85,7 @@ async function openPlan(planId: string) {
       calendarMonth.value = new Date(activePlan.value.items[0].date)
     }
   } catch (e) {
-    console.error('Load plan error:', e)
+    toast.error('Ошибка загрузки плана')
   }
 }
 
@@ -100,7 +103,7 @@ async function generatePlan() {
     await loadPlans()
     await openPlan(result.plan.id)
   } catch (e: any) {
-    alert('Ошибка: ' + (e.message || e))
+    toast.error(e.message || 'Произошла ошибка')
   } finally {
     aiLoading.value = false
   }
@@ -112,7 +115,7 @@ async function createPostFromItem(itemId: string) {
     const post = await http.post<{ id: string }>(`/plan-items/${itemId}/create-post`, {})
     router.push(`/posts/${post.id}`)
   } catch (e: any) {
-    alert('Ошибка: ' + (e.message || e))
+    toast.error(e.message || 'Произошла ошибка')
   } finally {
     itemLoading.value = null
   }
@@ -124,7 +127,7 @@ async function aiGenerateFromItem(itemId: string) {
     const result = await http.post<{ post: { id: string } }>(`/plan-items/${itemId}/ai-generate`, {})
     router.push(`/posts/${result.post.id}`)
   } catch (e: any) {
-    alert('Ошибка: ' + (e.message || e))
+    toast.error(e.message || 'Произошла ошибка')
   } finally {
     itemLoading.value = null
   }
@@ -140,7 +143,7 @@ async function batchGenerateAll() {
     await openPlan(activePlan.value.id)
     setTimeout(() => { batchResult.value = null }, 5000)
   } catch (e: any) {
-    alert('Ошибка: ' + (e.message || e))
+    toast.error(e.message || 'Произошла ошибка')
   } finally {
     batchLoading.value = false
   }
@@ -151,7 +154,7 @@ async function skipItem(itemId: string) {
     await http.put(`/plan-items/${itemId}`, { status: 'SKIPPED' })
     if (activePlan.value) await openPlan(activePlan.value.id)
   } catch (e: any) {
-    alert('Ошибка: ' + (e.message || e))
+    toast.error(e.message || 'Произошла ошибка')
   }
 }
 
@@ -162,7 +165,7 @@ async function deletePlan(planId: string) {
     activePlan.value = null
     await loadPlans()
   } catch (e: any) {
-    alert('Ошибка: ' + (e.message || e))
+    toast.error(e.message || 'Произошла ошибка')
   }
 }
 
@@ -191,14 +194,6 @@ function typeColor(type: string) {
     REELS: 'bg-pink-500', STORIES: 'bg-orange-500',
   }
   return map[type] || 'bg-gray-400'
-}
-
-function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' })
-}
-
-function formatDateFull(iso: string) {
-  return new Date(iso).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' })
 }
 
 // Calendar helpers

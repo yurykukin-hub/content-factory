@@ -8,8 +8,24 @@ async function getApiKey(): Promise<string> {
   try {
     const dbKey = await db.appConfig.findUnique({ where: { key: 'openrouter_api_key' } })
     if (dbKey?.value) return dbKey.value
-  } catch {}
+  } catch (err) {
+    // DB may be unavailable — fallback to env is fine
+    console.warn('[AI] Failed to read API key from DB, using env fallback')
+  }
   return config.OPENROUTER_API_KEY
+}
+
+/** Approximate pricing per 1M tokens (input/output) */
+const MODEL_PRICING: Record<string, { input: number; output: number }> = {
+  'anthropic/claude-3.5-haiku': { input: 0.80, output: 4.00 },
+  'anthropic/claude-sonnet-4': { input: 3.00, output: 15.00 },
+  'google/gemini-2.0-flash-001': { input: 0.10, output: 0.40 },
+}
+
+function calculateCost(model: string, tokensIn: number, tokensOut: number): number {
+  const pricing = MODEL_PRICING[model]
+  if (!pricing) return 0
+  return (tokensIn * pricing.input + tokensOut * pricing.output) / 1_000_000
 }
 
 interface AiCompleteParams {
@@ -70,7 +86,7 @@ export async function aiComplete(params: AiCompleteParams): Promise<AiCompleteRe
     tokensIn: usage.prompt_tokens || 0,
     tokensOut: usage.completion_tokens || 0,
     cachedTokens: usage.prompt_tokens_details?.cached_tokens || 0,
-    costUsd: 0, // TODO: рассчитать по модели
+    costUsd: calculateCost(model, usage.prompt_tokens || 0, usage.completion_tokens || 0),
     model,
   }
 

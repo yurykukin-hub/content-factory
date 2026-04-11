@@ -4,6 +4,9 @@ import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
 import { http } from '@/api/client'
 import { useBusinessesStore } from '@/stores/businesses'
 import { useToast } from '@/composables/useToast'
+import { statusColor, statusLabel } from '@/composables/useStatus'
+import { formatDate } from '@/composables/useFormatters'
+import { platformColor } from '@/composables/usePlatform'
 import MediaUpload from '@/components/MediaUpload.vue'
 import {
   ArrowLeft, Send, Save, Plus, Sparkles, Loader2, ExternalLink,
@@ -69,7 +72,7 @@ async function loadPost() {
         return
       }
     }
-  } catch (e) { console.error('Load post error:', e) }
+  } catch (e) { toast.error('Ошибка загрузки поста') }
   finally { loading.value = false }
 }
 
@@ -188,19 +191,6 @@ function statusDot(platform: PlatformAccount) {
   if (v.status === 'SCHEDULED') return 'bg-amber-500'
   return 'bg-blue-400'
 }
-
-function statusColor(s: string) {
-  const m: Record<string, string> = {
-    DRAFT: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300',
-    PUBLISHED: 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300',
-    FAILED: 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300',
-    SCHEDULED: 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300',
-  }
-  return m[s] || m.DRAFT
-}
-function statusLabel(s: string) { return { DRAFT: 'Черновик', PUBLISHED: 'Опубликован', FAILED: 'Ошибка', SCHEDULED: 'Запланирован', APPROVED: 'Одобрен' }[s] || s }
-function formatDate(iso: string) { return new Date(iso).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) }
-function platformColor(p: string) { return { VK: 'text-blue-600', TELEGRAM: 'text-sky-500', INSTAGRAM: 'text-pink-500' }[p] || '' }
 
 onBeforeRouteLeave(() => {
   if (hasUnsavedChanges.value) return confirm('Есть несохранённые изменения. Уйти?')

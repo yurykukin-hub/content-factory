@@ -12,8 +12,9 @@ import { nanoid } from 'nanoid'
 import sharp from 'sharp'
 import { join } from 'path'
 import { mkdir } from 'fs/promises'
+import { getModuleDir } from '../../utils/paths'
 
-const UPLOAD_DIR = join(import.meta.dir, '../../../uploads')
+const UPLOAD_DIR = join(getModuleDir(import.meta), '../../../uploads')
 
 interface GenerateImageParams {
   prompt: string

@@ -2,8 +2,9 @@ import type { Publisher, PublishParams, PublishResult } from './base'
 import type { PlatformAccount } from '@prisma/client'
 import { join } from 'path'
 import { readFile } from 'fs/promises'
+import { getModuleDir } from '../../utils/paths'
 
-const UPLOAD_DIR = join(import.meta.dir, '../../../uploads')
+const UPLOAD_DIR = join(getModuleDir(import.meta), '../../../uploads')
 
 /**
  * Telegram Publisher — публикация через Telegram Bot API.

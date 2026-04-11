@@ -4,10 +4,11 @@ import { nanoid } from 'nanoid'
 import sharp from 'sharp'
 import { join, extname } from 'path'
 import { mkdir, unlink, stat } from 'fs/promises'
+import { getModuleDir } from '../utils/paths'
 
 const media = new Hono()
 
-const UPLOAD_DIR = join(import.meta.dir, '../../uploads')
+const UPLOAD_DIR = join(getModuleDir(import.meta), '../../uploads')
 const THUMB_SIZE = 200
 const MAX_FILE_SIZE = 100 * 1024 * 1024 // 100 MB
 

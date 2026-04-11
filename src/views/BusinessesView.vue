@@ -2,6 +2,8 @@
 import { ref, onMounted } from 'vue'
 import { http } from '@/api/client'
 import { useBusinessesStore, type Business } from '@/stores/businesses'
+import { useToast } from '@/composables/useToast'
+import { platformBgColor, platformLabel } from '@/composables/usePlatform'
 import {
   Building2, ChevronDown, ChevronUp, Plus, Save, Trash2, Loader2,
   Globe, MessageSquare, Camera, Link, Hash, Users, Megaphone
@@ -12,6 +14,7 @@ interface FullBusiness extends Business {
 }
 
 const businesses = useBusinessesStore()
+const toast = useToast()
 const expandedId = ref<string | null>(null)
 const activeTab = ref<'profile' | 'platforms'>('profile')
 
@@ -53,7 +56,7 @@ async function saveProfile(bizId: string) {
     await http.put(`/businesses/${bizId}/brand-profile`, data)
     await businesses.load()
   } catch (e: any) {
-    alert('Ошибка: ' + (e.message || e))
+    toast.error(e.message || 'Произошла ошибка')
   } finally {
     savingProfile.value = false
   }
@@ -68,7 +71,7 @@ async function addPlatform(bizId: string) {
     platformForm.value = { platform: 'VK', accountName: '', accountId: '', accessToken: '' }
     await businesses.load()
   } catch (e: any) {
-    alert('Ошибка: ' + (e.message || e))
+    toast.error(e.message || 'Произошла ошибка')
   } finally {
     savingPlatform.value = false
   }
@@ -80,22 +83,8 @@ async function deletePlatform(platformId: string) {
     await http.delete(`/platforms/${platformId}`)
     await businesses.load()
   } catch (e: any) {
-    alert('Ошибка: ' + (e.message || e))
+    toast.error(e.message || 'Произошла ошибка')
   }
-}
-
-function platformIcon(platform: string) {
-  const map: Record<string, string> = { VK: 'VK', TELEGRAM: 'TG', INSTAGRAM: 'IG' }
-  return map[platform] || platform
-}
-
-function platformColor(platform: string) {
-  const map: Record<string, string> = {
-    VK: 'bg-blue-500',
-    TELEGRAM: 'bg-sky-500',
-    INSTAGRAM: 'bg-gradient-to-r from-purple-500 to-pink-500',
-  }
-  return map[platform] || 'bg-gray-500'
 }
 
 onMounted(() => {
@@ -130,7 +119,7 @@ onMounted(() => {
                   <span
                     v-for="pa in biz.platformAccounts"
                     :key="pa.id"
-                    :class="['w-5 h-5 rounded text-[9px] font-bold text-white flex items-center justify-center', platformColor(pa.platform)]"
+                    :class="['w-5 h-5 rounded text-[9px] font-bold text-white flex items-center justify-center', platformBgColor(pa.platform)]"
                   >
                     {{ platformIcon(pa.platform) }}
                   </span>
@@ -256,7 +245,7 @@ onMounted(() => {
                 class="flex items-center justify-between p-3 rounded-lg bg-gray-50 dark:bg-gray-800"
               >
                 <div class="flex items-center gap-3">
-                  <span :class="['w-8 h-8 rounded-lg text-xs font-bold text-white flex items-center justify-center', platformColor(pa.platform)]">
+                  <span :class="['w-8 h-8 rounded-lg text-xs font-bold text-white flex items-center justify-center', platformBgColor(pa.platform)]">
                     {{ platformIcon(pa.platform) }}
                   </span>
                   <div>

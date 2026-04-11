@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { http } from '@/api/client'
+import { useToast } from '@/composables/useToast'
 import { Sparkles, Key, Save, Loader2, CheckCircle, Eye, EyeOff, BarChart3, Cpu, Sliders } from 'lucide-vue-next'
 
+const toast = useToast()
 const apiKey = ref('')
 const maskedKey = ref('')
 const hasKey = ref(false)
@@ -18,7 +20,7 @@ async function loadConfig() {
     maskedKey.value = config.openrouter_api_key || ''
     hasKey.value = !!maskedKey.value
   } catch (e) {
-    console.error('Load config error:', e)
+    toast.error('Ошибка загрузки настроек AI')
   } finally {
     loading.value = false
   }
@@ -39,7 +41,7 @@ async function saveApiKey() {
     apiKey.value = ''
     setTimeout(() => { saved.value = false }, 3000)
   } catch (e: any) {
-    alert('Ошибка: ' + (e.message || e))
+    toast.error(e.message || 'Произошла ошибка')
   } finally {
     saving.value = false
   }

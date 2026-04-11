@@ -3,6 +3,9 @@ import { ref, onMounted, watch } from 'vue'
 import { http } from '@/api/client'
 import { useBusinessesStore } from '@/stores/businesses'
 import { useRouter } from 'vue-router'
+import { useToast } from '@/composables/useToast'
+import { statusColor, statusLabel } from '@/composables/useStatus'
+import { formatDate } from '@/composables/useFormatters'
 import { FileText, Sparkles, Plus, Send, Clock, AlertCircle, Eye, Trash2, Loader2 } from 'lucide-vue-next'
 
 interface PostVersion {
@@ -26,6 +29,7 @@ interface Post {
 
 const businesses = useBusinessesStore()
 const router = useRouter()
+const toast = useToast()
 
 const posts = ref<Post[]>([])
 const loading = ref(true)
@@ -48,7 +52,7 @@ async function loadPosts() {
     const url = `/businesses/${businesses.currentBusiness.id}/posts${statusFilter.value ? '?status=' + statusFilter.value : ''}`
     posts.value = await http.get<Post[]>(url)
   } catch (e) {
-    console.error('Load posts error:', e)
+    toast.error('Ошибка загрузки постов')
   } finally {
     loading.value = false
   }
@@ -66,7 +70,7 @@ async function generatePost() {
     aiTopic.value = ''
     router.push(`/posts/${result.post.id}`)
   } catch (e: any) {
-    alert('Ошибка AI: ' + (e.message || e))
+    toast.error('Ошибка AI: ' + (e.message || ''))
   } finally {
     aiLoading.value = false
   }
@@ -84,7 +88,7 @@ async function createPost() {
     })
     router.push(`/posts/${post.id}`)
   } catch (e: any) {
-    alert('Ошибка: ' + (e.message || e))
+    toast.error(e.message || 'Произошла ошибка')
   } finally {
     createLoading.value = false
   }
@@ -99,7 +103,7 @@ async function createStories() {
       title: '', body: ' ', postType: 'STORIES',
     })
     router.push(`/stories/${post.id}`)
-  } catch (e: any) { alert('Ошибка: ' + (e.message || e)) }
+  } catch (e: any) { toast.error(e.message || 'Произошла ошибка') }
   finally { createLoading.value = false }
 }
 
@@ -109,32 +113,8 @@ async function deletePost(id: string) {
     await http.delete(`/posts/${id}`)
     posts.value = posts.value.filter(p => p.id !== id)
   } catch (e: any) {
-    alert('Ошибка: ' + (e.message || e))
+    toast.error(e.message || 'Произошла ошибка')
   }
-}
-
-function statusColor(status: string) {
-  const map: Record<string, string> = {
-    DRAFT: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300',
-    REVIEW: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300',
-    APPROVED: 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300',
-    SCHEDULED: 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300',
-    PUBLISHED: 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300',
-    FAILED: 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300',
-  }
-  return map[status] || map.DRAFT
-}
-
-function statusLabel(status: string) {
-  const map: Record<string, string> = {
-    DRAFT: 'Черновик', REVIEW: 'На проверке', APPROVED: 'Одобрен',
-    SCHEDULED: 'Запланирован', PUBLISHED: 'Опубликован', FAILED: 'Ошибка',
-  }
-  return map[status] || status
-}
-
-function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
 onMounted(loadPosts)

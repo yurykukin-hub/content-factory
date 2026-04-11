@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { http } from '@/api/client'
 import { useBusinessesStore } from '@/stores/businesses'
 import { useToast } from '@/composables/useToast'
+import { formatDate } from '@/composables/useFormatters'
 import {
   ArrowLeft, Upload, Sparkles, Loader2, Send, CheckCircle,
   ExternalLink, AlertCircle, Image, Link, Trash2, ZoomIn, ZoomOut, Eye
@@ -274,7 +275,7 @@ async function loadPost() {
         }
       }
     }
-  } catch (e) { console.error(e) }
+  } catch (e) { toast.error('Ошибка загрузки') }
   finally { loading.value = false }
 }
 
@@ -464,10 +465,6 @@ async function confirmPublish() {
 
 function closePreview() {
   showPreview.value = false
-}
-
-function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
 // VK link_text → реальный текст кнопки в VK (проверено)

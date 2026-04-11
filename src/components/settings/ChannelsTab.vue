@@ -2,6 +2,8 @@
 import { ref, onMounted } from 'vue'
 import { http } from '@/api/client'
 import { useBusinessesStore } from '@/stores/businesses'
+import { useToast } from '@/composables/useToast'
+import { accountTypeLabel } from '@/composables/usePlatform'
 import {
   Plus, Trash2, Loader2, CheckCircle, XCircle, RefreshCw,
   Radio, Link, ExternalLink, Eye, EyeOff, ChevronDown, ChevronUp,
@@ -28,6 +30,7 @@ interface TestResult {
 }
 
 const businesses = useBusinessesStore()
+const toast = useToast()
 
 // Test results per platform ID
 const testResults = ref<Record<string, TestResult>>({})
@@ -73,7 +76,7 @@ async function saveEdit(paId: string) {
     await businesses.load()
     expandedId.value = null
   } catch (e: any) {
-    alert('Ошибка: ' + (e.message || e))
+    toast.error(e.message || 'Произошла ошибка')
   } finally {
     editSaving.value = false
   }
@@ -111,7 +114,7 @@ async function addChannel() {
     showForm.value = false
     await businesses.load()
   } catch (e: any) {
-    alert('Ошибка: ' + (e.message || e))
+    toast.error(e.message || 'Произошла ошибка')
   } finally {
     saving.value = false
   }
@@ -123,7 +126,7 @@ async function deleteChannel(id: string) {
     await http.delete(`/platforms/${id}`)
     await businesses.load()
   } catch (e: any) {
-    alert('Ошибка: ' + (e.message || e))
+    toast.error(e.message || 'Произошла ошибка')
   }
 }
 
@@ -136,13 +139,6 @@ function platformBadge(platform: string) {
   return map[platform] || { label: platform, class: 'bg-gray-500 text-white' }
 }
 
-function accountTypeLabel(type: string) {
-  const map: Record<string, string> = {
-    GROUP: 'Сообщество', PERSONAL: 'Личная страница',
-    CHANNEL: 'Канал', BOT: 'Бот', BUSINESS: 'Бизнес',
-  }
-  return map[type] || type
-}
 
 onMounted(() => {
   if (!businesses.businesses.length) businesses.load()

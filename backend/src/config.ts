@@ -5,7 +5,7 @@ const envSchema = z.object({
   JWT_SECRET: z.string().min(32),
   PORT: z.coerce.number().default(3800),
   OPENROUTER_API_KEY: z.string().default(''),  // Можно задать через UI (Settings → AI)
-  NODE_ENV: z.enum(['development', 'production']).default('development'),
+  NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
 })
 
 const parsed = envSchema.safeParse(process.env)

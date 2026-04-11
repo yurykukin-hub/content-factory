@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { http } from '@/api/client'
+import { useToast } from '@/composables/useToast'
 import {
   Link, Unlink, Key, Save, Loader2, CheckCircle, XCircle,
   ExternalLink, RefreshCw, Eye, EyeOff, AlertCircle
@@ -14,6 +15,7 @@ interface OAuthStatus {
   lastError?: string
 }
 
+const toast = useToast()
 const status = ref<OAuthStatus | null>(null)
 const loading = ref(true)
 
@@ -41,7 +43,7 @@ async function loadStatus() {
     status.value = await http.get<OAuthStatus>('/vk-oauth/status')
     if (status.value.appId) appId.value = status.value.appId
   } catch (e) {
-    console.error('VK OAuth status error:', e)
+    toast.error('Ошибка загрузки VK OAuth')
   } finally {
     loading.value = false
   }
@@ -57,7 +59,7 @@ async function saveAppConfig() {
     await loadStatus()
     setTimeout(() => { configSaved.value = false }, 3000)
   } catch (e: any) {
-    alert('Ошибка: ' + (e.message || e))
+    toast.error(e.message || 'Произошла ошибка')
   } finally {
     savingConfig.value = false
   }
@@ -70,7 +72,7 @@ async function initOAuth() {
     authUrl.value = result.authUrl
     window.open(result.authUrl, '_blank')
   } catch (e: any) {
-    alert('Ошибка: ' + (e.message || e))
+    toast.error(e.message || 'Произошла ошибка')
   } finally {
     initiating.value = false
   }
@@ -90,10 +92,10 @@ async function exchangeCode() {
       authUrl.value = ''
       await loadStatus()
     } else {
-      alert('Ошибка: ' + result.error)
+      toast.error(result.error || 'Ошибка')
     }
   } catch (e: any) {
-    alert('Ошибка: ' + (e.message || e))
+    toast.error(e.message || 'Произошла ошибка')
   } finally {
     exchanging.value = false
   }
@@ -103,10 +105,10 @@ async function manualRefresh() {
   refreshing.value = true
   try {
     const result = await http.post<{ success: boolean; error?: string }>('/vk-oauth/refresh', {})
-    if (!result.success) alert('Ошибка: ' + result.error)
+    if (!result.success) toast.error(result.error || 'Ошибка')
     await loadStatus()
   } catch (e: any) {
-    alert('Ошибка: ' + (e.message || e))
+    toast.error(e.message || 'Произошла ошибка')
   } finally {
     refreshing.value = false
   }
@@ -119,7 +121,7 @@ async function disconnectOAuth() {
     await http.post('/vk-oauth/disconnect', {})
     await loadStatus()
   } catch (e: any) {
-    alert('Ошибка: ' + (e.message || e))
+    toast.error(e.message || 'Произошла ошибка')
   } finally {
     disconnecting.value = false
   }

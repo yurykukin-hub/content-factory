@@ -162,6 +162,7 @@ model ContentPlan {
   business Business          @relation(fields: [businessId], references: [id])
   items    ContentPlanItem[]
 
+  @@index([businessId])
   @@map("content_plans")
 }
 
@@ -207,6 +208,8 @@ model Post {
   mediaFiles       MediaFile[]
   contentPlanItems ContentPlanItem[]
 
+  @@index([businessId])
+  @@index([status])
   @@map("posts")
 }
 
@@ -230,6 +233,8 @@ model PostVersion {
   publishLogs     PublishLog[]
 
   @@unique([postId, platformAccountId])
+  @@index([status])
+  @@index([status, scheduledAt])
   @@map("post_versions")
 }
 
@@ -264,6 +269,8 @@ model MediaFile {
   post     Post?    @relation(fields: [postId], references: [id])
   business Business @relation(fields: [businessId], references: [id])
 
+  @@index([businessId])
+  @@index([postId])
   @@map("media_files")
 }
 
@@ -281,6 +288,8 @@ model AiUsageLog {
 
   business Business? @relation(fields: [businessId], references: [id])
 
+  @@index([businessId])
+  @@index([createdAt])
   @@map("ai_usage_logs")
 }
 
