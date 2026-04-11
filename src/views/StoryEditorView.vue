@@ -613,20 +613,20 @@ onUnmounted(() => {
             class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 focus:ring-2 focus:ring-brand-500 text-sm" />
         </div>
 
+        <!-- Templates -->
+        <div :class="['bg-white dark:bg-gray-900 rounded-xl p-5 border border-gray-200 dark:border-gray-800', isPublished && 'opacity-60 pointer-events-none select-none']">
+          <h3 class="font-semibold text-sm mb-2">Шаблоны</h3>
+          <div class="flex flex-wrap gap-1.5">
+            <button v-for="tpl in STORY_TEMPLATES" :key="tpl.name" @click="applyTemplate(tpl)"
+              class="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-gray-100 dark:bg-gray-800 text-xs font-medium hover:bg-brand-50 dark:hover:bg-brand-950 hover:text-brand-700 dark:hover:text-brand-300 transition-colors">
+              <span>{{ tpl.emoji }}</span>
+              {{ tpl.name }}
+            </button>
+          </div>
+        </div>
+
         <!-- Photo -->
         <div :class="['bg-white dark:bg-gray-900 rounded-xl p-5 border border-gray-200 dark:border-gray-800', isPublished && 'opacity-60 pointer-events-none select-none']">
-          <!-- Templates -->
-          <div class="mb-4">
-            <h3 class="font-semibold text-sm mb-2">Шаблоны</h3>
-            <div class="flex flex-wrap gap-1.5">
-              <button v-for="tpl in STORY_TEMPLATES" :key="tpl.name" @click="applyTemplate(tpl)"
-                class="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-gray-100 dark:bg-gray-800 text-xs font-medium hover:bg-brand-50 dark:hover:bg-brand-950 hover:text-brand-700 dark:hover:text-brand-300 transition-colors">
-                <span>{{ tpl.emoji }}</span>
-                {{ tpl.name }}
-              </button>
-            </div>
-          </div>
-
           <h3 class="font-semibold text-sm mb-3 flex items-center gap-2"><Image :size="16" /> Фото</h3>
           <div v-if="photo" class="flex items-center gap-3 mb-3">
             <img :src="photo.thumbUrl || photo.url" class="w-12 h-12 rounded-lg object-cover" />
