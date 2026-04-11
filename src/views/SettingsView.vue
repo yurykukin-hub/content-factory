@@ -13,16 +13,16 @@ const auth = useAuthStore()
 const isAdmin = computed(() => auth.user?.role === 'ADMIN')
 
 const allTabs = [
-  { key: 'channels', label: 'Каналы', icon: Radio, adminOnly: false },
+  { key: 'channels', label: 'Каналы', icon: Radio, adminOnly: true },
   { key: 'brands', label: 'Бренд-профили', icon: Palette, adminOnly: false },
-  { key: 'vk-oauth', label: 'VK OAuth', icon: Link, adminOnly: false },
+  { key: 'vk-oauth', label: 'VK OAuth', icon: Link, adminOnly: true },
   { key: 'users', label: 'Пользователи', icon: Users, adminOnly: true },
   { key: 'profile', label: 'Профиль и тема', icon: User, adminOnly: false },
   { key: 'ai', label: 'AI', icon: Sparkles, adminOnly: true },
 ] as const
 
 type TabKey = typeof allTabs[number]['key']
-const activeTab = ref<TabKey>('channels')
+const activeTab = ref<TabKey>('brands')
 
 const tabs = computed(() => allTabs.filter(t => !t.adminOnly || isAdmin.value))
 </script>

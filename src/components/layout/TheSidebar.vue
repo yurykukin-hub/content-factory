@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
+import { useAuthStore } from '@/stores/auth'
 import {
   LayoutDashboard,
   FileText,
@@ -12,16 +13,20 @@ import {
 } from 'lucide-vue-next'
 
 const route = useRoute()
+const auth = useAuthStore()
+const isAdmin = computed(() => auth.user?.role === 'ADMIN')
 
-const navItems = [
-  { name: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, path: '/' },
-  { name: 'posts', label: 'Посты', icon: FileText, path: '/posts' },
-  { name: 'plans', label: 'Контент-планы', icon: ClipboardList, path: '/plans' },
-  { name: 'media', label: 'Медиа', icon: Image, path: '/media' },
-  { name: 'businesses', label: 'Бизнесы', icon: Building2, path: '/businesses' },
-  { name: 'analytics', label: 'Аналитика', icon: BarChart3, path: '/analytics' },
-  { name: 'settings', label: 'Настройки', icon: Settings, path: '/settings' },
+const allNavItems = [
+  { name: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, path: '/', adminOnly: false },
+  { name: 'posts', label: 'Посты', icon: FileText, path: '/posts', adminOnly: false },
+  { name: 'plans', label: 'Контент-планы', icon: ClipboardList, path: '/plans', adminOnly: false },
+  { name: 'media', label: 'Медиа', icon: Image, path: '/media', adminOnly: false },
+  { name: 'businesses', label: 'Бизнесы', icon: Building2, path: '/businesses', adminOnly: true },
+  { name: 'analytics', label: 'Аналитика', icon: BarChart3, path: '/analytics', adminOnly: true },
+  { name: 'settings', label: 'Настройки', icon: Settings, path: '/settings', adminOnly: false },
 ]
+
+const navItems = computed(() => allNavItems.filter(i => !i.adminOnly || isAdmin.value))
 
 function isActive(name: string): boolean {
   return route.name === name
