@@ -8,13 +8,15 @@ import { getUserBusinessIds } from '../middleware/business-access'
 const businesses = new Hono()
 
 // GET /api/businesses — filtered by user access
+// ADMIN видит все (включая неактивные), остальные — только active
 businesses.get('/', async (c) => {
   const user = c.get('user') as AuthUser
   const accessibleIds = await getUserBusinessIds(user)
+  const isAdmin = user.role === 'ADMIN'
 
   const list = await db.business.findMany({
     where: {
-      isActive: true,
+      ...(!isAdmin ? { isActive: true } : {}),
       ...(accessibleIds ? { id: { in: accessibleIds } } : {}),
     },
     include: { brandProfile: true, platformAccounts: { where: { isActive: true } } },
@@ -63,10 +65,14 @@ businesses.post('/', async (c) => {
   return c.json(biz, 201)
 })
 
+const updateSchema = createSchema.partial().extend({
+  isActive: z.boolean().optional(),
+})
+
 // PUT /api/businesses/:id
 businesses.put('/:id', async (c) => {
   const { id } = c.req.param()
-  const data = createSchema.partial().parse(await c.req.json())
+  const data = updateSchema.parse(await c.req.json())
   const biz = await db.business.update({
     where: { id },
     data,

@@ -80,6 +80,7 @@ const selectedChannel = ref('')
 
 const photo = computed(() => post.value?.mediaFiles?.[0] || null)
 const version = computed(() => post.value?.versions?.[0] || null)
+const isPublished = computed(() => version.value?.status === 'PUBLISHED')
 
 const fontSizePx = computed(() => ({ S: 14, M: 18, L: 24 }[fontSize.value]))
 const fontSizeExport = computed(() => ({ S: 42, M: 54, L: 72 }[fontSize.value]))
@@ -156,7 +157,8 @@ function drawTextOverlay(ctx: CanvasRenderingContext2D, text: string, w: number,
 }
 
 // --- Unified draw function for both preview and export ---
-function drawScene(ctx: CanvasRenderingContext2D, w: number, h: number, fSize: number) {
+// isExport = true → НЕ рисуем кнопку-ссылку (VK рисует свою нативную)
+function drawScene(ctx: CanvasRenderingContext2D, w: number, h: number, fSize: number, isExport = false) {
   ctx.clearRect(0, 0, w, h)
   const grad = ctx.createLinearGradient(0, 0, 0, h)
   grad.addColorStop(0, '#1a1a2e')
@@ -187,7 +189,7 @@ function drawScene(ctx: CanvasRenderingContext2D, w: number, h: number, fSize: n
     ctx.drawImage(img, x, y, drawW, drawH)
   }
 
-  // Draw link button (in both preview AND export — consistent positioning)
+  // Draw link button — только в превью, НЕ в экспорте (VK рисует свою нативную кнопку)
   let buttonTopY = h // нижняя граница по умолчанию (нет кнопки)
   if (linkType.value) {
     const scale = w / 360 // масштаб относительно preview
@@ -197,15 +199,18 @@ function drawScene(ctx: CanvasRenderingContext2D, w: number, h: number, fSize: n
     const btnY = h - Math.round(40 * scale)
     buttonTopY = btnY - Math.round(12 * scale) // верхний край кнопки + gap
 
-    ctx.fillStyle = 'rgba(255,255,255,0.9)'
-    ctx.beginPath()
-    ctx.roundRect(btnX, btnY, btnW, btnH, Math.round(12 * scale))
-    ctx.fill()
-    ctx.fillStyle = '#333'
-    ctx.font = `bold ${Math.round(12 * scale)}px sans-serif`
-    ctx.textAlign = 'center'
-    const btnText = LINK_TYPES.find(l => l.value === linkType.value)?.label || linkType.value
-    ctx.fillText(btnText, w / 2, btnY + Math.round(21 * scale))
+    // Рисуем визуальную кнопку только в превью (в экспорт не печатаем)
+    if (!isExport) {
+      ctx.fillStyle = 'rgba(255,255,255,0.9)'
+      ctx.beginPath()
+      ctx.roundRect(btnX, btnY, btnW, btnH, Math.round(12 * scale))
+      ctx.fill()
+      ctx.fillStyle = '#333'
+      ctx.font = `bold ${Math.round(12 * scale)}px sans-serif`
+      ctx.textAlign = 'center'
+      const btnText = LINK_TYPES.find(l => l.value === linkType.value)?.label || linkType.value
+      ctx.fillText(btnText, w / 2, btnY + Math.round(21 * scale))
+    }
   }
 
   // Draw text overlay (позиционируется относительно кнопки если есть)
@@ -221,7 +226,7 @@ async function exportCanvas(): Promise<Blob> {
   canvas.height = exportHeight
   const ctx = canvas.getContext('2d')!
 
-  drawScene(ctx, exportWidth, exportHeight, fontSizeExport.value)
+  drawScene(ctx, exportWidth, exportHeight, fontSizeExport.value, true)
 
   return new Promise(resolve => canvas.toBlob(b => resolve(b!), 'image/jpeg', 0.92))
 }
@@ -554,7 +559,7 @@ onUnmounted(() => {
 <template>
   <div>
     <button @click="router.push('/posts')" class="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 mb-4">
-      <ArrowLeft :size="16" /> Назад к постам
+      <ArrowLeft :size="16" /> Назад к историям
     </button>
 
     <div v-if="loading" class="text-gray-500 py-8 text-center">Загрузка...</div>
@@ -573,35 +578,43 @@ onUnmounted(() => {
             ref="canvasRef"
             :width="canvasWidth"
             :height="canvasHeight"
-            class="rounded-[1.5rem] cursor-grab active:cursor-grabbing"
-            :class="{ 'cursor-grabbing': dragging }"
-            @mousedown="onMouseDown"
-            @wheel.prevent="onWheel"
+            :class="[
+              'rounded-[1.5rem]',
+              isPublished ? 'cursor-default' : 'cursor-grab active:cursor-grabbing',
+              dragging && !isPublished && 'cursor-grabbing',
+            ]"
+            @mousedown="!isPublished && onMouseDown($event)"
+            @wheel.prevent="!isPublished && onWheel($event)"
           />
         </div>
 
         <!-- Zoom controls -->
-        <div class="flex items-center gap-2 mt-3">
+        <div v-if="!isPublished" class="flex items-center gap-2 mt-3">
           <button @click="zoomOut" class="p-1.5 rounded-lg bg-gray-200 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-300"><ZoomOut :size="16" /></button>
           <span class="text-xs text-gray-400 w-12 text-center">{{ Math.round(imgScale * 100) }}%</span>
           <button @click="zoomIn" class="p-1.5 rounded-lg bg-gray-200 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-300"><ZoomIn :size="16" /></button>
           <button @click="resetView" class="px-2 py-1 rounded-lg text-[10px] text-gray-500 hover:bg-gray-200 dark:hover:bg-gray-800">Сброс</button>
         </div>
-        <p class="text-[10px] text-gray-500 mt-1">Перетаскивайте фото мышкой. Колёсико = zoom.</p>
+        <p v-if="!isPublished" class="text-[10px] text-gray-500 mt-1">Перетаскивайте фото мышкой. Колёсико = zoom.</p>
       </div>
 
       <!-- RIGHT: Settings (2/5) -->
       <div class="lg:col-span-2 space-y-4">
 
+        <!-- Published lock banner -->
+        <div v-if="isPublished" class="p-3 rounded-xl bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 text-center">
+          <p class="text-xs text-amber-700 dark:text-amber-300 font-medium">Редактирование заблокировано после публикации</p>
+        </div>
+
         <!-- Title -->
-        <div class="bg-white dark:bg-gray-900 rounded-xl p-5 border border-gray-200 dark:border-gray-800">
+        <div :class="['bg-white dark:bg-gray-900 rounded-xl p-5 border border-gray-200 dark:border-gray-800', isPublished && 'opacity-60 pointer-events-none select-none']">
           <h3 class="font-semibold text-sm mb-2">Название</h3>
           <input v-model="storyTitle" placeholder="Название истории..."
             class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 focus:ring-2 focus:ring-brand-500 text-sm" />
         </div>
 
         <!-- Photo -->
-        <div class="bg-white dark:bg-gray-900 rounded-xl p-5 border border-gray-200 dark:border-gray-800">
+        <div :class="['bg-white dark:bg-gray-900 rounded-xl p-5 border border-gray-200 dark:border-gray-800', isPublished && 'opacity-60 pointer-events-none select-none']">
           <!-- Templates -->
           <div class="mb-4">
             <h3 class="font-semibold text-sm mb-2">Шаблоны</h3>
@@ -638,7 +651,7 @@ onUnmounted(() => {
         </div>
 
         <!-- Text -->
-        <div class="bg-white dark:bg-gray-900 rounded-xl p-5 border border-gray-200 dark:border-gray-800">
+        <div :class="['bg-white dark:bg-gray-900 rounded-xl p-5 border border-gray-200 dark:border-gray-800', isPublished && 'opacity-60 pointer-events-none select-none']">
           <div class="flex items-center justify-between mb-3">
             <h3 class="font-semibold text-sm">Текст на фото</h3>
             <button @click="generateOverlayText" :disabled="aiTextLoading"
@@ -700,7 +713,7 @@ onUnmounted(() => {
         </div>
 
         <!-- Link -->
-        <div class="bg-white dark:bg-gray-900 rounded-xl p-5 border border-gray-200 dark:border-gray-800">
+        <div :class="['bg-white dark:bg-gray-900 rounded-xl p-5 border border-gray-200 dark:border-gray-800', isPublished && 'opacity-60 pointer-events-none select-none']">
           <h3 class="font-semibold text-sm mb-3 flex items-center gap-2"><Link :size="16" /> Кнопка-ссылка</h3>
           <select v-model="linkType" class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm mb-2">
             <option v-for="lt in LINK_TYPES" :key="lt.value" :value="lt.value">{{ lt.label }}</option>
@@ -738,7 +751,7 @@ onUnmounted(() => {
             </div>
           </div>
 
-          <button @click="preparePreview" :disabled="publishing || previewExporting || !photo || !vkChannels.length"
+          <button v-if="!isPublished" @click="preparePreview" :disabled="publishing || previewExporting || !photo || !vkChannels.length"
             class="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg bg-green-600 hover:bg-green-700 text-white font-medium disabled:opacity-50">
             <Loader2 v-if="previewExporting" :size="18" class="animate-spin" /><Eye v-else :size="18" />
             {{ previewExporting ? 'Рендеринг...' : 'Предпросмотр и публикация' }}
@@ -756,8 +769,14 @@ onUnmounted(() => {
         <div class="flex justify-center mb-4">
           <div class="relative bg-black rounded-[1.5rem] p-1.5 shadow-xl" style="width: 240px;">
             <img :src="previewBlobUrl" class="rounded-[1.2rem] w-full" style="aspect-ratio: 9/16; object-fit: cover;" />
-            <!-- Кнопка уже внутри JPEG (drawScene рисует её) -->
+            <!-- Кнопка будет добавлена ВК нативно -->
+            <div v-if="linkType" class="absolute bottom-5 left-1/2 -translate-x-1/2 px-5 py-1.5 bg-white/90 rounded-full text-[10px] font-bold text-gray-700 shadow whitespace-nowrap">
+              {{ LINK_TYPES.find(l => l.value === linkType)?.label }}
+            </div>
           </div>
+          <p v-if="linkType" class="text-[10px] text-gray-400 text-center mt-2">
+            Кнопка будет добавлена ВКонтакте
+          </p>
         </div>
 
         <!-- Metadata -->
