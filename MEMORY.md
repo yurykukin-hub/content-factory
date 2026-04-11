@@ -103,10 +103,22 @@
 - [2026-04-11] UsersTab in Settings (admin-only, create/edit users + business access)
 - [2026-04-11] GET /api/businesses filtered by UserBusiness (EDITOR sees only linked)
 - [2026-04-11] Plan: 9 фаз, SaaS в будущем. Instagram API confirmed (Stories+Reels via API)
+- [2026-04-11] Security: resource-access checks on ALL routes (30+ endpoints secured)
+- [2026-04-11] Refresh token system: access 1h + refresh 30d, auto-retry on frontend
+- [2026-04-11] Structured logger: JSON in prod, pretty in dev
+- [2026-04-11] Docker healthchecks: postgres (pg_isready) + backend (/api/health)
+- [2026-04-11] Story templates: 5 presets (рассвет, прогноз, акция, факт, отзыв)
+- [2026-04-11] Media library: /media view, tags, filters (type/tag/search/unattached)
+- [2026-04-11] Quick publish from PostsView (platform dropdown)
+- [2026-04-11] BrandProfile: hints, doNotMention field added to UI
 
-## Endpoints (новые)
+## Endpoints (новые, 11 апреля)
 - GET /api/health, /api/health?full=true — liveness + readiness
 - GET/POST/PUT /api/users — CRUD пользователей (ADMIN-only)
+- POST /api/auth/refresh — refresh token → new access+refresh tokens
+- GET /api/media/library/:bizId — filtered media listing
+- GET /api/media/tags/:bizId — unique tags
+- PUT /api/media/:id/tags — update file tags
 
 ## Паттерны
 - HTTP client: fetch + httpOnly cookie + X-Tab-ID (из nawode-erp)
