@@ -84,6 +84,56 @@ media.post('/upload', async (c) => {
   return c.json(mediaFile, 201)
 })
 
+// GET /api/media/library/:bizId — медиа-библиотека бизнеса
+media.get('/library/:bizId', async (c) => {
+  const { bizId } = c.req.param()
+  const type = c.req.query('type') // 'image' | 'video' | undefined (all)
+  const tag = c.req.query('tag')
+  const search = c.req.query('search')
+  const unattached = c.req.query('unattached') === 'true'
+
+  const where: Record<string, unknown> = { businessId: bizId }
+
+  if (type === 'image') where.mimeType = { startsWith: 'image/' }
+  else if (type === 'video') where.mimeType = { startsWith: 'video/' }
+
+  if (tag) where.tags = { has: tag }
+  if (search) where.filename = { contains: search, mode: 'insensitive' }
+  if (unattached) where.postId = null
+
+  const files = await db.mediaFile.findMany({
+    where,
+    orderBy: { createdAt: 'desc' },
+    take: 100,
+    include: { post: { select: { id: true, title: true, status: true } } },
+  })
+
+  return c.json(files)
+})
+
+// GET /api/media/tags/:bizId — все уникальные теги бизнеса
+media.get('/tags/:bizId', async (c) => {
+  const { bizId } = c.req.param()
+  const files = await db.mediaFile.findMany({
+    where: { businessId: bizId, tags: { isEmpty: false } },
+    select: { tags: true },
+  })
+  const allTags = new Set<string>()
+  for (const f of files) f.tags.forEach(t => allTags.add(t))
+  return c.json([...allTags].sort())
+})
+
+// PUT /api/media/:id/tags — обновить теги файла
+media.put('/:id/tags', async (c) => {
+  const { id } = c.req.param()
+  const { tags } = await c.req.json<{ tags: string[] }>()
+  const file = await db.mediaFile.update({
+    where: { id },
+    data: { tags },
+  })
+  return c.json(file)
+})
+
 // GET /api/media/:id — метаданные файла
 media.get('/:id', async (c) => {
   const { id } = c.req.param()

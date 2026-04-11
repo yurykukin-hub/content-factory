@@ -8,6 +8,7 @@ import {
   Building2,
   BarChart3,
   Settings,
+  Image,
 } from 'lucide-vue-next'
 
 const route = useRoute()
@@ -16,6 +17,7 @@ const navItems = [
   { name: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, path: '/' },
   { name: 'posts', label: 'Посты', icon: FileText, path: '/posts' },
   { name: 'plans', label: 'Контент-планы', icon: ClipboardList, path: '/plans' },
+  { name: 'media', label: 'Медиа', icon: Image, path: '/media' },
   { name: 'businesses', label: 'Бизнесы', icon: Building2, path: '/businesses' },
   { name: 'analytics', label: 'Аналитика', icon: BarChart3, path: '/analytics' },
   { name: 'settings', label: 'Настройки', icon: Settings, path: '/settings' },

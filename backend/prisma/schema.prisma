@@ -281,6 +281,7 @@ model MediaFile {
   mimeType  String   @map("mime_type")
   sizeBytes Int      @map("size_bytes")
   altText   String?  @map("alt_text")
+  tags      String[] @default([])
   sortOrder Int      @default(0) @map("sort_order")
   createdAt DateTime @default(now()) @map("created_at")
 
