@@ -6,6 +6,8 @@ import { aiComplete } from '../services/ai/openrouter'
 import { buildBrandContext, buildPlanPrompt, buildPostPrompt, buildAdaptPrompt, buildHashtagPrompt } from '../services/ai/prompt-builder'
 import { generateImage } from '../services/ai/image-generation'
 import { emitEvent } from '../eventBus'
+import type { AuthUser } from '../middleware/auth'
+import { verifyPostAccess, assertBusinessAccess } from '../middleware/resource-access'
 
 const ai = new Hono()
 
@@ -21,6 +23,13 @@ const generatePlanSchema = z.object({
 
 ai.post('/generate-plan', async (c) => {
   const data = generatePlanSchema.parse(await c.req.json())
+  const user = c.get('user') as AuthUser
+  try {
+    await assertBusinessAccess(user, data.businessId)
+  } catch (e: any) {
+    if (e.message === 'FORBIDDEN') return c.json({ error: 'Нет доступа' }, 403)
+    throw e
+  }
 
   // 1. Загрузить контекст бренда
   const brandContext = await buildBrandContext(data.businessId)
@@ -129,6 +138,13 @@ const generatePostSchema = z.object({
 
 ai.post('/generate-post', async (c) => {
   const data = generatePostSchema.parse(await c.req.json())
+  const user = c.get('user') as AuthUser
+  try {
+    await assertBusinessAccess(user, data.businessId)
+  } catch (e: any) {
+    if (e.message === 'FORBIDDEN') return c.json({ error: 'Нет доступа' }, 403)
+    throw e
+  }
 
   // 1. Загрузить контекст бренда (Business + BrandProfile)
   const brandContext = await buildBrandContext(data.businessId)
@@ -180,6 +196,13 @@ const generateImageSchema = z.object({
 
 ai.post('/generate-image', async (c) => {
   const data = generateImageSchema.parse(await c.req.json())
+  const user = c.get('user') as AuthUser
+  try {
+    await assertBusinessAccess(user, data.businessId)
+  } catch (e: any) {
+    if (e.message === 'FORBIDDEN') return c.json({ error: 'Нет доступа' }, 403)
+    throw e
+  }
 
   const result = await generateImage({
     prompt: data.prompt,
@@ -199,6 +222,14 @@ const adaptSchema = z.object({
 
 ai.post('/adapt', async (c) => {
   const data = adaptSchema.parse(await c.req.json())
+  const user = c.get('user') as AuthUser
+  try {
+    await verifyPostAccess(user, data.postId)
+  } catch (e: any) {
+    if (e.message === 'NOT_FOUND') return c.json({ error: 'Не найдено' }, 404)
+    if (e.message === 'FORBIDDEN') return c.json({ error: 'Нет доступа' }, 403)
+    throw e
+  }
 
   const post = await db.post.findUnique({
     where: { id: data.postId },

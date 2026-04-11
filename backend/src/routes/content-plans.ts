@@ -2,6 +2,8 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import { db } from '../db'
 import { emitEvent } from '../eventBus'
+import type { AuthUser } from '../middleware/auth'
+import { verifyPlanAccess, verifyPlanItemAccess, assertBusinessAccess } from '../middleware/resource-access'
 
 const contentPlans = new Hono()
 
@@ -19,6 +21,14 @@ contentPlans.get('/:bizId/plans', async (c) => {
 // GET /api/plans/:id
 contentPlans.get('/plans/:id', async (c) => {
   const { id } = c.req.param()
+  const user = c.get('user') as AuthUser
+  try {
+    await verifyPlanAccess(user, id)
+  } catch (e: any) {
+    if (e.message === 'NOT_FOUND') return c.json({ error: 'Не найдено' }, 404)
+    if (e.message === 'FORBIDDEN') return c.json({ error: 'Нет доступа' }, 403)
+    throw e
+  }
   const plan = await db.contentPlan.findUnique({
     where: { id },
     include: {
@@ -42,6 +52,13 @@ const createSchema = z.object({
 // POST /api/plans
 contentPlans.post('/plans', async (c) => {
   const data = createSchema.parse(await c.req.json())
+  const user = c.get('user') as AuthUser
+  try {
+    await assertBusinessAccess(user, data.businessId)
+  } catch (e: any) {
+    if (e.message === 'FORBIDDEN') return c.json({ error: 'Нет доступа' }, 403)
+    throw e
+  }
   const plan = await db.contentPlan.create({ data })
   emitEvent({ type: 'plan_created', tabId: c.req.header('X-Tab-ID') || '', planId: plan.id })
   return c.json(plan, 201)
@@ -50,6 +67,14 @@ contentPlans.post('/plans', async (c) => {
 // PUT /api/plans/:id
 contentPlans.put('/plans/:id', async (c) => {
   const { id } = c.req.param()
+  const user = c.get('user') as AuthUser
+  try {
+    await verifyPlanAccess(user, id)
+  } catch (e: any) {
+    if (e.message === 'NOT_FOUND') return c.json({ error: 'Не найдено' }, 404)
+    if (e.message === 'FORBIDDEN') return c.json({ error: 'Нет доступа' }, 403)
+    throw e
+  }
   const data = await c.req.json()
   const plan = await db.contentPlan.update({ where: { id }, data })
   emitEvent({ type: 'plan_updated', tabId: c.req.header('X-Tab-ID') || '', planId: plan.id })
@@ -59,6 +84,14 @@ contentPlans.put('/plans/:id', async (c) => {
 // PUT /api/plan-items/:id
 contentPlans.put('/plan-items/:id', async (c) => {
   const { id } = c.req.param()
+  const user = c.get('user') as AuthUser
+  try {
+    await verifyPlanItemAccess(user, id)
+  } catch (e: any) {
+    if (e.message === 'NOT_FOUND') return c.json({ error: 'Не найдено' }, 404)
+    if (e.message === 'FORBIDDEN') return c.json({ error: 'Нет доступа' }, 403)
+    throw e
+  }
   const data = await c.req.json()
   const item = await db.contentPlanItem.update({ where: { id }, data })
   return c.json(item)
@@ -67,6 +100,14 @@ contentPlans.put('/plan-items/:id', async (c) => {
 // DELETE /api/plans/:id
 contentPlans.delete('/plans/:id', async (c) => {
   const { id } = c.req.param()
+  const user = c.get('user') as AuthUser
+  try {
+    await verifyPlanAccess(user, id)
+  } catch (e: any) {
+    if (e.message === 'NOT_FOUND') return c.json({ error: 'Не найдено' }, 404)
+    if (e.message === 'FORBIDDEN') return c.json({ error: 'Нет доступа' }, 403)
+    throw e
+  }
   await db.contentPlan.delete({ where: { id } }) // cascade deletes items
   return c.json({ success: true })
 })
@@ -74,6 +115,14 @@ contentPlans.delete('/plans/:id', async (c) => {
 // POST /api/plan-items/:id/create-post — создать пустой пост из элемента плана
 contentPlans.post('/plan-items/:id/create-post', async (c) => {
   const { id } = c.req.param()
+  const user = c.get('user') as AuthUser
+  try {
+    await verifyPlanItemAccess(user, id)
+  } catch (e: any) {
+    if (e.message === 'NOT_FOUND') return c.json({ error: 'Не найдено' }, 404)
+    if (e.message === 'FORBIDDEN') return c.json({ error: 'Нет доступа' }, 403)
+    throw e
+  }
   const item = await db.contentPlanItem.findUnique({
     where: { id },
     include: { contentPlan: true },
@@ -103,6 +152,14 @@ contentPlans.post('/plan-items/:id/create-post', async (c) => {
 // POST /api/plan-items/:id/ai-generate — AI-написать пост из элемента плана
 contentPlans.post('/plan-items/:id/ai-generate', async (c) => {
   const { id } = c.req.param()
+  const user = c.get('user') as AuthUser
+  try {
+    await verifyPlanItemAccess(user, id)
+  } catch (e: any) {
+    if (e.message === 'NOT_FOUND') return c.json({ error: 'Не найдено' }, 404)
+    if (e.message === 'FORBIDDEN') return c.json({ error: 'Нет доступа' }, 403)
+    throw e
+  }
   const item = await db.contentPlanItem.findUnique({
     where: { id },
     include: { contentPlan: true },
@@ -152,6 +209,14 @@ contentPlans.post('/plan-items/:id/ai-generate', async (c) => {
 // POST /api/plans/:id/generate-all — AI-сгенерировать все посты для плана (batch)
 contentPlans.post('/plans/:id/generate-all', async (c) => {
   const { id } = c.req.param()
+  const user = c.get('user') as AuthUser
+  try {
+    await verifyPlanAccess(user, id)
+  } catch (e: any) {
+    if (e.message === 'NOT_FOUND') return c.json({ error: 'Не найдено' }, 404)
+    if (e.message === 'FORBIDDEN') return c.json({ error: 'Нет доступа' }, 403)
+    throw e
+  }
   const plan = await db.contentPlan.findUnique({
     where: { id },
     include: { items: { where: { postId: null, status: 'PLANNED' }, orderBy: { date: 'asc' } } },

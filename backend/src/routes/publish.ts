@@ -2,12 +2,22 @@ import { Hono } from 'hono'
 import { db } from '../db'
 import { emitEvent } from '../eventBus'
 import { getPublisher } from '../services/publishers/base'
+import type { AuthUser } from '../middleware/auth'
+import { verifyPostVersionAccess } from '../middleware/resource-access'
 
 const publish = new Hono()
 
 // POST /api/post-versions/:id/publish — опубликовать сейчас
 publish.post('/post-versions/:id/publish', async (c) => {
   const { id } = c.req.param()
+  const user = c.get('user') as AuthUser
+  try {
+    await verifyPostVersionAccess(user, id)
+  } catch (e: any) {
+    if (e.message === 'NOT_FOUND') return c.json({ error: 'Не найдено' }, 404)
+    if (e.message === 'FORBIDDEN') return c.json({ error: 'Нет доступа' }, 403)
+    throw e
+  }
   // Принимаем опциональные storiesOptions из body
   let storiesOptions: any = undefined
   try {
@@ -93,6 +103,14 @@ publish.post('/post-versions/:id/publish', async (c) => {
 // POST /api/post-versions/:id/schedule — запланировать публикацию
 publish.post('/post-versions/:id/schedule', async (c) => {
   const { id } = c.req.param()
+  const user = c.get('user') as AuthUser
+  try {
+    await verifyPostVersionAccess(user, id)
+  } catch (e: any) {
+    if (e.message === 'NOT_FOUND') return c.json({ error: 'Не найдено' }, 404)
+    if (e.message === 'FORBIDDEN') return c.json({ error: 'Нет доступа' }, 403)
+    throw e
+  }
   const { scheduledAt } = await c.req.json<{ scheduledAt: string }>()
 
   const version = await db.postVersion.update({

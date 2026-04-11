@@ -1,10 +1,13 @@
 import { Hono } from 'hono'
 import { db } from '../db'
+import type { AuthUser } from '../middleware/auth'
 
 const settings = new Hono()
 
 // GET /api/settings/config — все настройки
 settings.get('/config', async (c) => {
+  const user = c.get('user') as AuthUser
+  if (user.role !== 'ADMIN') return c.json({ error: 'FORBIDDEN' }, 403)
   const configs = await db.appConfig.findMany()
   const result: Record<string, string> = {}
   for (const cfg of configs) {
@@ -20,6 +23,8 @@ settings.get('/config', async (c) => {
 
 // PUT /api/settings/config — обновить настройку
 settings.put('/config', async (c) => {
+  const user = c.get('user') as AuthUser
+  if (user.role !== 'ADMIN') return c.json({ error: 'FORBIDDEN' }, 403)
   const { key, value } = await c.req.json<{ key: string; value: string }>()
 
   if (!key || typeof value !== 'string') {
@@ -37,6 +42,8 @@ settings.put('/config', async (c) => {
 
 // GET /api/settings/config/:key — одна настройка (для внутреннего использования)
 settings.get('/config/:key', async (c) => {
+  const user = c.get('user') as AuthUser
+  if (user.role !== 'ADMIN') return c.json({ error: 'FORBIDDEN' }, 403)
   const { key } = c.req.param()
   const config = await db.appConfig.findUnique({ where: { key } })
   return c.json({ key, hasValue: !!config?.value })

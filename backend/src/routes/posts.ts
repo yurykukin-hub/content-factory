@@ -2,6 +2,8 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import { db } from '../db'
 import { emitEvent } from '../eventBus'
+import type { AuthUser } from '../middleware/auth'
+import { verifyPostAccess, assertBusinessAccess } from '../middleware/resource-access'
 
 const posts = new Hono()
 
@@ -29,6 +31,14 @@ posts.get('/:bizId/posts', async (c) => {
 // GET /api/posts/:id
 posts.get('/:id', async (c) => {
   const { id } = c.req.param()
+  const user = c.get('user') as AuthUser
+  try {
+    await verifyPostAccess(user, id)
+  } catch (e: any) {
+    if (e.message === 'NOT_FOUND') return c.json({ error: 'Не найдено' }, 404)
+    if (e.message === 'FORBIDDEN') return c.json({ error: 'Нет доступа' }, 403)
+    throw e
+  }
   const post = await db.post.findUnique({
     where: { id },
     include: {
@@ -56,6 +66,13 @@ const createSchema = z.object({
 // POST /api/posts
 posts.post('/', async (c) => {
   const data = createSchema.parse(await c.req.json())
+  const user = c.get('user') as AuthUser
+  try {
+    await assertBusinessAccess(user, data.businessId)
+  } catch (e: any) {
+    if (e.message === 'FORBIDDEN') return c.json({ error: 'Нет доступа' }, 403)
+    throw e
+  }
   const post = await db.post.create({
     data: { ...data, createdBy: 'manual' },
   })
@@ -66,6 +83,14 @@ posts.post('/', async (c) => {
 // PUT /api/posts/:id
 posts.put('/:id', async (c) => {
   const { id } = c.req.param()
+  const user = c.get('user') as AuthUser
+  try {
+    await verifyPostAccess(user, id)
+  } catch (e: any) {
+    if (e.message === 'NOT_FOUND') return c.json({ error: 'Не найдено' }, 404)
+    if (e.message === 'FORBIDDEN') return c.json({ error: 'Нет доступа' }, 403)
+    throw e
+  }
   const data = await c.req.json()
   const post = await db.post.update({ where: { id }, data })
   emitEvent({ type: 'post_updated', tabId: c.req.header('X-Tab-ID') || '', postId: post.id })
@@ -75,6 +100,14 @@ posts.put('/:id', async (c) => {
 // POST /api/posts/:id/approve
 posts.post('/:id/approve', async (c) => {
   const { id } = c.req.param()
+  const user = c.get('user') as AuthUser
+  try {
+    await verifyPostAccess(user, id)
+  } catch (e: any) {
+    if (e.message === 'NOT_FOUND') return c.json({ error: 'Не найдено' }, 404)
+    if (e.message === 'FORBIDDEN') return c.json({ error: 'Нет доступа' }, 403)
+    throw e
+  }
   const post = await db.post.update({
     where: { id },
     data: { status: 'APPROVED' },
@@ -97,6 +130,14 @@ const versionSchema = z.object({
 
 posts.post('/:id/versions', async (c) => {
   const { id } = c.req.param()
+  const user = c.get('user') as AuthUser
+  try {
+    await verifyPostAccess(user, id)
+  } catch (e: any) {
+    if (e.message === 'NOT_FOUND') return c.json({ error: 'Не найдено' }, 404)
+    if (e.message === 'FORBIDDEN') return c.json({ error: 'Нет доступа' }, 403)
+    throw e
+  }
   const post = await db.post.findUnique({ where: { id } })
   if (!post) return c.json({ error: 'Пост не найден' }, 404)
 
@@ -122,6 +163,14 @@ posts.post('/:id/versions', async (c) => {
 // DELETE /api/posts/:id
 posts.delete('/:id', async (c) => {
   const { id } = c.req.param()
+  const user = c.get('user') as AuthUser
+  try {
+    await verifyPostAccess(user, id)
+  } catch (e: any) {
+    if (e.message === 'NOT_FOUND') return c.json({ error: 'Не найдено' }, 404)
+    if (e.message === 'FORBIDDEN') return c.json({ error: 'Нет доступа' }, 403)
+    throw e
+  }
   await db.post.delete({ where: { id } })
   emitEvent({ type: 'post_deleted', tabId: c.req.header('X-Tab-ID') || '', postId: id })
   return c.json({ success: true })

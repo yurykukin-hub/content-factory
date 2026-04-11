@@ -5,6 +5,8 @@ import sharp from 'sharp'
 import { join, extname } from 'path'
 import { mkdir, unlink, stat } from 'fs/promises'
 import { getModuleDir } from '../utils/paths'
+import type { AuthUser } from '../middleware/auth'
+import { verifyMediaAccess, assertBusinessAccess } from '../middleware/resource-access'
 
 const media = new Hono()
 
@@ -24,6 +26,13 @@ media.post('/upload', async (c) => {
   }
   if (!businessId) {
     return c.json({ error: 'businessId обязателен' }, 400)
+  }
+  const user = c.get('user') as AuthUser
+  try {
+    await assertBusinessAccess(user, businessId)
+  } catch (e: any) {
+    if (e.message === 'FORBIDDEN') return c.json({ error: 'Нет доступа' }, 403)
+    throw e
   }
 
   const blob = file as File
@@ -126,6 +135,14 @@ media.get('/tags/:bizId', async (c) => {
 // PUT /api/media/:id/tags — обновить теги файла
 media.put('/:id/tags', async (c) => {
   const { id } = c.req.param()
+  const user = c.get('user') as AuthUser
+  try {
+    await verifyMediaAccess(user, id)
+  } catch (e: any) {
+    if (e.message === 'NOT_FOUND') return c.json({ error: 'Не найдено' }, 404)
+    if (e.message === 'FORBIDDEN') return c.json({ error: 'Нет доступа' }, 403)
+    throw e
+  }
   const { tags } = await c.req.json<{ tags: string[] }>()
   const file = await db.mediaFile.update({
     where: { id },
@@ -137,6 +154,14 @@ media.put('/:id/tags', async (c) => {
 // GET /api/media/:id — метаданные файла
 media.get('/:id', async (c) => {
   const { id } = c.req.param()
+  const user = c.get('user') as AuthUser
+  try {
+    await verifyMediaAccess(user, id)
+  } catch (e: any) {
+    if (e.message === 'NOT_FOUND') return c.json({ error: 'Не найдено' }, 404)
+    if (e.message === 'FORBIDDEN') return c.json({ error: 'Нет доступа' }, 403)
+    throw e
+  }
   const file = await db.mediaFile.findUnique({ where: { id } })
   if (!file) return c.json({ error: 'Файл не найден' }, 404)
   return c.json(file)
@@ -145,6 +170,14 @@ media.get('/:id', async (c) => {
 // DELETE /api/media/:id — удаление файла
 media.delete('/:id', async (c) => {
   const { id } = c.req.param()
+  const user = c.get('user') as AuthUser
+  try {
+    await verifyMediaAccess(user, id)
+  } catch (e: any) {
+    if (e.message === 'NOT_FOUND') return c.json({ error: 'Не найдено' }, 404)
+    if (e.message === 'FORBIDDEN') return c.json({ error: 'Нет доступа' }, 403)
+    throw e
+  }
   const file = await db.mediaFile.findUnique({ where: { id } })
   if (!file) return c.json({ error: 'Файл не найден' }, 404)
 
@@ -178,6 +211,14 @@ media.get('/posts/:postId/media', async (c) => {
 // POST /api/media/:id/attach — привязать/отвязать файл к посту
 media.post('/:id/attach', async (c) => {
   const { id } = c.req.param()
+  const user = c.get('user') as AuthUser
+  try {
+    await verifyMediaAccess(user, id)
+  } catch (e: any) {
+    if (e.message === 'NOT_FOUND') return c.json({ error: 'Не найдено' }, 404)
+    if (e.message === 'FORBIDDEN') return c.json({ error: 'Нет доступа' }, 403)
+    throw e
+  }
   const { postId } = await c.req.json<{ postId: string | null }>()
   const file = await db.mediaFile.update({
     where: { id },
