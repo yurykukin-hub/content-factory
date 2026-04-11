@@ -86,8 +86,32 @@
 - [x] Фронтенд: ContentPlansView (AI генерация + таблица/календарь)
 - [ ] Шифрование accessToken (AES-256-GCM)
 
+## SaaS-Ready Refactoring (2026-04-11)
+- [2026-04-11] Split index.ts → app.ts + index.ts (testability)
+- [2026-04-11] Vitest setup: 40 тестов (auth, health, prompt-builder, RBAC)
+- [2026-04-11] Health endpoint: /api/health + ?full=true (DB readiness)
+- [2026-04-11] Error handler: HTTPException + Prisma errors + structured JSON
+- [2026-04-11] getModuleDir() utility for Bun/Node compat (import.meta.dir polyfill)
+- [2026-04-11] Removed @openrouter/sdk (unused dependency)
+- [2026-04-11] 27 alert() → toast, 8 console.error → toast in frontend
+- [2026-04-11] Composables: useFormatters, useStatus, usePlatform (eliminated 5+ views duplication)
+- [2026-04-11] DB indexes: Post, PostVersion, MediaFile, ContentPlan, AiUsageLog
+- [2026-04-11] AI cost calculation: MODEL_PRICING map in openrouter.ts
+- [2026-04-11] RBAC: UserBusiness model, requireBusinessAccess middleware
+- [2026-04-11] Users API: GET/POST/PUT /api/users (ADMIN-only)
+- [2026-04-11] Seed: Света (EDITOR, НаWоде), Антон (EDITOR, НаWоде)
+- [2026-04-11] UsersTab in Settings (admin-only, create/edit users + business access)
+- [2026-04-11] GET /api/businesses filtered by UserBusiness (EDITOR sees only linked)
+- [2026-04-11] Plan: 9 фаз, SaaS в будущем. Instagram API confirmed (Stories+Reels via API)
+
+## Endpoints (новые)
+- GET /api/health, /api/health?full=true — liveness + readiness
+- GET/POST/PUT /api/users — CRUD пользователей (ADMIN-only)
+
 ## Паттерны
 - HTTP client: fetch + httpOnly cookie + X-Tab-ID (из nawode-erp)
 - Auth: JWT в httpOnly cookie, requireAuth middleware (из nawode-erp)
 - SSE: eventBus → ReadableStream (из nawode-erp)
 - AI prompts: system prompt = base + brandContext (из sales-bot)
+- RBAC: UserBusiness join table, getUserBusinessIds() for query scoping
+- Testing: Vitest + vitest-setup.ts (Bun.password polyfill), mock Prisma via vi.hoisted()
