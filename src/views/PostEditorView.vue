@@ -50,6 +50,14 @@ const showAiImage = ref(false)
 const aiImagePrompt = ref('')
 const aiImageLoading = ref(false)
 const aiImageRatio = ref<'1:1' | '16:9' | '9:16'>('1:1')
+const aiEnhancing = ref(false)
+
+const IMAGE_TEMPLATES = [
+  { label: 'Продукт крупно', prompt: 'Product close-up on a clean neutral background, studio lighting, professional product photography' },
+  { label: 'Атмосфера', prompt: 'Atmospheric landscape, sunset, nature, water reflections, warm golden hour mood' },
+  { label: 'Lifestyle', prompt: 'People enjoying activity, natural smiles, dynamic composition, lifestyle photography' },
+  { label: 'Акция/Скидка', prompt: 'Bright bold background, minimalist composition, space for text overlay, sale/promo style' },
+]
 
 // Platform character limits
 const PLATFORM_LIMITS: Record<string, number> = { VK: 4096, TELEGRAM: 4096, INSTAGRAM: 2200 }
@@ -146,6 +154,21 @@ async function generateAiImage() {
     toast.success('Картинка сгенерирована')
   } catch (e: any) { toast.error('Ошибка: ' + (e.message || e)) }
   finally { aiImageLoading.value = false }
+}
+
+async function enhanceImagePrompt() {
+  if (!post.value || !aiImagePrompt.value.trim()) return
+  aiEnhancing.value = true
+  try {
+    const result = await http.post<{ enhancedPrompt: string }>('/ai/enhance-image-prompt', {
+      prompt: aiImagePrompt.value,
+      aspectRatio: aiImageRatio.value,
+      businessId: post.value.businessId,
+    })
+    aiImagePrompt.value = result.enhancedPrompt
+    toast.success('Промпт улучшен')
+  } catch (e: any) { toast.error('Ошибка: ' + (e.message || e)) }
+  finally { aiEnhancing.value = false }
 }
 
 function onMediaUploaded(file: MediaFile) {
@@ -413,11 +436,29 @@ onMounted(loadPost)
       <div class="bg-white dark:bg-gray-900 rounded-2xl p-6 w-full max-w-md shadow-xl">
         <h2 class="text-lg font-bold mb-4 flex items-center gap-2"><Sparkles :size="20" class="text-purple-500" /> AI Картинка</h2>
         <div class="space-y-3">
+          <!-- Template pills -->
+          <div>
+            <label class="block text-sm font-medium mb-1.5">Шаблоны</label>
+            <div class="flex flex-wrap gap-1.5">
+              <button v-for="t in IMAGE_TEMPLATES" :key="t.label" @click="aiImagePrompt = t.prompt"
+                class="px-2.5 py-1 rounded-full text-xs font-medium bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300 hover:bg-purple-200 dark:hover:bg-purple-800 transition-colors">
+                {{ t.label }}
+              </button>
+            </div>
+          </div>
+          <!-- Prompt textarea -->
           <div>
             <label class="block text-sm font-medium mb-1">Описание</label>
             <textarea v-model="aiImagePrompt" rows="3" placeholder="SUP-доска на закате в заливе Выборга..."
               class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 focus:ring-2 focus:ring-purple-500 text-sm" />
           </div>
+          <!-- Enhance button -->
+          <button @click="enhanceImagePrompt" :disabled="aiEnhancing || !aiImagePrompt.trim()"
+            class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-purple-300 dark:border-purple-700 text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-950 disabled:opacity-50 transition-colors">
+            <Loader2 v-if="aiEnhancing" :size="14" class="animate-spin" /><Wand2 v-else :size="14" />
+            {{ aiEnhancing ? 'Улучшаю...' : 'Улучшить промпт' }}
+          </button>
+          <!-- Aspect ratio -->
           <div>
             <label class="block text-sm font-medium mb-1">Формат</label>
             <div class="flex gap-2">

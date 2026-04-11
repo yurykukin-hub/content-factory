@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { db } from '../db'
 import { config } from '../config'
 import { aiComplete } from '../services/ai/openrouter'
-import { buildBrandContext, buildPlanPrompt, buildPostPrompt, buildAdaptPrompt, buildHashtagPrompt } from '../services/ai/prompt-builder'
+import { buildBrandContext, buildPlanPrompt, buildPostPrompt, buildAdaptPrompt, buildHashtagPrompt, buildImageEnhancerPrompt } from '../services/ai/prompt-builder'
 import { generateImage } from '../services/ai/image-generation'
 import { emitEvent } from '../eventBus'
 import type { AuthUser } from '../middleware/auth'
@@ -212,6 +212,38 @@ ai.post('/generate-image', async (c) => {
   })
 
   return c.json(result, 201)
+})
+
+// POST /api/ai/enhance-image-prompt — улучшение промпта для генерации картинки
+const enhanceImagePromptSchema = z.object({
+  prompt: z.string().min(1).max(2000),
+  aspectRatio: z.enum(['1:1', '16:9', '9:16']).default('1:1'),
+  businessId: z.string(),
+})
+
+ai.post('/enhance-image-prompt', async (c) => {
+  const data = enhanceImagePromptSchema.parse(await c.req.json())
+  const user = c.get('user') as AuthUser
+  try {
+    await assertBusinessAccess(user, data.businessId)
+  } catch (e: any) {
+    if (e.message === 'FORBIDDEN') return c.json({ error: 'Нет доступа' }, 403)
+    throw e
+  }
+
+  const brandContext = await buildBrandContext(data.businessId)
+  const systemPrompt = buildImageEnhancerPrompt(brandContext)
+
+  const result = await aiComplete({
+    systemPrompt,
+    userPrompt: `Описание: ${data.prompt}\nФормат: ${data.aspectRatio}`,
+    model: config.models.haiku,
+    maxTokens: 500,
+    businessId: data.businessId,
+    action: 'enhance_image_prompt',
+  })
+
+  return c.json({ enhancedPrompt: result.content.trim() })
 })
 
 // POST /api/ai/adapt — адаптация мастер-текста под платформы

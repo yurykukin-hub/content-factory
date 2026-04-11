@@ -4,7 +4,7 @@ import { db } from '../../db'
 /**
  * Получить OpenRouter API key: сначала из БД (AppConfig), потом fallback на .env
  */
-async function getApiKey(): Promise<string> {
+export async function getApiKey(): Promise<string> {
   try {
     const dbKey = await db.appConfig.findUnique({ where: { key: 'openrouter_api_key' } })
     if (dbKey?.value) return dbKey.value
@@ -20,9 +20,10 @@ const MODEL_PRICING: Record<string, { input: number; output: number }> = {
   'anthropic/claude-3.5-haiku': { input: 0.80, output: 4.00 },
   'anthropic/claude-sonnet-4': { input: 3.00, output: 15.00 },
   'google/gemini-2.0-flash-001': { input: 0.10, output: 0.40 },
+  'google/gemini-2.5-flash-image': { input: 0.15, output: 0.60 },
 }
 
-function calculateCost(model: string, tokensIn: number, tokensOut: number): number {
+export function calculateCost(model: string, tokensIn: number, tokensOut: number): number {
   const pricing = MODEL_PRICING[model]
   if (!pricing) return 0
   return (tokensIn * pricing.input + tokensOut * pricing.output) / 1_000_000

@@ -23,5 +23,6 @@ export const config = {
   models: {
     haiku: 'anthropic/claude-3.5-haiku',
     sonnet: 'anthropic/claude-sonnet-4',
+    imageGen: 'google/gemini-2.5-flash-image',
   },
 }

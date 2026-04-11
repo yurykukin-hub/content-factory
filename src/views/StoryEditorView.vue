@@ -7,7 +7,7 @@ import { useToast } from '@/composables/useToast'
 import { formatDate } from '@/composables/useFormatters'
 import {
   ArrowLeft, Upload, Sparkles, Loader2, Send, CheckCircle,
-  ExternalLink, AlertCircle, Image, Link, Trash2, ZoomIn, ZoomOut, Eye
+  ExternalLink, AlertCircle, Image, Link, Trash2, ZoomIn, ZoomOut, Eye, Wand2
 } from 'lucide-vue-next'
 
 interface MediaFile { id: string; url: string; thumbUrl: string | null; filename: string; mimeType: string; sizeBytes: number }
@@ -73,6 +73,14 @@ const aiTextLoading = ref(false)
 const showAiImage = ref(false)
 const aiPrompt = ref('')
 const aiLoading = ref(false)
+const aiEnhancing = ref(false)
+
+const IMAGE_TEMPLATES = [
+  { label: 'Продукт крупно', prompt: 'Product close-up on a clean neutral background, studio lighting, vertical 9:16 portrait format' },
+  { label: 'Атмосфера', prompt: 'Atmospheric vertical landscape, sunset over water, nature reflections, warm golden hour, 9:16 portrait' },
+  { label: 'Lifestyle', prompt: 'People enjoying outdoor activity, natural smiles, vertical portrait composition, 9:16 stories format' },
+  { label: 'Акция/Скидка', prompt: 'Bright bold background, minimalist vertical layout, space for text overlay, 9:16 promo style' },
+]
 
 // Channels
 const vkChannels = ref<PlatformAccount[]>([])
@@ -364,6 +372,21 @@ async function generateAiImage() {
     toast.success('Картинка сгенерирована')
   } catch (e: any) { toast.error('Ошибка: ' + e.message) }
   finally { aiLoading.value = false }
+}
+
+async function enhanceImagePrompt() {
+  if (!post.value || !aiPrompt.value.trim()) return
+  aiEnhancing.value = true
+  try {
+    const result = await http.post<{ enhancedPrompt: string }>('/ai/enhance-image-prompt', {
+      prompt: aiPrompt.value,
+      aspectRatio: '9:16',
+      businessId: post.value.businessId,
+    })
+    aiPrompt.value = result.enhancedPrompt
+    toast.success('Промпт улучшен')
+  } catch (e: any) { toast.error('Ошибка: ' + (e.message || e)) }
+  finally { aiEnhancing.value = false }
 }
 
 async function generateOverlayText() {
@@ -818,9 +841,28 @@ onUnmounted(() => {
     <div v-if="showAiImage" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50" @click.self="showAiImage = false">
       <div class="bg-white dark:bg-gray-900 rounded-2xl p-6 w-full max-w-md shadow-xl">
         <h2 class="text-lg font-bold mb-4 flex items-center gap-2"><Sparkles :size="20" class="text-purple-500" /> AI Картинка (9:16)</h2>
-        <textarea v-model="aiPrompt" rows="3" placeholder="SUP на закате, вертикальное фото..."
-          class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm mb-4" />
-        <div class="flex justify-end gap-2">
+        <div class="space-y-3">
+          <!-- Template pills -->
+          <div>
+            <label class="block text-sm font-medium mb-1.5">Шаблоны</label>
+            <div class="flex flex-wrap gap-1.5">
+              <button v-for="t in IMAGE_TEMPLATES" :key="t.label" @click="aiPrompt = t.prompt"
+                class="px-2.5 py-1 rounded-full text-xs font-medium bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300 hover:bg-purple-200 dark:hover:bg-purple-800 transition-colors">
+                {{ t.label }}
+              </button>
+            </div>
+          </div>
+          <!-- Prompt textarea -->
+          <textarea v-model="aiPrompt" rows="3" placeholder="SUP на закате, вертикальное фото..."
+            class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 focus:ring-2 focus:ring-purple-500 text-sm" />
+          <!-- Enhance button -->
+          <button @click="enhanceImagePrompt" :disabled="aiEnhancing || !aiPrompt.trim()"
+            class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-purple-300 dark:border-purple-700 text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-950 disabled:opacity-50 transition-colors">
+            <Loader2 v-if="aiEnhancing" :size="14" class="animate-spin" /><Wand2 v-else :size="14" />
+            {{ aiEnhancing ? 'Улучшаю...' : 'Улучшить промпт' }}
+          </button>
+        </div>
+        <div class="flex justify-end gap-2 mt-4">
           <button @click="showAiImage = false" class="px-4 py-2 rounded-lg text-sm text-gray-500">Отмена</button>
           <button @click="generateAiImage" :disabled="aiLoading || !aiPrompt.trim()"
             class="flex items-center gap-2 px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-700 text-white text-sm font-medium disabled:opacity-50">

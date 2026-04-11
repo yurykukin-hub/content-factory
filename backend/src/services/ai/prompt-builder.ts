@@ -159,3 +159,26 @@ ${brandContext}
 
 Только хештеги, по одному на строку, без номеров и пояснений.`
 }
+
+/**
+ * System prompt для улучшения промпта генерации изображений.
+ */
+export function buildImageEnhancerPrompt(brandContext: string): string {
+  return `Ты — эксперт по промптам для AI-генерации изображений.
+Твоя задача: взять краткое описание и превратить его в детальный промпт для генерации изображения.
+
+${brandContext}
+
+## Правила
+- Добавь описание стиля фотографии (editorial, lifestyle, product, drone shot, etc.)
+- Укажи освещение (golden hour, studio light, natural, dramatic, backlit)
+- Опиши композицию (close-up, wide shot, overhead, rule of thirds, centered)
+- Добавь цветовую палитру (warm tones, cool blues, vibrant, muted pastels)
+- Укажи настроение (energetic, calm, luxurious, adventurous, cozy)
+- Пиши на английском (AI-модели лучше понимают английские промпты)
+- Длина: 2-4 предложения, максимум 200 слов
+- НЕ добавляй текст/надписи/водяные знаки в изображение
+- Учитывай контекст бренда при выборе стиля и настроения
+
+Верни ТОЛЬКО улучшенный промпт, без пояснений и кавычек.`
+}

@@ -1,13 +1,6 @@
 import { config } from '../../config'
 import { db } from '../../db'
-
-async function getApiKey(): Promise<string> {
-  try {
-    const dbKey = await db.appConfig.findUnique({ where: { key: 'openrouter_api_key' } })
-    if (dbKey?.value) return dbKey.value
-  } catch {}
-  return config.OPENROUTER_API_KEY
-}
+import { calculateCost, getApiKey } from './openrouter'
 import { nanoid } from 'nanoid'
 import sharp from 'sharp'
 import { join } from 'path'
@@ -45,7 +38,13 @@ interface GenerateImageResult {
  */
 export async function generateImage(params: GenerateImageParams): Promise<GenerateImageResult> {
   const { prompt, businessId, postId, aspectRatio = '1:1' } = params
-  const model = 'google/gemini-2.0-flash-exp:free' // Free Gemini with image generation
+  const model = config.models.imageGen
+
+  const aspectDesc: Record<string, string> = {
+    '1:1': 'square format (1:1)',
+    '16:9': 'wide landscape format (16:9)',
+    '9:16': 'tall vertical portrait format (9:16, Instagram Stories)',
+  }
 
   // 1. Call OpenRouter with image generation
   const apiKey = await getApiKey()
@@ -59,10 +58,11 @@ export async function generateImage(params: GenerateImageParams): Promise<Genera
     },
     body: JSON.stringify({
       model,
+      modalities: ['text', 'image'],
       messages: [
         {
           role: 'user',
-          content: `Generate an image: ${prompt}. Make it suitable for social media posts. Aspect ratio: ${aspectRatio}. High quality, vibrant, professional.`,
+          content: `Generate a high-quality image: ${prompt}\n\nTechnical requirements:\n- Aspect ratio: ${aspectDesc[aspectRatio] || aspectRatio}\n- Photorealistic, professional photography quality\n- Suitable for social media marketing\n- No text, watermarks, or logos in the image\n- Vibrant colors, good lighting, sharp focus`,
         },
       ],
     }),
@@ -130,7 +130,7 @@ export async function generateImage(params: GenerateImageParams): Promise<Genera
     data: {
       businessId,
       postId: postId || null,
-      filename: `AI: ${prompt.slice(0, 50)}`,
+      filename: `AI: ${prompt.slice(0, 50).replace(/[\r\n\t]/g, ' ')}`,
       url: `/uploads/${businessId}/${filename}`,
       thumbUrl: `/uploads/${businessId}/${thumbFilename}`,
       mimeType: 'image/png',
@@ -148,7 +148,7 @@ export async function generateImage(params: GenerateImageParams): Promise<Genera
       tokensIn: usage.prompt_tokens || 0,
       tokensOut: usage.completion_tokens || 0,
       cachedTokens: 0,
-      costUsd: 0,
+      costUsd: calculateCost(model, usage.prompt_tokens || 0, usage.completion_tokens || 0),
     },
   })
 
