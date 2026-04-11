@@ -77,21 +77,36 @@ export async function generateImage(params: GenerateImageParams): Promise<Genera
   const usage = data.usage || {}
 
   // 2. Extract image from response
-  // OpenRouter returns image as inline data URL or in content parts
-  const content = data.choices?.[0]?.message?.content
+  // OpenRouter Gemini returns images in message.images[] field (not in content)
+  const message = data.choices?.[0]?.message
+  const content = message?.content
   let imageBuffer: Buffer | null = null
 
-  if (typeof content === 'string' && content.includes('data:image')) {
-    // Extract base64 from data URL
+  // Format 1: message.images[] array (Gemini 2.5 Flash Image via OpenRouter)
+  if (!imageBuffer && Array.isArray(message?.images)) {
+    for (const img of message.images) {
+      const url = typeof img === 'string' ? img : img?.image_url?.url || img?.url
+      if (url) {
+        const match = url.match(/data:image\/[^;]+;base64,([A-Za-z0-9+/=\n\r]+)/)
+        if (match) {
+          imageBuffer = Buffer.from(match[1].replace(/\s/g, ''), 'base64')
+          break
+        }
+      }
+    }
+  }
+
+  // Format 2: content as string with data URL (legacy/other models)
+  if (!imageBuffer && typeof content === 'string' && content.includes('data:image')) {
     const match = content.match(/data:image\/[^;]+;base64,([A-Za-z0-9+/=]+)/)
     if (match) {
       imageBuffer = Buffer.from(match[1], 'base64')
     }
   }
 
-  // Check content parts (array format)
-  if (!imageBuffer && Array.isArray(data.choices?.[0]?.message?.content)) {
-    for (const part of data.choices[0].message.content) {
+  // Format 3: content as array of parts (multimodal response)
+  if (!imageBuffer && Array.isArray(content)) {
+    for (const part of content) {
       if (part.type === 'image_url' && part.image_url?.url) {
         const match = part.image_url.url.match(/data:image\/[^;]+;base64,([A-Za-z0-9+/=]+)/)
         if (match) {
@@ -103,7 +118,6 @@ export async function generateImage(params: GenerateImageParams): Promise<Genera
   }
 
   if (!imageBuffer) {
-    // If no image generated, throw meaningful error
     throw new Error('AI не вернул изображение. Попробуйте другой промпт или модель.')
   }
 
