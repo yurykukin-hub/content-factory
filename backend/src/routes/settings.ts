@@ -1,23 +1,34 @@
 import { Hono } from 'hono'
 import { db } from '../db'
+import { config } from '../config'
 import type { AuthUser } from '../middleware/auth'
 
 const settings = new Hono()
 
-// GET /api/settings/config — все настройки
+function maskSecret(value: string): string {
+  if (!value || value.length < 14) return value ? '***' : ''
+  return `${value.slice(0, 10)}...${value.slice(-4)}`
+}
+
+// GET /api/settings/config — все настройки (DB + .env fallback)
 settings.get('/config', async (c) => {
   const user = c.get('user') as AuthUser
   if (user.role !== 'ADMIN') return c.json({ error: 'FORBIDDEN' }, 403)
   const configs = await db.appConfig.findMany()
   const result: Record<string, string> = {}
   for (const cfg of configs) {
-    // Маскируем секретные ключи
     if (cfg.key.includes('key') || cfg.key.includes('token') || cfg.key.includes('secret')) {
-      result[cfg.key] = cfg.value ? `${cfg.value.slice(0, 10)}...${cfg.value.slice(-4)}` : ''
+      result[cfg.key] = maskSecret(cfg.value)
     } else {
       result[cfg.key] = cfg.value
     }
   }
+
+  // Fallback: show .env key if not in DB
+  if (!result['openrouter_api_key'] && config.OPENROUTER_API_KEY) {
+    result['openrouter_api_key'] = maskSecret(config.OPENROUTER_API_KEY) + ' (.env)'
+  }
+
   return c.json(result)
 })
 
