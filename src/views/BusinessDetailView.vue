@@ -221,6 +221,11 @@ async function deleteChannel(id: string) {
 
 onMounted(() => {
   loadBusiness()
+  // Handle ?tab=channels from external links (e.g. StoryEditor "Настроить каналы")
+  const tabQuery = route.query.tab as string | undefined
+  if (tabQuery === 'channels') {
+    activeTab.value = 'channels'
+  }
 })
 </script>
 

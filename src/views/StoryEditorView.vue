@@ -566,7 +566,7 @@ onUnmounted(() => {
         <h2 class="text-lg font-bold mb-3">Превью Stories</h2>
 
         <!-- Phone frame -->
-        <div class="relative bg-black rounded-[2rem] p-2 shadow-2xl" style="width: 376px;">
+        <div class="relative bg-black rounded-[2rem] p-2 shadow-2xl w-full max-w-[376px]">
           <div class="absolute top-0 left-1/2 -translate-x-1/2 w-24 h-5 bg-black rounded-b-xl z-10"></div>
 
           <canvas
@@ -718,7 +718,7 @@ onUnmounted(() => {
             </select>
           </div>
           <div v-else-if="vkChannels.length === 1" class="text-xs text-gray-400 mb-3">{{ vkChannels[0].accountName }}</div>
-          <div v-else class="text-xs text-red-500 mb-3">Нет VK каналов. <router-link to="/settings" class="text-brand-500 underline">Настроить</router-link></div>
+          <div v-else class="text-xs text-red-500 mb-3">Нет VK каналов. <router-link :to="'/businesses/' + post.businessId + '?tab=channels'" class="text-brand-500 underline">Настроить каналы</router-link></div>
 
           <div v-if="version?.status === 'PUBLISHED'" class="p-3 rounded-lg bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800 mb-3">
             <div class="flex items-center gap-2">

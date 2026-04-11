@@ -9,6 +9,7 @@ import {
   ClipboardList, Sparkles, Plus, Loader2, Table, CalendarDays,
   Pencil, Wand2, ExternalLink, X, ChevronLeft, ChevronRight, Trash2
 } from 'lucide-vue-next'
+import BusinessFilter from '@/components/BusinessFilter.vue'
 
 interface ContentPlanItem {
   id: string
@@ -235,8 +236,14 @@ watch(() => businesses.currentBusiness?.id, loadPlans)
 
 <template>
   <div>
-    <div class="flex items-center justify-between mb-6">
-      <h1 class="text-2xl font-bold">Контент-планы</h1>
+    <!-- Business filter -->
+    <BusinessFilter
+      :model-value="businesses.currentBusinessId!"
+      @update:model-value="(id: string) => { businesses.setCurrent(id); loadPlans() }"
+    />
+
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
+      <h1 class="text-xl md:text-2xl font-bold">Контент-планы</h1>
       <button @click="showAiModal = true"
         class="flex items-center gap-2 px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-700 text-white text-sm font-medium">
         <Sparkles :size="16" /> AI Сгенерировать
@@ -306,7 +313,7 @@ watch(() => businesses.currentBusiness?.id, loadPlans)
               ✓ {{ batchResult.generated }}/{{ batchResult.total }} сгенерировано
             </span>
             <!-- View mode toggle -->
-            <div class="flex gap-1 bg-gray-100 dark:bg-gray-800 rounded-lg p-1">
+            <div class="hidden md:flex gap-1 bg-gray-100 dark:bg-gray-800 rounded-lg p-1">
               <button @click="viewMode = 'table'" :class="['flex items-center gap-1 px-3 py-1.5 rounded text-xs font-medium', viewMode === 'table' ? 'bg-white dark:bg-gray-900 shadow-sm text-brand-600' : 'text-gray-500']">
                 <Table :size="14" /> Таблица
               </button>
@@ -374,8 +381,8 @@ watch(() => businesses.currentBusiness?.id, loadPlans)
         </div>
       </div>
 
-      <!-- CALENDAR -->
-      <div v-if="viewMode === 'calendar'" class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-4">
+      <!-- CALENDAR (hidden on mobile — 7 columns don't fit) -->
+      <div v-if="viewMode === 'calendar'" class="hidden md:block bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-4">
         <div class="flex items-center justify-between mb-4">
           <button @click="prevMonth" class="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"><ChevronLeft :size="18" /></button>
           <span class="font-semibold capitalize">{{ calendarTitle }}</span>

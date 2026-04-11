@@ -28,7 +28,7 @@ const tabs = computed(() => allTabs.filter(t => !t.adminOnly || isAdmin.value))
     <h1 class="text-2xl font-bold mb-6">Настройки</h1>
 
     <!-- Tabs -->
-    <div class="flex gap-1 mb-6 bg-gray-100 dark:bg-gray-800 rounded-xl p-1 w-fit">
+    <div class="flex gap-1 mb-6 bg-gray-100 dark:bg-gray-800 rounded-xl p-1 w-full sm:w-fit overflow-x-auto">
       <button
         v-for="tab in tabs"
         :key="tab.key"

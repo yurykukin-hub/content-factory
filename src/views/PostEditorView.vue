@@ -323,7 +323,7 @@ onMounted(loadPost)
 
       <!-- RIGHT PANEL (2/5): Platform versions -->
       <div class="lg:col-span-2">
-        <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 overflow-hidden sticky top-6">
+        <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 overflow-hidden lg:sticky lg:top-6">
           <!-- Platform tabs with status dots -->
           <div v-if="platforms.length" class="flex border-b border-gray-200 dark:border-gray-800 overflow-x-auto">
             <button v-for="p in platforms" :key="p.id" @click="activeTab = p.id"

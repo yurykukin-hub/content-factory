@@ -74,7 +74,7 @@ content-factory/
 ├── src/                        # Vue 3 frontend
 │   ├── api/client.ts           # HTTP client (auto-refresh on 401)
 │   ├── router/index.ts         # 12 routes + auth guard
-│   ├── stores/                 # auth, businesses, theme
+│   ├── stores/                 # auth, businesses, theme, sidebar
 │   ├── composables/            # useToast, useFormatters, useStatus, usePlatform
 │   ├── views/
 │   │   ├── BusinessesView      # Grid карточек бизнесов (клик → detail)
@@ -83,7 +83,8 @@ content-factory/
 │   │   ├── StoryEditorView     # Stories (canvas WYSIWYG + шаблоны)
 │   │   ├── ContentPlansView    # AI планы (таблица + календарь)
 │   │   ├── MediaLibraryView    # Медиа-библиотека (grid, теги, фильтры)
-│   │   └── ...                 # Dashboard, Login, Settings, Analytics
+│   │   ├── IdeasView           # Личный блокнот идей (inline edit, auto-save)
+│   │   └── ...                 # Dashboard, Login, Settings
 │   └── components/
 │       ├── layout/             # TheSidebar, TheHeader
 │       ├── ToastContainer.vue  # Toast notifications
@@ -94,8 +95,8 @@ content-factory/
 └── scripts/deploy.sh, backup-db.sh
 ```
 
-## Schema (14 моделей, 8 enums)
-User, UserBusiness, Business, BrandProfile, PlatformAccount, ContentPlan, ContentPlanItem, Post, PostVersion, PublishLog, MediaFile, AiUsageLog, WebhookRule, AppConfig
+## Schema (15 моделей, 8 enums)
+User, UserBusiness, Business, BrandProfile, PlatformAccount, ContentPlan, ContentPlanItem, Post, PostVersion, PublishLog, MediaFile, AiUsageLog, WebhookRule, AppConfig, Idea
 
 Enums: UserRole, Platform, AccountType, PostType, PostStatus, ContentPlanStatus, PublishStatus
 

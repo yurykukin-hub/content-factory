@@ -45,7 +45,7 @@ function handleUnauthorized() {
     <TheSidebar />
     <div class="flex-1 flex flex-col min-w-0">
       <TheHeader />
-      <main class="flex-1 p-6 overflow-auto">
+      <main class="flex-1 p-3 md:p-6 overflow-auto">
         <router-view />
       </main>
     </div>

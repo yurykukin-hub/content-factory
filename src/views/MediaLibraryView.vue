@@ -8,6 +8,7 @@ import {
   Image, Video, Upload, Search, Tag, X, Loader2, Trash2,
   Filter, Grid3X3, Link, ExternalLink
 } from 'lucide-vue-next'
+import BusinessFilter from '@/components/BusinessFilter.vue'
 
 interface MediaFile {
   id: string
@@ -137,8 +138,14 @@ watch([typeFilter, tagFilter, showUnattached], loadFiles)
 
 <template>
   <div>
-    <div class="flex items-center justify-between mb-6">
-      <h1 class="text-2xl font-bold">Медиа-библиотека</h1>
+    <!-- Business filter -->
+    <BusinessFilter
+      :model-value="businesses.currentBusinessId!"
+      @update:model-value="(id: string) => { businesses.setCurrent(id); loadFiles(); loadTags() }"
+    />
+
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
+      <h1 class="text-xl md:text-2xl font-bold">Медиа-библиотека</h1>
       <label :class="['flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium cursor-pointer transition-colors', uploading && 'opacity-50']">
         <Loader2 v-if="uploading" :size="16" class="animate-spin" />
         <Upload v-else :size="16" />

@@ -7,7 +7,8 @@ import { useToast } from '@/composables/useToast'
 import { statusColor, statusLabel } from '@/composables/useStatus'
 import { formatDate } from '@/composables/useFormatters'
 import { platformColor } from '@/composables/usePlatform'
-import { FileText, Sparkles, Plus, Send, Clock, AlertCircle, Eye, Trash2, Loader2, ChevronDown } from 'lucide-vue-next'
+import { Film, Plus, Send, Trash2, Loader2, ChevronDown } from 'lucide-vue-next'
+import BusinessFilter from '@/components/BusinessFilter.vue'
 
 interface PostVersion {
   id: string
@@ -25,6 +26,8 @@ interface Post {
   aiModel: string | null
   createdAt: string
   versions: PostVersion[]
+  business?: { name: string }
+  mediaFiles?: { thumbUrl: string | null; url: string }[]
   _count: { mediaFiles: number }
 }
 
@@ -34,64 +37,27 @@ const toast = useToast()
 
 const posts = ref<Post[]>([])
 const loading = ref(true)
+const createLoading = ref(false)
 const statusFilter = ref('')
 
-// AI modal
-const showAiModal = ref(false)
-const aiTopic = ref('')
-const aiLoading = ref(false)
+// Quick publish
+const publishingId = ref<string | null>(null)
+const publishDropdownId = ref<string | null>(null)
 
-// Manual create modal
-const showCreateModal = ref(false)
-const newPost = ref({ title: '', body: '', postType: 'TEXT' })
-const createLoading = ref(false)
+// Confirm delete
+const deleteConfirmId = ref<string | null>(null)
 
 async function loadPosts() {
   if (!businesses.currentBusiness) return
   loading.value = true
   try {
-    const url = `/businesses/${businesses.currentBusiness.id}/posts${statusFilter.value ? '?status=' + statusFilter.value : ''}`
+    let url = `/businesses/${businesses.currentBusiness.id}/posts?postType=STORIES`
+    if (statusFilter.value) url += `&status=${statusFilter.value}`
     posts.value = await http.get<Post[]>(url)
   } catch (e) {
-    toast.error('Ошибка загрузки постов')
+    toast.error('Ошибка загрузки')
   } finally {
     loading.value = false
-  }
-}
-
-async function generatePost() {
-  if (!businesses.currentBusiness || !aiTopic.value.trim()) return
-  aiLoading.value = true
-  try {
-    const result = await http.post<{ post: Post }>('/ai/generate-post', {
-      businessId: businesses.currentBusiness.id,
-      topic: aiTopic.value,
-    })
-    showAiModal.value = false
-    aiTopic.value = ''
-    router.push(`/posts/${result.post.id}`)
-  } catch (e: any) {
-    toast.error('Ошибка AI: ' + (e.message || ''))
-  } finally {
-    aiLoading.value = false
-  }
-}
-
-async function createPost() {
-  if (!businesses.currentBusiness) return
-  createLoading.value = true
-  try {
-    const post = await http.post<Post>('/posts', {
-      businessId: businesses.currentBusiness.id,
-      title: '',
-      body: ' ',
-      postType: 'TEXT',
-    })
-    router.push(`/posts/${post.id}`)
-  } catch (e: any) {
-    toast.error(e.message || 'Произошла ошибка')
-  } finally {
-    createLoading.value = false
   }
 }
 
@@ -104,13 +70,12 @@ async function createStories() {
       title: '', body: ' ', postType: 'STORIES',
     })
     router.push(`/stories/${post.id}`)
-  } catch (e: any) { toast.error(e.message || 'Произошла ошибка') }
-  finally { createLoading.value = false }
+  } catch (e: any) {
+    toast.error(e.message || 'Произошла ошибка')
+  } finally {
+    createLoading.value = false
+  }
 }
-
-// Quick publish
-const publishingId = ref<string | null>(null)
-const publishDropdownId = ref<string | null>(null)
 
 async function quickPublish(versionId: string, postId: string) {
   publishingId.value = postId
@@ -127,13 +92,21 @@ async function quickPublish(versionId: string, postId: string) {
 }
 
 async function deletePost(id: string) {
-  if (!confirm('Удалить пост?')) return
+  deleteConfirmId.value = null
   try {
     await http.delete(`/posts/${id}`)
     posts.value = posts.value.filter(p => p.id !== id)
+    toast.success('Удалено')
   } catch (e: any) {
     toast.error(e.message || 'Произошла ошибка')
   }
+}
+
+function getThumb(post: Post): string | null {
+  if (post.mediaFiles && post.mediaFiles.length > 0) {
+    return post.mediaFiles[0].thumbUrl || post.mediaFiles[0].url
+  }
+  return null
 }
 
 onMounted(loadPosts)
@@ -144,41 +117,30 @@ watch(statusFilter, loadPosts)
 <template>
   <div>
     <!-- Header -->
-    <div class="flex items-center justify-between mb-6">
-      <h1 class="text-2xl font-bold">Посты</h1>
-      <div class="flex items-center gap-2">
-        <button
-          @click="showAiModal = true"
-          class="flex items-center gap-2 px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-700 text-white text-sm font-medium transition-colors"
-        >
-          <Sparkles :size="16" />
-          AI генерация
-        </button>
-        <button
-          @click="createPost"
-          :disabled="createLoading"
-          class="flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium transition-colors disabled:opacity-50"
-        >
-          <Loader2 v-if="createLoading" :size="16" class="animate-spin" />
-          <Plus v-else :size="16" />
-          Создать пост
-        </button>
-        <button
-          @click="createStories"
-          :disabled="createLoading"
-          class="flex items-center gap-2 px-4 py-2 rounded-lg bg-orange-500 hover:bg-orange-600 text-white text-sm font-medium transition-colors disabled:opacity-50"
-        >
-          <Plus :size="16" />
-          Stories
-        </button>
-      </div>
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
+      <h1 class="text-xl md:text-2xl font-bold">Stories</h1>
+      <button
+        @click="createStories"
+        :disabled="createLoading"
+        class="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium transition-colors disabled:opacity-50 shrink-0"
+      >
+        <Loader2 v-if="createLoading" :size="16" class="animate-spin" />
+        <Plus v-else :size="16" />
+        Создать историю
+      </button>
     </div>
 
-    <!-- Filters -->
+    <!-- Business filter -->
+    <BusinessFilter
+      :model-value="businesses.currentBusinessId!"
+      @update:model-value="(id: string) => { businesses.setCurrent(id); loadPosts() }"
+    />
+
+    <!-- Status filter -->
     <div class="mb-4">
       <select
         v-model="statusFilter"
-        class="px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-brand-500"
+        class="w-full sm:w-auto px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-brand-500"
       >
         <option value="">Все статусы</option>
         <option value="DRAFT">Черновики</option>
@@ -189,69 +151,96 @@ watch(statusFilter, loadPosts)
       </select>
     </div>
 
-    <!-- Loading -->
-    <div v-if="loading" class="text-gray-500 py-8 text-center">Загрузка...</div>
+    <!-- Skeleton loader -->
+    <div v-if="loading" class="space-y-3">
+      <div v-for="i in 4" :key="i" class="bg-white dark:bg-gray-900 rounded-xl p-4 border border-gray-200 dark:border-gray-800 animate-pulse">
+        <div class="flex gap-3">
+          <div class="w-16 h-16 md:w-20 md:h-20 bg-gray-200 dark:bg-gray-700 rounded-lg shrink-0"></div>
+          <div class="flex-1 space-y-2">
+            <div class="h-4 bg-gray-200 dark:bg-gray-700 rounded w-1/3"></div>
+            <div class="h-3 bg-gray-200 dark:bg-gray-700 rounded w-2/3"></div>
+            <div class="h-3 bg-gray-200 dark:bg-gray-700 rounded w-1/4"></div>
+          </div>
+        </div>
+      </div>
+    </div>
 
-    <!-- Empty -->
+    <!-- Empty state -->
     <div v-else-if="posts.length === 0" class="bg-white dark:bg-gray-900 rounded-xl p-8 border border-gray-200 dark:border-gray-800 text-center">
-      <FileText :size="48" class="mx-auto text-gray-300 dark:text-gray-600 mb-3" />
-      <p class="text-gray-500 mb-4">Нет постов. Создайте первый пост или используйте AI-генерацию!</p>
-      <button @click="showAiModal = true" class="px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-700 text-white text-sm font-medium transition-colors">
-        <Sparkles :size="16" class="inline mr-1" /> Сгенерировать пост
+      <Film :size="48" class="mx-auto text-gray-300 dark:text-gray-600 mb-3" />
+      <p class="text-gray-500 mb-4">Нет историй. Создайте первую!</p>
+      <button
+        @click="createStories"
+        :disabled="createLoading"
+        class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium transition-colors disabled:opacity-50"
+      >
+        <Plus :size="16" />
+        Создать первую историю
       </button>
     </div>
 
-    <!-- Post list -->
+    <!-- Stories list -->
     <div v-else class="space-y-3">
       <div
         v-for="post in posts"
         :key="post.id"
-        class="bg-white dark:bg-gray-900 rounded-xl p-5 border border-gray-200 dark:border-gray-800 hover:border-brand-300 dark:hover:border-brand-700 transition-colors cursor-pointer"
-        @click="router.push(post.postType === 'STORIES' ? `/stories/${post.id}` : `/posts/${post.id}`)"
+        class="bg-white dark:bg-gray-900 rounded-xl p-4 border border-gray-200 dark:border-gray-800 hover:border-brand-300 dark:hover:border-brand-700 transition-colors cursor-pointer min-h-[100px]"
+        @click="router.push(`/stories/${post.id}`)"
       >
-        <div class="flex items-start justify-between gap-4">
+        <div class="flex gap-3">
+          <!-- Thumbnail -->
+          <div class="w-16 h-16 md:w-20 md:h-20 bg-gray-100 dark:bg-gray-800 rounded-lg shrink-0 overflow-hidden flex items-center justify-center">
+            <img
+              v-if="getThumb(post)"
+              :src="getThumb(post)!"
+              class="w-full h-full object-cover"
+              loading="lazy"
+            />
+            <Film v-else :size="24" class="text-gray-300 dark:text-gray-600" />
+          </div>
+
+          <!-- Content -->
           <div class="flex-1 min-w-0">
-            <!-- Title + status -->
-            <div class="flex items-center gap-2 mb-2">
-              <h3 class="font-semibold truncate">{{ post.title || 'Без заголовка' }}</h3>
-              <span :class="['px-2 py-0.5 rounded-full text-xs font-medium shrink-0', statusColor(post.status)]">
+            <div class="flex items-center gap-2 mb-1 flex-wrap">
+              <h3 class="font-semibold text-sm md:text-base truncate">{{ post.title || 'Без заголовка' }}</h3>
+              <span :class="['px-2 py-0.5 rounded-full text-[10px] md:text-xs font-medium shrink-0', statusColor(post.status)]">
                 {{ statusLabel(post.status) }}
-              </span>
-              <span v-if="post.createdBy === 'ai'" class="px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300 shrink-0">
-                AI
               </span>
             </div>
 
             <!-- Body preview -->
-            <p class="text-sm text-gray-500 dark:text-gray-400 line-clamp-2 mb-3">{{ post.body }}</p>
+            <p class="text-xs md:text-sm text-gray-500 dark:text-gray-400 line-clamp-1 mb-2">{{ post.body?.trim() || '—' }}</p>
 
-            <!-- Meta -->
-            <div class="flex items-center gap-4 text-xs text-gray-400">
+            <!-- Meta row -->
+            <div class="flex items-center gap-2 md:gap-3 flex-wrap text-[10px] md:text-xs text-gray-400">
+              <span v-if="post.business" class="px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 font-medium text-gray-500 dark:text-gray-400">
+                {{ post.business.name }}
+              </span>
               <span>{{ formatDate(post.createdAt) }}</span>
               <span v-if="post.versions.length">
-                {{ post.versions.length }} {{ post.versions.length === 1 ? 'версия' : 'версий' }}
                 <template v-for="v in post.versions" :key="v.id">
-                  <span class="ml-1 px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-[10px]">{{ v.platformAccount.platform }}</span>
+                  <span :class="['ml-0.5 px-1.5 py-0.5 rounded font-medium', platformColor(v.platformAccount.platform)]">
+                    {{ v.platformAccount.platform }}
+                  </span>
                 </template>
               </span>
             </div>
           </div>
 
           <!-- Actions -->
-          <div class="flex items-center gap-1 shrink-0" @click.stop>
-            <!-- Quick publish (for posts with unpublished versions) -->
+          <div class="flex flex-col items-end gap-1 shrink-0" @click.stop>
+            <!-- Quick publish -->
             <div v-if="post.versions.some(v => v.status === 'DRAFT' || v.status === 'APPROVED')" class="relative">
               <button
                 @click="publishDropdownId = publishDropdownId === post.id ? null : post.id"
                 :disabled="publishingId === post.id"
-                class="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-green-50 text-green-700 hover:bg-green-100 dark:bg-green-950 dark:text-green-300 dark:hover:bg-green-900 transition-colors disabled:opacity-50"
+                class="flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-medium bg-green-50 text-green-700 hover:bg-green-100 dark:bg-green-950 dark:text-green-300 dark:hover:bg-green-900 transition-colors disabled:opacity-50"
               >
                 <Loader2 v-if="publishingId === post.id" :size="14" class="animate-spin" />
                 <Send v-else :size="14" />
-                <ChevronDown :size="12" />
+                <ChevronDown :size="10" />
               </button>
-              <!-- Dropdown -->
-              <div v-if="publishDropdownId === post.id" class="absolute right-0 top-full mt-1 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 py-1 z-10 min-w-[160px]">
+              <div v-if="publishDropdownId === post.id" class="absolute right-0 top-full mt-1 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 py-1 z-10 min-w-[140px]">
                 <button
                   v-for="v in post.versions.filter(v => v.status === 'DRAFT' || v.status === 'APPROVED')"
                   :key="v.id"
@@ -263,112 +252,53 @@ watch(statusFilter, loadPosts)
                 </button>
               </div>
             </div>
+
+            <!-- Delete -->
             <button
-              @click="deletePost(post.id)"
-              class="p-2 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950 transition-colors"
+              @click="deleteConfirmId = post.id"
+              class="p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950 transition-colors"
             >
-              <Trash2 :size="16" />
+              <Trash2 :size="14" />
             </button>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- AI Modal -->
-    <div v-if="showAiModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50" @click.self="showAiModal = false">
-      <div class="bg-white dark:bg-gray-900 rounded-2xl p-6 w-full max-w-md shadow-xl">
-        <h2 class="text-lg font-bold mb-4 flex items-center gap-2">
-          <Sparkles :size="20" class="text-purple-500" />
-          AI генерация поста
-        </h2>
-        <div class="mb-4">
-          <label class="block text-sm font-medium mb-1.5">Тема поста</label>
-          <textarea
-            v-model="aiTopic"
-            rows="3"
-            placeholder="Например: Открытие SUP-сезона 2026 в Выборге"
-            class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 focus:ring-2 focus:ring-purple-500 focus:border-purple-500 text-sm"
-          />
-        </div>
-        <p class="text-xs text-gray-400 mb-4">AI (Claude Sonnet) сгенерирует текст поста на основе бренд-профиля бизнеса "{{ businesses.currentBusiness?.name }}"</p>
-        <div class="flex justify-end gap-2">
-          <button @click="showAiModal = false" class="px-4 py-2 rounded-lg text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800">
-            Отмена
-          </button>
-          <button
-            @click="generatePost"
-            :disabled="aiLoading || !aiTopic.trim()"
-            class="flex items-center gap-2 px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-700 text-white text-sm font-medium transition-colors disabled:opacity-50"
-          >
-            <Loader2 v-if="aiLoading" :size="16" class="animate-spin" />
-            <Sparkles v-else :size="16" />
-            {{ aiLoading ? 'Генерация...' : 'Сгенерировать' }}
-          </button>
+    <!-- Delete confirmation modal -->
+    <Teleport to="body">
+      <div
+        v-if="deleteConfirmId"
+        class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+        @click.self="deleteConfirmId = null"
+      >
+        <div class="bg-white dark:bg-gray-900 rounded-2xl p-5 w-full max-w-sm shadow-xl">
+          <h3 class="text-base font-bold mb-2">Удалить историю?</h3>
+          <p class="text-sm text-gray-500 mb-4">Это действие нельзя отменить. История и все её версии будут удалены.</p>
+          <div class="flex gap-2">
+            <button
+              @click="deleteConfirmId = null"
+              class="flex-1 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"
+            >
+              Отмена
+            </button>
+            <button
+              @click="deletePost(deleteConfirmId!)"
+              class="flex-1 px-3 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white text-sm font-medium"
+            >
+              Удалить
+            </button>
+          </div>
         </div>
       </div>
-    </div>
-
-    <!-- Create Modal -->
-    <div v-if="showCreateModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50" @click.self="showCreateModal = false">
-      <div class="bg-white dark:bg-gray-900 rounded-2xl p-6 w-full max-w-md shadow-xl">
-        <h2 class="text-lg font-bold mb-4 flex items-center gap-2">
-          <Plus :size="20" class="text-brand-500" />
-          Новый пост
-        </h2>
-        <div class="space-y-3">
-          <!-- Post type selector -->
-          <div>
-            <label class="block text-sm font-medium mb-1.5">Тип</label>
-            <div class="flex gap-2">
-              <button v-for="t in [{v:'TEXT',l:'Пост'},{v:'STORIES',l:'Stories'}]" :key="t.v"
-                @click="newPost.postType = t.v"
-                :class="['flex-1 py-2 rounded-lg text-sm font-medium border-2 transition-all',
-                  newPost.postType === t.v ? 'border-brand-500 bg-brand-50 dark:bg-brand-950 text-brand-700 dark:text-brand-300' : 'border-gray-200 dark:border-gray-700 text-gray-500']">
-                {{ t.l }}
-              </button>
-            </div>
-            <p v-if="newPost.postType === 'STORIES'" class="text-xs text-gray-400 mt-1">Загрузите вертикальное фото/видео (9:16, 1080x1920) в редакторе</p>
-          </div>
-          <div>
-            <label class="block text-sm font-medium mb-1.5">Заголовок (необязательно)</label>
-            <input
-              v-model="newPost.title"
-              placeholder="Заголовок поста"
-              class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 focus:ring-2 focus:ring-brand-500 text-sm"
-            />
-          </div>
-          <div>
-            <label class="block text-sm font-medium mb-1.5">{{ newPost.postType === 'STORIES' ? 'Описание (необязательно)' : 'Текст поста' }}</label>
-            <textarea
-              v-model="newPost.body"
-              :rows="newPost.postType === 'STORIES' ? 2 : 5"
-              :placeholder="newPost.postType === 'STORIES' ? 'Краткое описание для истории...' : 'Текст вашего поста...'"
-              class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 focus:ring-2 focus:ring-brand-500 text-sm"
-            />
-          </div>
-        </div>
-        <div class="flex justify-end gap-2 mt-4">
-          <button @click="showCreateModal = false" class="px-4 py-2 rounded-lg text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800">
-            Отмена
-          </button>
-          <button
-            @click="createPost"
-            :disabled="createLoading || !newPost.body.trim()"
-            class="flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium disabled:opacity-50"
-          >
-            <Loader2 v-if="createLoading" :size="16" class="animate-spin" />
-            Создать
-          </button>
-        </div>
-      </div>
-    </div>
+    </Teleport>
   </div>
 </template>
 
 <style scoped>
-.line-clamp-2 {
+.line-clamp-1 {
   display: -webkit-box;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 1;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }

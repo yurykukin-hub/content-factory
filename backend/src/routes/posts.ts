@@ -11,15 +11,19 @@ const posts = new Hono()
 posts.get('/:bizId/posts', async (c) => {
   const { bizId } = c.req.param()
   const status = c.req.query('status')
+  const postType = c.req.query('postType')
   const list = await db.post.findMany({
     where: {
       businessId: bizId,
       ...(status ? { status: status as any } : {}),
+      ...(postType ? { postType: postType as any } : {}),
     },
     include: {
+      business: { select: { name: true } },
       versions: {
         include: { platformAccount: { select: { platform: true, accountName: true } } },
       },
+      mediaFiles: { take: 1, select: { thumbUrl: true, url: true }, orderBy: { sortOrder: 'asc' } },
       _count: { select: { mediaFiles: true } },
     },
     orderBy: { createdAt: 'desc' },

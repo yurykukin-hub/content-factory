@@ -2,7 +2,7 @@
 import { ref, onMounted } from 'vue'
 import { http } from '@/api/client'
 import { useToast } from '@/composables/useToast'
-import { FileText, Send, Clock, Sparkles } from 'lucide-vue-next'
+import { Film, Send, Clock, Sparkles } from 'lucide-vue-next'
 
 const toast = useToast()
 
@@ -45,9 +45,9 @@ onMounted(async () => {
       <div class="bg-white dark:bg-gray-900 rounded-xl p-5 border border-gray-200 dark:border-gray-800">
         <div class="flex items-center gap-3 mb-3">
           <div class="p-2 bg-brand-100 dark:bg-brand-900 rounded-lg">
-            <FileText :size="20" class="text-brand-600 dark:text-brand-400" />
+            <Film :size="20" class="text-brand-600 dark:text-brand-400" />
           </div>
-          <span class="text-sm text-gray-500">Всего постов</span>
+          <span class="text-sm text-gray-500">Всего контента</span>
         </div>
         <div class="text-3xl font-bold">{{ data.totalPosts }}</div>
         <div class="text-sm text-gray-500 mt-1">+{{ data.postsThisWeek }} за неделю</div>
@@ -95,8 +95,8 @@ onMounted(async () => {
       <h2 class="text-lg font-semibold mb-4">Быстрые действия</h2>
       <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <router-link to="/posts" class="flex items-center gap-2 p-3 rounded-lg bg-brand-50 dark:bg-brand-950 hover:bg-brand-100 dark:hover:bg-brand-900 text-brand-700 dark:text-brand-300 transition-colors">
-          <FileText :size="18" />
-          <span class="text-sm font-medium">Создать пост</span>
+          <Film :size="18" />
+          <span class="text-sm font-medium">Создать историю</span>
         </router-link>
         <router-link to="/plans" class="flex items-center gap-2 p-3 rounded-lg bg-purple-50 dark:bg-purple-950 hover:bg-purple-100 dark:hover:bg-purple-900 text-purple-700 dark:text-purple-300 transition-colors">
           <Sparkles :size="18" />
