@@ -29,9 +29,17 @@ const configSaved = ref(false)
 // OAuth flow
 const authUrl = ref('')
 const initiating = ref(false)
-const codeInput = ref('')
-const deviceIdInput = ref('')
+const urlInput = ref('')
+const parsedCode = ref('')
+const parsedDeviceId = ref('')
 const exchanging = ref(false)
+
+function parseOAuthUrl(url: string) {
+  const fragment = url.split('#')[1] || url.split('?')[1] || ''
+  const params = new URLSearchParams(fragment)
+  parsedCode.value = params.get('code') || ''
+  parsedDeviceId.value = params.get('device_id') || ''
+}
 
 // Actions
 const refreshing = ref(false)
@@ -79,16 +87,17 @@ async function initOAuth() {
 }
 
 async function exchangeCode() {
-  if (!codeInput.value.trim() || !deviceIdInput.value.trim()) return
+  if (!parsedCode.value || !parsedDeviceId.value) return
   exchanging.value = true
   try {
     const result = await http.post<{ success: boolean; error?: string }>('/vk-oauth/callback', {
-      code: codeInput.value.trim(),
-      deviceId: deviceIdInput.value.trim(),
+      code: parsedCode.value,
+      deviceId: parsedDeviceId.value,
     })
     if (result.success) {
-      codeInput.value = ''
-      deviceIdInput.value = ''
+      urlInput.value = ''
+      parsedCode.value = ''
+      parsedDeviceId.value = ''
       authUrl.value = ''
       await loadStatus()
     } else {
@@ -265,22 +274,23 @@ onMounted(loadStatus)
           </div>
 
           <div>
-            <p class="text-sm font-medium mb-2">Шаг 2: Скопируйте <code class="bg-gray-100 dark:bg-gray-800 px-1 rounded">code</code> из URL</p>
-            <input v-model="codeInput" placeholder="vk2.a.xxx..."
+            <p class="text-sm font-medium mb-2">Шаг 2: Вставьте URL из адресной строки</p>
+            <input v-model="urlInput" @input="parseOAuthUrl(urlInput)" placeholder="https://oauth.vk.com/blank.html#code=..."
               class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm font-mono text-xs" />
-          </div>
-
-          <div>
-            <p class="text-sm font-medium mb-2">Шаг 3: Скопируйте <code class="bg-gray-100 dark:bg-gray-800 px-1 rounded">device_id</code> из URL</p>
-            <input v-model="deviceIdInput" placeholder="UgxNual..."
-              class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm font-mono text-xs" />
+            <div v-if="parsedCode && parsedDeviceId" class="flex items-center gap-1.5 mt-2 text-xs text-green-600 dark:text-green-400">
+              <CheckCircle :size="14" />
+              code и device_id найдены
+            </div>
+            <div v-else-if="urlInput && !parsedCode" class="text-xs text-amber-500 mt-2">
+              Не удалось найти code в URL. Убедитесь что скопировали полный адрес.
+            </div>
           </div>
 
           <div class="flex gap-2">
-            <button @click="authUrl = ''" class="px-4 py-2 rounded-lg text-sm text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800">
+            <button @click="authUrl = ''; urlInput = ''; parsedCode = ''; parsedDeviceId = ''" class="px-4 py-2 rounded-lg text-sm text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800">
               Отмена
             </button>
-            <button @click="exchangeCode" :disabled="exchanging || !codeInput.trim() || !deviceIdInput.trim()"
+            <button @click="exchangeCode" :disabled="exchanging || !parsedCode || !parsedDeviceId"
               class="flex items-center gap-2 px-4 py-2 rounded-lg bg-green-600 hover:bg-green-700 text-white text-sm font-medium disabled:opacity-50">
               <Loader2 v-if="exchanging" :size="16" class="animate-spin" />
               <CheckCircle v-else :size="16" />
