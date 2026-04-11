@@ -19,6 +19,7 @@ rsync -a --delete \
   --exclude='backend/.env' \
   --exclude='uploads/*' \
   --exclude='dist' \
+  --exclude='.env.prod' \
   "$SRC_DIR/" "$DEPLOY_DIR/"
 
 # 3. Load env
