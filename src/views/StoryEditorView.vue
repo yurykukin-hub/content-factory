@@ -468,6 +468,56 @@ function closePreview() {
 }
 
 // VK link_text → реальный текст кнопки в VK (проверено)
+// Story templates
+interface StoryTemplate {
+  name: string
+  emoji: string
+  overlayText: string
+  textPosition: 'top' | 'center' | 'bottom'
+  textColor: string
+  fontSize: 'S' | 'M' | 'L'
+  bgStyle: 'dark' | 'light' | 'none'
+  linkType: string
+}
+
+const STORY_TEMPLATES: StoryTemplate[] = [
+  {
+    name: 'SUP рассвет', emoji: '🌅',
+    overlayText: 'Рассвет на воде — лучшее начало дня',
+    textPosition: 'bottom', textColor: '#ffffff', fontSize: 'L', bgStyle: 'dark', linkType: 'book',
+  },
+  {
+    name: 'Прогноз дня', emoji: '☀️',
+    overlayText: 'Сегодня идеальная погода для SUP!',
+    textPosition: 'top', textColor: '#ffffff', fontSize: 'M', bgStyle: 'light', linkType: 'book',
+  },
+  {
+    name: 'Акция', emoji: '🔥',
+    overlayText: 'Скидка 20% на утренний прокат!',
+    textPosition: 'center', textColor: '#ffffff', fontSize: 'L', bgStyle: 'dark', linkType: 'order',
+  },
+  {
+    name: 'Факт о SUP', emoji: '💡',
+    overlayText: 'SUP — один из самых быстрорастущих видов спорта в мире',
+    textPosition: 'bottom', textColor: '#ffffff', fontSize: 'M', bgStyle: 'dark', linkType: '',
+  },
+  {
+    name: 'Отзыв', emoji: '⭐',
+    overlayText: '«Лучший отдых за последний год!»',
+    textPosition: 'center', textColor: '#ffffff', fontSize: 'L', bgStyle: 'dark', linkType: 'learn_more',
+  },
+]
+
+function applyTemplate(tpl: StoryTemplate) {
+  overlayText.value = tpl.overlayText
+  textPosition.value = tpl.textPosition
+  textColor.value = tpl.textColor
+  fontSize.value = tpl.fontSize
+  bgStyle.value = tpl.bgStyle
+  linkType.value = tpl.linkType
+  toast.info(`Шаблон "${tpl.name}" применён`)
+}
+
 const LINK_TYPES = [
   { value: '', label: 'Без ссылки' },
   { value: 'learn_more', label: 'Подробнее' },
@@ -552,6 +602,18 @@ onUnmounted(() => {
 
         <!-- Photo -->
         <div class="bg-white dark:bg-gray-900 rounded-xl p-5 border border-gray-200 dark:border-gray-800">
+          <!-- Templates -->
+          <div class="mb-4">
+            <h3 class="font-semibold text-sm mb-2">Шаблоны</h3>
+            <div class="flex flex-wrap gap-1.5">
+              <button v-for="tpl in STORY_TEMPLATES" :key="tpl.name" @click="applyTemplate(tpl)"
+                class="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-gray-100 dark:bg-gray-800 text-xs font-medium hover:bg-brand-50 dark:hover:bg-brand-950 hover:text-brand-700 dark:hover:text-brand-300 transition-colors">
+                <span>{{ tpl.emoji }}</span>
+                {{ tpl.name }}
+              </button>
+            </div>
+          </div>
+
           <h3 class="font-semibold text-sm mb-3 flex items-center gap-2"><Image :size="16" /> Фото</h3>
           <div v-if="photo" class="flex items-center gap-3 mb-3">
             <img :src="photo.thumbUrl || photo.url" class="w-12 h-12 rounded-lg object-cover" />
