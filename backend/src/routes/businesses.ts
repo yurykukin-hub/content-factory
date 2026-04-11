@@ -3,13 +3,20 @@ import { z } from 'zod'
 import { db } from '../db'
 import { emitEvent } from '../eventBus'
 import type { AuthUser } from '../middleware/auth'
+import { getUserBusinessIds } from '../middleware/business-access'
 
 const businesses = new Hono()
 
-// GET /api/businesses
+// GET /api/businesses — filtered by user access
 businesses.get('/', async (c) => {
+  const user = c.get('user') as AuthUser
+  const accessibleIds = await getUserBusinessIds(user)
+
   const list = await db.business.findMany({
-    where: { isActive: true },
+    where: {
+      isActive: true,
+      ...(accessibleIds ? { id: { in: accessibleIds } } : {}),
+    },
     include: { brandProfile: true, platformAccounts: { where: { isActive: true } } },
     orderBy: { name: 'asc' },
   })

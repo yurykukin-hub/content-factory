@@ -93,8 +93,48 @@ async function main() {
       create: { businessId: biz.id, ...bpData },
     })
 
+    // Link admin to all businesses
+    await db.userBusiness.upsert({
+      where: { userId_businessId: { userId: admin.id, businessId: biz.id } },
+      update: {},
+      create: { userId: admin.id, businessId: biz.id, role: 'ADMIN' },
+    })
+
     console.log(`  Business: ${biz.name} (${biz.slug})`)
   }
+
+  // Create Sveta (EDITOR for НаWоде)
+  const svetaPassword = await Bun.password.hash('sveta123', { algorithm: 'bcrypt' })
+  const sveta = await db.user.upsert({
+    where: { login: 'sveta' },
+    update: {},
+    create: { login: 'sveta', passwordHash: svetaPassword, name: 'Света', role: 'EDITOR' },
+  })
+  const nawode = await db.business.findUnique({ where: { slug: 'nawode' } })
+  if (nawode) {
+    await db.userBusiness.upsert({
+      where: { userId_businessId: { userId: sveta.id, businessId: nawode.id } },
+      update: {},
+      create: { userId: sveta.id, businessId: nawode.id, role: 'EDITOR' },
+    })
+  }
+  console.log(`  User: ${sveta.login} (EDITOR, НаWоде)`)
+
+  // Create Anton (EDITOR for НаWоде)
+  const antonPassword = await Bun.password.hash('anton123', { algorithm: 'bcrypt' })
+  const anton = await db.user.upsert({
+    where: { login: 'anton' },
+    update: {},
+    create: { login: 'anton', passwordHash: antonPassword, name: 'Антон', role: 'EDITOR' },
+  })
+  if (nawode) {
+    await db.userBusiness.upsert({
+      where: { userId_businessId: { userId: anton.id, businessId: nawode.id } },
+      update: {},
+      create: { userId: anton.id, businessId: nawode.id, role: 'EDITOR' },
+    })
+  }
+  console.log(`  User: ${anton.login} (EDITOR, НаWоде)`)
 
   console.log('Seed complete!')
 }

@@ -7,8 +7,9 @@ import { join } from 'path'
 import { config } from './config'
 import { getModuleDir } from './utils/paths'
 import { db } from './db'
-import { requireAuth } from './middleware/auth'
+import { requireAuth, requireRole } from './middleware/auth'
 import { auth } from './routes/auth'
+import { users } from './routes/users'
 import { businesses } from './routes/businesses'
 import { platformsByBiz, platformsById } from './routes/platforms'
 import { posts } from './routes/posts'
@@ -69,6 +70,10 @@ app.post('/api/webhooks/erp', async (c) => {
 
 // --- Protected routes (require auth) ---
 app.use('/api/*', requireAuth)
+
+// --- Admin-only routes ---
+app.use('/api/users/*', requireRole('ADMIN'))
+app.route('/api/users', users)
 
 app.route('/api/businesses', businesses)
 app.route('/api/businesses', platformsByBiz) // GET/POST /api/businesses/:bizId/platforms

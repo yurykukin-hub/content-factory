@@ -75,7 +75,24 @@ model User {
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
+  businesses UserBusiness[]
+
   @@map("users")
+}
+
+/// Привязка пользователя к бизнесу (RBAC)
+model UserBusiness {
+  id         String   @id @default(cuid())
+  userId     String   @map("user_id")
+  businessId String   @map("business_id")
+  role       UserRole @default(EDITOR)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, businessId])
+  @@map("user_businesses")
 }
 
 /// Бренд/проект (KB, НаWоде, Inpulse, Личный)
@@ -100,6 +117,7 @@ model Business {
   mediaFiles       MediaFile[]
   aiUsageLogs      AiUsageLog[]
   webhookRules     WebhookRule[]
+  users            UserBusiness[]
 
   @@map("businesses")
 }
