@@ -52,14 +52,14 @@ async function pollTask(taskId: string, maxAttempts = 60, initialDelay = 3000): 
     await new Promise(r => setTimeout(r, delay))
 
     const result = await kieGet(`/api/v1/jobs/recordInfo?taskId=${taskId}`)
-    const status = result?.data?.status || result?.status
+    const d = result?.data || result
+    const state = d?.state || d?.status
 
-    if (status === 'success' || status === 'completed') {
-      return result.data || result
+    if (state === 'success' || state === 'completed') {
+      return d
     }
-    if (status === 'fail' || status === 'failed') {
-      const errMsg = result?.data?.errorMessage || result?.error || 'Генерация не удалась'
-      throw new Error(`KIE.ai: ${errMsg}`)
+    if (state === 'fail' || state === 'failed') {
+      throw new Error(`KIE.ai: ${d?.failMsg || d?.errorMessage || 'Генерация не удалась'}`)
     }
 
     // Exponential backoff: 3s → 4.5s → 6.75s → max 10s
@@ -180,7 +180,17 @@ export async function editImage(params: EditImageParams): Promise<KieImageResult
   const result = await pollTask(taskId)
 
   // Extract image URL from result
-  const outputUrl = result?.resultImageUrl || result?.image_url || result?.output?.image_url
+  // KIE returns resultJson as a JSON string: {"resultUrls":["https://..."]}
+  let outputUrl: string | undefined
+  if (result?.resultJson) {
+    try {
+      const parsed = typeof result.resultJson === 'string' ? JSON.parse(result.resultJson) : result.resultJson
+      outputUrl = parsed?.resultUrls?.[0] || parsed?.resultImageUrl
+    } catch {}
+  }
+  if (!outputUrl) {
+    outputUrl = result?.resultImageUrl || result?.image_url || result?.output?.image_url
+  }
   if (!outputUrl) throw new Error('KIE.ai не вернул изображение')
 
   // Download immediately (URLs expire in 10 min!)
@@ -256,7 +266,16 @@ export async function removeBackground(params: RemoveBgParams): Promise<KieImage
 
   const result = await pollTask(taskId)
 
-  const outputUrl = result?.resultImageUrl || result?.image_url || result?.output?.image_url
+  let outputUrl: string | undefined
+  if (result?.resultJson) {
+    try {
+      const parsed = typeof result.resultJson === 'string' ? JSON.parse(result.resultJson) : result.resultJson
+      outputUrl = parsed?.resultUrls?.[0] || parsed?.resultImageUrl
+    } catch {}
+  }
+  if (!outputUrl) {
+    outputUrl = result?.resultImageUrl || result?.image_url || result?.output?.image_url
+  }
   if (!outputUrl) throw new Error('KIE.ai rembg не вернул изображение')
 
   const { filename, thumbFilename, pngBuffer } = await downloadAndSave(outputUrl, businessId, 'kie_rembg')
