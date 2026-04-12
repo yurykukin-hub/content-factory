@@ -104,6 +104,7 @@ async function deleteFile(id: string) {
 
 async function removeBg(file: MediaFile) {
   if (removingBgId.value) return
+  if (!confirm('Удалить фон с изображения?')) return
   removingBgId.value = file.id
   try {
     const result = await http.post<{ mediaFile: MediaFile }>('/ai/remove-background', {

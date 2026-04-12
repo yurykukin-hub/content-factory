@@ -147,6 +147,7 @@ const showMediaPicker = ref(false)
 
 async function doRemoveBg() {
   if (!post.value || !photo.value || removingBg.value) return
+  if (!confirm('Удалить фон с изображения?')) return
   removingBg.value = true
   try {
     const result = await http.post<{ mediaFile: MediaFile }>('/ai/remove-background', {
