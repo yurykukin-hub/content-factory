@@ -25,7 +25,7 @@ export const config = {
     haiku: 'anthropic/claude-3.5-haiku',
     sonnet: 'anthropic/claude-sonnet-4',
     imageGen: 'google/gemini-2.5-flash-image',
-    kieEditImage: 'flux-kontext-pro',
+    kieEditImage: 'nano-banana-2',
     kieRemoveBg: 'recraft/remove-background',
   },
 }

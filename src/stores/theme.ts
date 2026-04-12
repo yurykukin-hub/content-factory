@@ -3,6 +3,7 @@ import { ref, watchEffect } from 'vue'
 
 export const useThemeStore = defineStore('theme', () => {
   const isDark = ref(localStorage.getItem('cf_theme') === 'dark')
+  const devMode = ref(localStorage.getItem('cf_dev_mode') === 'true')
 
   watchEffect(() => {
     document.documentElement.classList.toggle('dark', isDark.value)
@@ -13,5 +14,10 @@ export const useThemeStore = defineStore('theme', () => {
     isDark.value = !isDark.value
   }
 
-  return { isDark, toggle }
+  function toggleDevMode() {
+    devMode.value = !devMode.value
+    localStorage.setItem('cf_dev_mode', devMode.value ? 'true' : 'false')
+  }
+
+  return { isDark, toggle, devMode, toggleDevMode }
 })

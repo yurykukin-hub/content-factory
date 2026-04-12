@@ -2,7 +2,10 @@
 import { ref, computed, onMounted } from 'vue'
 import { http } from '@/api/client'
 import { useToast } from '@/composables/useToast'
+import { useThemeStore } from '@/stores/theme'
 import { Sparkles, Loader2, Wand2, X, ChevronLeft, ChevronRight } from 'lucide-vue-next'
+
+const theme = useThemeStore()
 
 interface MediaFile {
   id: string; url: string; thumbUrl: string | null
@@ -26,7 +29,7 @@ const emit = defineEmits<{
 const toast = useToast()
 const prompt = ref('')
 const enhancing = ref(false)
-const selectedModel = ref<'flux-kontext-pro' | 'nano-banana-2'>('flux-kontext-pro')
+const selectedModel = ref<'flux-kontext-pro' | 'nano-banana-2'>('nano-banana-2')
 
 // Prompt history
 const promptHistory = ref<string[]>([])
@@ -134,8 +137,8 @@ function submit() {
       </div>
 
       <div class="space-y-3">
-        <!-- Model selector -->
-        <div>
+        <!-- Model selector (dev mode only) -->
+        <div v-if="theme.devMode">
           <label class="block text-sm font-medium mb-1.5">Модель</label>
           <div class="flex gap-2">
             <button v-for="m in MODELS" :key="m.id" @click="selectedModel = m.id"

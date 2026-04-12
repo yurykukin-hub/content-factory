@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useAuthStore } from '@/stores/auth'
 import { useThemeStore } from '@/stores/theme'
-import { User, Sun, Moon, Shield, Lock } from 'lucide-vue-next'
+import { User, Sun, Moon, Shield, Lock, Code } from 'lucide-vue-next'
 
 const auth = useAuthStore()
 const theme = useThemeStore()
@@ -63,6 +63,31 @@ function roleLabel(role: string) {
           <Sun v-if="theme.isDark" :size="16" />
           <Moon v-else :size="16" />
           {{ theme.isDark ? 'Светлая' : 'Тёмная' }}
+        </button>
+      </div>
+    </div>
+
+    <!-- Dev mode -->
+    <div v-if="auth.user?.role === 'ADMIN'" class="bg-white dark:bg-gray-900 rounded-xl p-6 border border-gray-200 dark:border-gray-800">
+      <div class="flex items-center justify-between">
+        <div>
+          <h2 class="font-semibold flex items-center gap-2">
+            <Code :size="18" />
+            Режим разработчика
+          </h2>
+          <p class="text-xs text-gray-400 mt-1">Показывает выбор AI-моделей в редакторе изображений</p>
+        </div>
+        <button
+          @click="theme.toggleDevMode()"
+          :class="[
+            'relative w-11 h-6 rounded-full transition-colors',
+            theme.devMode ? 'bg-brand-600' : 'bg-gray-300 dark:bg-gray-600'
+          ]"
+        >
+          <span :class="[
+            'absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform',
+            theme.devMode && 'translate-x-5'
+          ]" />
         </button>
       </div>
     </div>
