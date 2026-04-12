@@ -13,7 +13,7 @@ AI-контент-фабрика для автоматизации SMM. Гене
 - **Backend:** Bun + Hono + TypeScript
 - **Frontend:** Vue 3 + Tailwind CSS + Lucide Icons + Pinia
 - **ORM/DB:** Prisma + PostgreSQL 16
-- **AI:** OpenRouter (Claude Haiku для адаптации, Sonnet для генерации)
+- **AI:** OpenRouter (Haiku для адаптации, Sonnet для генерации, Gemini 2.5 Flash Image для картинок) + FAL.ai (FLUX Kontext для img2img, rembg для удаления фона)
 - **Testing:** Vitest (48 тестов)
 - **Deploy:** Docker Compose + Caddy (SSL auto)
 
@@ -47,7 +47,7 @@ content-factory/
 │   │   │   ├── platforms.ts    # platformsByBiz + platformsById
 │   │   │   ├── posts.ts        # CRUD + approve + versions (access checks)
 │   │   │   ├── content-plans.ts # CRUD + create-post/ai-generate + batch
-│   │   │   ├── ai.ts           # generate-post/image, adapt, generate-plan
+│   │   │   ├── ai.ts           # generate-post/image, adapt, enhance-prompt, edit-image, remove-bg
 │   │   │   ├── publish.ts      # publish + schedule (access checks)
 │   │   │   ├── media.ts        # upload/delete/attach + library + tags
 │   │   │   ├── settings.ts     # AppConfig CRUD (ADMIN-only, .env fallback)
@@ -61,7 +61,8 @@ content-factory/
 │   │   │   ├── ai/
 │   │   │   │   ├── openrouter.ts      # OpenRouter + cost calculation
 │   │   │   │   ├── prompt-builder.ts  # Промпт-конструктор
-│   │   │   │   └── image-generation.ts # AI image gen (Gemini)
+│   │   │   │   ├── image-generation.ts # AI image gen (Gemini 2.5 Flash Image)
+│   │   │   │   └── fal.ts            # FAL.ai SDK (image editing, remove bg)
 │   │   │   └── publishers/
 │   │   │       ├── base.ts     # Publisher interface
 │   │   │       ├── vk.ts       # VK wall.post + photo/video + Stories
@@ -90,7 +91,9 @@ content-factory/
 │       ├── layout/             # TheSidebar (mobile overlay), TheHeader (hamburger)
 │       ├── BusinessFilter.vue  # Pill-кнопки выбора бизнеса (везде pills)
 │       ├── ToastContainer.vue  # Toast notifications
-│       ├── MediaUpload.vue     # Drag & drop
+│       ├── MediaUpload.vue     # Drag & drop + AI edit/remove bg buttons
+│       ├── ai/
+│       │   └── ImageEditModal.vue  # AI image editing modal (FLUX Kontext)
 │       └── settings/           # VkOAuthTab, ProfileTab, AiTab, UsersTab
 ├── docker-compose.yml          # Dev (postgres only)
 ├── docker-compose.prod.yml     # Prod (postgres + backend, healthchecks)
@@ -139,17 +142,19 @@ bash scripts/deploy.sh                  # rsync + build + docker up + migrate
 
 # .env для backend
 cp backend/.env.example backend/.env
-# Заполнить: DATABASE_URL, JWT_SECRET, OPENROUTER_API_KEY
+# Заполнить: DATABASE_URL, JWT_SECRET, OPENROUTER_API_KEY, FAL_API_KEY
 ```
 
 ## AI Pipeline
 1. **Генерация поста** (Sonnet) → мастер-текст 500-1500 символов
-2. **AI-картинка** (Gemini) → PNG через OpenRouter image gen
+2. **AI-картинка** (Gemini 2.5 Flash Image, OpenRouter) → PNG, шаблоны + AI enhance промптов
 3. **Адаптация** (Haiku x N платформ) → VK/TG/IG версии + хештеги
 4. **Контент-план** (Haiku) → JSON [{date, topic, postType}]
 5. **Stories** → canvas WYSIWYG (drag, zoom, text overlay, шаблоны, export JPEG без кнопки — VK рисует нативную)
+6. **Редактирование фото** (FAL.ai FLUX Kontext Pro) → img2img по промпту (смена фона, стилизация)
+7. **Удаление фона** (FAL.ai rembg) → PNG с прозрачностью, одна кнопка
 
-API key: сначала из БД (AppConfig), fallback на .env
+API keys: OpenRouter — из БД (AppConfig) или .env. FAL — из .env (FAL_API_KEY)
 
 ## Auth
 - Access token: 1 час (httpOnly cookie `token`)

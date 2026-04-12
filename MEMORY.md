@@ -58,6 +58,11 @@ User, UserBusiness, Business, BrandProfile, PlatformAccount, ContentPlan, Conten
 - [2026-04-11] Шаблоны: перенесены в блок "Текст на фото" (были в блоке Фото — баг)
 - [2026-04-11] BusinessDetailView overview: секция "Доступ к бизнесу" (ADMIN only, grant/revoke access)
 - [2026-04-11] Мелочи: "Назад к историям", "историй" вместо "постов"
+- [2026-04-12] AI Image fix: модель google/gemini-2.0-flash-exp:free → google/gemini-2.5-flash-image (GA). Парсинг: message.images[] (не content)
+- [2026-04-12] AI Image UX: шаблоны промптов (4 pills), кнопка "Улучшить промпт" (Haiku, buildImageEnhancerPrompt)
+- [2026-04-12] FAL.ai SDK интегрирован: @fal-ai/client. FLUX Kontext Pro (img2img $0.04), rembg (remove bg $0.01)
+- [2026-04-12] FAL.ai: images[] возвращает URL на CDN (не base64), нужен downloadAndSave. В prod — public URL, в dev — fal.storage.upload
+- [2026-04-12] FAL.ai: баланс аккаунта нулевой, ждёт пополнения. Ключ настроен в .env.prod + docker-compose.prod.yml
 
 ## Паттерны
 - HTTP client: fetch + httpOnly cookie + X-Tab-ID (из nawode-erp)
