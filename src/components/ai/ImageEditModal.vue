@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { http } from '@/api/client'
 import { useToast } from '@/composables/useToast'
-import { Sparkles, Loader2, Wand2, X } from 'lucide-vue-next'
+import { Sparkles, Loader2, Wand2, X, ChevronLeft, ChevronRight } from 'lucide-vue-next'
 
 interface MediaFile {
   id: string; url: string; thumbUrl: string | null
@@ -20,12 +20,18 @@ const props = defineProps<{
 const emit = defineEmits<{
   close: []
   edited: [file: MediaFile]
+  submitted: [data: { prompt: string; model: string; mediaId: string }]
 }>()
 
 const toast = useToast()
 const prompt = ref('')
 const loading = ref(false)
+const generatingPrompt = ref(false)
 const selectedModel = ref<'flux-kontext-pro' | 'nano-banana-2'>('flux-kontext-pro')
+
+// Prompt history
+const promptHistory = ref<string[]>([])
+const historyIndex = ref(-1) // -1 = custom text
 
 const MODELS = [
   { id: 'flux-kontext-pro' as const, label: 'FLUX Kontext', desc: 'Точное редактирование' },
@@ -33,32 +39,76 @@ const MODELS = [
 ]
 
 const EDIT_TEMPLATES = [
-  { label: 'Сменить фон', prompt: 'Change the background to a beautiful sunset over water' },
-  { label: 'Стилизовать', prompt: 'Transform this image into a vibrant, colorful illustration style' },
-  { label: 'Добавить элемент', prompt: 'Add soft bokeh lights in the background' },
-  { label: 'Улучшить', prompt: 'Enhance image quality, improve lighting, colors and sharpness' },
+  { label: 'Сменить фон', template: 'Change the background to a beautiful natural landscape' },
+  { label: 'Стилизовать', template: 'Transform this image into a creative artistic style' },
+  { label: 'Добавить элемент', template: 'Add atmospheric visual elements to the scene' },
+  { label: 'Улучшить', template: 'Enhance image quality, improve lighting and colors' },
 ]
 
-async function submit() {
-  if (!prompt.value.trim() || loading.value) return
-  loading.value = true
+const historyLabel = computed(() => {
+  const imageHistory = promptHistory.value
+  if (imageHistory.length === 0) return ''
+  return `${historyIndex.value + 1}/${imageHistory.length}`
+})
+
+const canGoBack = computed(() => historyIndex.value > 0)
+const canGoForward = computed(() => historyIndex.value < promptHistory.value.length - 1)
+
+function goBack() {
+  if (!canGoBack.value) return
+  historyIndex.value--
+  prompt.value = promptHistory.value[historyIndex.value]
+}
+
+function goForward() {
+  if (!canGoForward.value) return
+  historyIndex.value++
+  prompt.value = promptHistory.value[historyIndex.value]
+}
+
+// Load history from DB on mount
+onMounted(async () => {
+  if (!props.postId) return
   try {
-    const result = await http.post<{ mediaFile: MediaFile }>('/ai/edit-image', {
+    const res = await http.get<{ history: any[] }>(`/ai/prompt-history/${props.postId}`)
+    const imagePrompts = (res.history || []).filter((h: any) => h.type === 'image').map((h: any) => h.prompt)
+    if (imagePrompts.length > 0) {
+      promptHistory.value = imagePrompts
+      historyIndex.value = imagePrompts.length - 1
+      prompt.value = imagePrompts[imagePrompts.length - 1]
+    }
+  } catch {}
+})
+
+// Template click → AI generates detailed prompt
+async function onTemplateClick(template: string) {
+  if (generatingPrompt.value || !props.postId) return
+  generatingPrompt.value = true
+  try {
+    const res = await http.post<{ prompt: string; historyIndex: number }>('/ai/generate-edit-prompt', {
       businessId: props.businessId,
-      mediaId: props.mediaId,
-      prompt: prompt.value,
       postId: props.postId,
-      model: selectedModel.value,
+      template,
     })
-    emit('edited', result.mediaFile)
-    emit('close')
-    prompt.value = ''
-    toast.success('Изображение отредактировано')
+    prompt.value = res.prompt
+    promptHistory.value.push(res.prompt)
+    historyIndex.value = promptHistory.value.length - 1
   } catch (e: any) {
     toast.error('Ошибка: ' + (e.message || e))
   } finally {
-    loading.value = false
+    generatingPrompt.value = false
   }
+}
+
+// Submit — emit to parent for background processing
+function submit() {
+  if (!prompt.value.trim() || loading.value) return
+  emit('submitted', {
+    prompt: prompt.value,
+    model: selectedModel.value,
+    mediaId: props.mediaId,
+  })
+  emit('close')
 }
 </script>
 
@@ -95,20 +145,37 @@ async function submit() {
           </div>
         </div>
 
-        <!-- Template pills -->
+        <!-- Template pills (click → AI generates prompt) -->
         <div>
           <label class="block text-sm font-medium mb-1.5">Шаблоны</label>
           <div class="flex flex-wrap gap-1.5">
-            <button v-for="t in EDIT_TEMPLATES" :key="t.label" @click="prompt = t.prompt"
-              class="px-2.5 py-1 rounded-full text-xs font-medium bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300 hover:bg-purple-200 dark:hover:bg-purple-800 transition-colors">
+            <button v-for="t in EDIT_TEMPLATES" :key="t.label" @click="onTemplateClick(t.template)"
+              :disabled="generatingPrompt"
+              class="px-2.5 py-1 rounded-full text-xs font-medium bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300 hover:bg-purple-200 dark:hover:bg-purple-800 transition-colors disabled:opacity-50">
               {{ t.label }}
             </button>
+            <span v-if="generatingPrompt" class="flex items-center gap-1 text-xs text-purple-500">
+              <Loader2 :size="12" class="animate-spin" /> Генерация...
+            </span>
           </div>
         </div>
 
-        <!-- Prompt -->
+        <!-- Prompt + history navigation -->
         <div>
-          <label class="block text-sm font-medium mb-1">Что изменить?</label>
+          <div class="flex items-center justify-between mb-1">
+            <label class="block text-sm font-medium">Что изменить?</label>
+            <div v-if="promptHistory.length > 0" class="flex items-center gap-1">
+              <button @click="goBack" :disabled="!canGoBack"
+                class="p-0.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-30">
+                <ChevronLeft :size="16" class="text-gray-500" />
+              </button>
+              <span class="text-xs text-gray-400 min-w-[28px] text-center">{{ historyLabel }}</span>
+              <button @click="goForward" :disabled="!canGoForward"
+                class="p-0.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-30">
+                <ChevronRight :size="16" class="text-gray-500" />
+              </button>
+            </div>
+          </div>
           <textarea v-model="prompt" rows="3" placeholder="Замени фон на закат над морем..."
             class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 focus:ring-2 focus:ring-purple-500 text-sm" />
         </div>
@@ -118,10 +185,10 @@ async function submit() {
         <button @click="emit('close')" class="px-4 py-2 rounded-lg text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800">
           Отмена
         </button>
-        <button @click="submit" :disabled="loading || !prompt.trim()"
+        <button @click="submit" :disabled="!prompt.trim() || generatingPrompt"
           class="flex items-center gap-2 px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-700 text-white text-sm font-medium disabled:opacity-50">
-          <Loader2 v-if="loading" :size="16" class="animate-spin" /><Sparkles v-else :size="16" />
-          {{ loading ? 'Обработка...' : 'Применить' }}
+          <Sparkles :size="16" />
+          Применить
         </button>
       </div>
     </div>

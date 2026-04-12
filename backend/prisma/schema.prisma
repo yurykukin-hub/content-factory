@@ -218,6 +218,7 @@ model Post {
   createdBy         String     @default("manual") @map("created_by") // "ai" | "manual"
   aiModel           String?    @map("ai_model")
   aiPromptUsed      String?    @map("ai_prompt_used")
+  aiPromptHistory   Json?      @map("ai_prompt_history")
   contentPlanItemId String?    @map("content_plan_item_id")
   createdAt         DateTime   @default(now()) @map("created_at")
   updatedAt         DateTime   @updatedAt @map("updated_at")

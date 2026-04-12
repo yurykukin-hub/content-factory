@@ -7,7 +7,8 @@ import { useToast } from '@/composables/useToast'
 import { formatDate } from '@/composables/useFormatters'
 import {
   ArrowLeft, Upload, Sparkles, Loader2, Send, CheckCircle,
-  ExternalLink, AlertCircle, Image, Images, Link, Trash2, ZoomIn, ZoomOut, Eye, Wand2, Eraser
+  ExternalLink, AlertCircle, Image, Images, Link, Trash2, ZoomIn, ZoomOut, Eye, Wand2, Eraser,
+  ChevronLeft, ChevronRight
 } from 'lucide-vue-next'
 import ImageEditModal from '@/components/ai/ImageEditModal.vue'
 import MediaPickerModal from '@/components/MediaPickerModal.vue'
@@ -86,6 +87,62 @@ const IMAGE_TEMPLATES = [
 
 const removingBg = ref(false)
 const showEditModal = ref(false)
+const editingImage = ref(false) // background image generation in progress
+
+// Text history (versions)
+const textHistory = ref<{ title: string; body: string }[]>([])
+const textHistoryIndex = ref(-1)
+const generatingText = ref(false)
+
+const TEXT_TEMPLATES = [
+  { label: 'Акция', topic: 'Скидка или акция на услуги' },
+  { label: 'Приглашение', topic: 'Приглашение на мероприятие или активность' },
+  { label: 'Факт', topic: 'Интересный факт о бизнесе или услуге' },
+  { label: 'Отзыв', topic: 'Отзыв довольного клиента' },
+]
+
+const textHistoryLabel = computed(() => {
+  if (textHistory.value.length === 0) return ''
+  return `${textHistoryIndex.value + 1}/${textHistory.value.length}`
+})
+
+function textGoBack() {
+  if (textHistoryIndex.value <= 0) return
+  textHistoryIndex.value--
+  applyTextVersion()
+}
+
+function textGoForward() {
+  if (textHistoryIndex.value >= textHistory.value.length - 1) return
+  textHistoryIndex.value++
+  applyTextVersion()
+}
+
+function applyTextVersion() {
+  const v = textHistory.value[textHistoryIndex.value]
+  if (!v) return
+  overlayText.value = v.body
+  storyTitle.value = v.title
+}
+
+// Background image edit (from ImageEditModal)
+async function onEditSubmitted(data: { prompt: string; model: string; mediaId: string }) {
+  if (!post.value || !photo.value) return
+  editingImage.value = true
+  try {
+    const result = await http.post<{ mediaFile: MediaFile }>('/ai/edit-image', {
+      businessId: post.value.businessId,
+      mediaId: data.mediaId,
+      prompt: data.prompt,
+      postId: post.value.id,
+      model: data.model,
+    })
+    post.value.mediaFiles = [result.mediaFile]
+    loadImage(result.mediaFile.url)
+    toast.success('Изображение отредактировано')
+  } catch (e: any) { toast.error('Ошибка: ' + (e.message || e)) }
+  finally { editingImage.value = false }
+}
 const showMediaPicker = ref(false)
 
 async function doRemoveBg() {
@@ -105,6 +162,14 @@ async function doRemoveBg() {
 }
 
 function onImageEdited(newFile: MediaFile) {
+  if (!post.value) return
+  post.value.mediaFiles = [newFile]
+  loadImage(newFile.url)
+  showEditModal.value = false
+}
+
+// Kept for reference but replaced by onEditSubmitted above
+function _onImageEditedLegacy(newFile: MediaFile) {
   if (!post.value) return
   post.value.mediaFiles = [newFile]
   loadImage(newFile.url)
@@ -317,6 +382,15 @@ async function loadPost() {
         }
       }
     }
+    // Load text history from aiPromptHistory
+    try {
+      const res = await http.get<{ history: any[] }>(`/ai/prompt-history/${post.value.id}`)
+      const texts = (res.history || []).filter((h: any) => h.type === 'text')
+      if (texts.length) {
+        textHistory.value = texts.map((h: any) => ({ title: h.title, body: h.body }))
+        textHistoryIndex.value = texts.length - 1
+      }
+    } catch {}
   } catch (e) { toast.error('Ошибка загрузки') }
   finally { loading.value = false }
 }
@@ -439,18 +513,27 @@ async function enhanceImagePrompt() {
   finally { aiEnhancing.value = false }
 }
 
-async function generateOverlayText() {
+async function generateStoryText(topic?: string) {
   if (!post.value) return
-  aiTextLoading.value = true
+  generatingText.value = true
   try {
-    const result = await http.post<{ post: { body: string } }>('/ai/generate-post', {
+    const result = await http.post<{ title: string; body: string }>('/ai/generate-story-text', {
       businessId: post.value.businessId,
-      topic: `Напиши ОЧЕНЬ короткий текст для Stories (2-3 предложения, до 80 символов). Тема: ${storyTitle.value || 'SUP прокат'}. Максимально кратко и цепляюще. Без хештегов.`,
+      postId: post.value.id,
+      topic: topic || storyTitle.value || undefined,
     })
-    overlayText.value = result.post.body
-    toast.success('Текст сгенерирован')
-  } catch (e: any) { toast.error('Ошибка: ' + e.message) }
-  finally { aiTextLoading.value = false }
+    overlayText.value = result.body
+    storyTitle.value = result.title
+    textHistory.value.push({ title: result.title, body: result.body })
+    textHistoryIndex.value = textHistory.value.length - 1
+    toast.success('Текст и заголовок сгенерированы')
+  } catch (e: any) { toast.error('Ошибка: ' + (e.message || e)) }
+  finally { generatingText.value = false }
+}
+
+// Legacy wrapper
+async function generateOverlayText() {
+  await generateStoryText()
 }
 
 // --- Publish ---
@@ -659,6 +742,13 @@ onUnmounted(() => {
             @mousedown="!isPublished && onMouseDown($event)"
             @wheel.prevent="!isPublished && onWheel($event)"
           />
+          <!-- Overlay: image generation in progress -->
+          <div v-if="editingImage" class="absolute inset-2 rounded-[1.5rem] bg-black/50 flex items-center justify-center">
+            <div class="flex flex-col items-center gap-2 text-white">
+              <Loader2 :size="28" class="animate-spin text-purple-400" />
+              <span class="text-xs font-medium">Генерация изображения...</span>
+            </div>
+          </div>
         </div>
 
         <!-- Zoom controls -->
@@ -737,11 +827,32 @@ onUnmounted(() => {
             </div>
           </div>
 
-          <div class="flex items-center justify-between mb-3">
+          <div class="flex items-center justify-between mb-2">
             <h3 class="font-semibold text-sm">Текст на фото</h3>
-            <button @click="generateOverlayText" :disabled="aiTextLoading"
-              class="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300 text-[11px] font-medium hover:bg-purple-200 disabled:opacity-50">
-              <Loader2 v-if="aiTextLoading" :size="12" class="animate-spin" /><Sparkles v-else :size="12" /> AI текст
+            <div class="flex items-center gap-1.5">
+              <!-- Text history navigation -->
+              <div v-if="textHistory.length > 0" class="flex items-center gap-0.5">
+                <button @click="textGoBack" :disabled="textHistoryIndex <= 0"
+                  class="p-0.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-30">
+                  <ChevronLeft :size="14" class="text-gray-500" />
+                </button>
+                <span class="text-[10px] text-gray-400 min-w-[24px] text-center">{{ textHistoryLabel }}</span>
+                <button @click="textGoForward" :disabled="textHistoryIndex >= textHistory.length - 1"
+                  class="p-0.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-30">
+                  <ChevronRight :size="14" class="text-gray-500" />
+                </button>
+              </div>
+              <button @click="generateStoryText()" :disabled="generatingText"
+                class="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300 text-[11px] font-medium hover:bg-purple-200 disabled:opacity-50">
+                <Loader2 v-if="generatingText" :size="12" class="animate-spin" /><Sparkles v-else :size="12" /> AI текст
+              </button>
+            </div>
+          </div>
+          <!-- Text template pills -->
+          <div class="flex flex-wrap gap-1 mb-2">
+            <button v-for="t in TEXT_TEMPLATES" :key="t.label" @click="generateStoryText(t.topic)" :disabled="generatingText"
+              class="px-2 py-0.5 rounded-full text-[10px] font-medium bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300 hover:bg-purple-200 dark:hover:bg-purple-800 disabled:opacity-50 transition-colors">
+              {{ t.label }}
             </button>
           </div>
           <textarea v-model="overlayText" rows="4" placeholder="Короткий текст поверх фото..."
@@ -945,6 +1056,7 @@ onUnmounted(() => {
       :post-id="post.id"
       @close="showEditModal = false"
       @edited="onImageEdited"
+      @submitted="onEditSubmitted"
     />
 
     <!-- Media Picker Modal -->

@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { db } from '../db'
 import { config } from '../config'
 import { aiComplete } from '../services/ai/openrouter'
-import { buildBrandContext, buildPlanPrompt, buildPostPrompt, buildAdaptPrompt, buildHashtagPrompt, buildImageEnhancerPrompt } from '../services/ai/prompt-builder'
+import { buildBrandContext, buildPlanPrompt, buildPostPrompt, buildAdaptPrompt, buildHashtagPrompt, buildImageEnhancerPrompt, buildStoryTitlePrompt } from '../services/ai/prompt-builder'
 import { generateImage } from '../services/ai/image-generation'
 import { editImage, removeBackground, EDIT_MODELS } from '../services/ai/kie'
 import { emitEvent } from '../eventBus'
@@ -412,6 +412,114 @@ ai.post('/remove-background', async (c) => {
   })
 
   return c.json(result, 201)
+})
+
+// POST /api/ai/generate-edit-prompt — генерация промпта по шаблону + сохранение в историю
+const generateEditPromptSchema = z.object({
+  businessId: z.string(),
+  postId: z.string(),
+  template: z.string().min(1).max(500),
+})
+
+ai.post('/generate-edit-prompt', async (c) => {
+  const data = generateEditPromptSchema.parse(await c.req.json())
+  const user = c.get('user') as AuthUser
+  try { await assertBusinessAccess(user, data.businessId) } catch (e: any) {
+    if (e.message === 'FORBIDDEN') return c.json({ error: 'Нет доступа' }, 403); throw e
+  }
+
+  const brandContext = await buildBrandContext(data.businessId)
+  const systemPrompt = buildImageEnhancerPrompt(brandContext)
+
+  const result = await aiComplete({
+    systemPrompt,
+    userPrompt: `Шаблон: ${data.template}\nФормат: 9:16 (Stories вертикальный)`,
+    model: config.models.haiku,
+    maxTokens: 500,
+    businessId: data.businessId,
+    action: 'generate_edit_prompt',
+  })
+
+  const prompt = result.content.trim()
+
+  // Append to Post.aiPromptHistory
+  const post = await db.post.findUnique({ where: { id: data.postId }, select: { aiPromptHistory: true } })
+  const history = Array.isArray(post?.aiPromptHistory) ? (post.aiPromptHistory as any[]) : []
+  history.push({ type: 'image', prompt, template: data.template, createdAt: new Date().toISOString() })
+
+  await db.post.update({
+    where: { id: data.postId },
+    data: { aiPromptHistory: history },
+  })
+
+  return c.json({ prompt, historyIndex: history.filter((h: any) => h.type === 'image').length - 1 })
+})
+
+// GET /api/ai/prompt-history/:postId — получить историю промптов
+ai.get('/prompt-history/:postId', async (c) => {
+  const postId = c.req.param('postId')
+  const post = await db.post.findUnique({ where: { id: postId }, select: { aiPromptHistory: true, businessId: true } })
+  if (!post) return c.json({ error: 'Не найдено' }, 404)
+
+  const user = c.get('user') as AuthUser
+  try { await assertBusinessAccess(user, post.businessId) } catch (e: any) {
+    if (e.message === 'FORBIDDEN') return c.json({ error: 'Нет доступа' }, 403); throw e
+  }
+
+  const history = Array.isArray(post.aiPromptHistory) ? post.aiPromptHistory : []
+  return c.json({ history })
+})
+
+// POST /api/ai/generate-story-text — генерация заголовка + текста для Stories
+const generateStoryTextSchema = z.object({
+  businessId: z.string(),
+  postId: z.string().optional(),
+  topic: z.string().max(500).optional(),
+})
+
+ai.post('/generate-story-text', async (c) => {
+  const data = generateStoryTextSchema.parse(await c.req.json())
+  const user = c.get('user') as AuthUser
+  try { await assertBusinessAccess(user, data.businessId) } catch (e: any) {
+    if (e.message === 'FORBIDDEN') return c.json({ error: 'Нет доступа' }, 403); throw e
+  }
+
+  const brandContext = await buildBrandContext(data.businessId)
+  const topic = data.topic || 'Интересная тема для Stories'
+
+  // 1. Title (Haiku — быстро и дёшево)
+  const titlePrompt = buildStoryTitlePrompt(brandContext)
+  const titleResult = await aiComplete({
+    systemPrompt: titlePrompt,
+    userPrompt: `Тема: ${topic}`,
+    model: config.models.haiku,
+    maxTokens: 50,
+    businessId: data.businessId,
+    action: 'generate_story_title',
+  })
+
+  // 2. Body (Haiku — короткий текст, Sonnet overkill)
+  const bodyResult = await aiComplete({
+    systemPrompt: buildPostPrompt(brandContext),
+    userPrompt: `Напиши ОЧЕНЬ короткий текст для Stories (2-3 предложения, до 80 символов). Тема: ${topic}. Кратко и цепляюще. Без хештегов.`,
+    model: config.models.haiku,
+    maxTokens: 150,
+    businessId: data.businessId,
+    action: 'generate_story_text',
+  })
+
+  const title = titleResult.content.trim()
+  const body = bodyResult.content.trim()
+
+  // Save to history if postId provided
+  if (data.postId) {
+    const post = await db.post.findUnique({ where: { id: data.postId }, select: { aiPromptHistory: true } })
+    const history = Array.isArray(post?.aiPromptHistory) ? (post.aiPromptHistory as any[]) : []
+    history.push({ type: 'text', title, body, topic, createdAt: new Date().toISOString() })
+    await db.post.update({ where: { id: data.postId }, data: { aiPromptHistory: history } })
+  }
+
+  return c.json({ title, body })
 })
 
 export { ai }
