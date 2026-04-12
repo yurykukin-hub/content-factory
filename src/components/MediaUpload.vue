@@ -83,9 +83,10 @@ async function uploadFile(file: File) {
 }
 
 async function removeFile(id: string) {
-  if (!confirm('Удалить файл? Это действие необратимо.')) return
+  if (!confirm('Открепить файл от поста?')) return
   try {
-    await http.delete(`/media/${id}`)
+    // Detach from post, don't delete from media library
+    await http.post(`/media/${id}/attach`, { postId: null })
     emit('removed', id)
   } catch (e: any) {
     toast.error(e.message || 'Произошла ошибка')
