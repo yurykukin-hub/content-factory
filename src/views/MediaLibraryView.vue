@@ -6,9 +6,10 @@ import { useToast } from '@/composables/useToast'
 import { formatDate } from '@/composables/useFormatters'
 import {
   Image, Video, Upload, Search, Tag, X, Loader2, Trash2,
-  Filter, Grid3X3, Link, ExternalLink
+  Filter, Grid3X3, Link, ExternalLink, Wand2, Eraser
 } from 'lucide-vue-next'
 import BusinessFilter from '@/components/BusinessFilter.vue'
+import ImageEditModal from '@/components/ai/ImageEditModal.vue'
 
 interface MediaFile {
   id: string
@@ -31,6 +32,8 @@ const files = ref<MediaFile[]>([])
 const allTags = ref<string[]>([])
 const loading = ref(true)
 const uploading = ref(false)
+const removingBgId = ref<string | null>(null)
+const editingFile = ref<MediaFile | null>(null)
 
 // Filters
 const typeFilter = ref<'' | 'image' | 'video'>('')
@@ -97,6 +100,25 @@ async function deleteFile(id: string) {
   } catch (e: any) {
     toast.error('Ошибка удаления')
   }
+}
+
+async function removeBg(file: MediaFile) {
+  if (removingBgId.value) return
+  removingBgId.value = file.id
+  try {
+    const result = await http.post<{ mediaFile: MediaFile }>('/ai/remove-background', {
+      businessId: file.businessId,
+      mediaId: file.id,
+    })
+    files.value.unshift(result.mediaFile as any)
+    toast.success('Фон удалён')
+  } catch (e: any) { toast.error('Ошибка: ' + (e.message || e)) }
+  finally { removingBgId.value = null }
+}
+
+function onEdited(newFile: MediaFile) {
+  files.value.unshift(newFile as any)
+  editingFile.value = null
 }
 
 function startEditTags(file: MediaFile) {
@@ -220,6 +242,14 @@ watch([typeFilter, tagFilter, showUnattached], loadFiles)
 
           <!-- Overlay actions -->
           <div class="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+            <button v-if="file.mimeType.startsWith('image/')" @click="editingFile = file" title="Редактировать AI"
+              class="p-2 bg-purple-600/70 rounded-full hover:bg-purple-600">
+              <Wand2 :size="16" class="text-white" />
+            </button>
+            <button v-if="file.mimeType.startsWith('image/')" @click="removeBg(file)" :disabled="removingBgId === file.id" title="Убрать фон"
+              class="p-2 bg-purple-600/70 rounded-full hover:bg-purple-600 disabled:opacity-50">
+              <Loader2 v-if="removingBgId === file.id" :size="16" class="text-white animate-spin" /><Eraser v-else :size="16" class="text-white" />
+            </button>
             <a :href="file.url" target="_blank" class="p-2 bg-white/20 rounded-full hover:bg-white/30">
               <ExternalLink :size="16" class="text-white" />
             </a>
@@ -265,5 +295,16 @@ watch([typeFilter, tagFilter, showUnattached], loadFiles)
         </div>
       </div>
     </div>
+
+    <!-- AI Edit Modal -->
+    <ImageEditModal
+      v-if="editingFile"
+      :visible="!!editingFile"
+      :image-url="editingFile.url"
+      :media-id="editingFile.id"
+      :business-id="editingFile.businessId"
+      @close="editingFile = null"
+      @edited="onEdited"
+    />
   </div>
 </template>

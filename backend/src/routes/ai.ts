@@ -5,6 +5,7 @@ import { config } from '../config'
 import { aiComplete } from '../services/ai/openrouter'
 import { buildBrandContext, buildPlanPrompt, buildPostPrompt, buildAdaptPrompt, buildHashtagPrompt, buildImageEnhancerPrompt } from '../services/ai/prompt-builder'
 import { generateImage } from '../services/ai/image-generation'
+import { editImage, removeBackground } from '../services/ai/fal'
 import { emitEvent } from '../eventBus'
 import type { AuthUser } from '../middleware/auth'
 import { verifyPostAccess, assertBusinessAccess } from '../middleware/resource-access'
@@ -341,6 +342,68 @@ ai.post('/hashtags', async (c) => {
 ai.post('/rewrite', async (c) => {
   // TODO: реализовать перефразирование
   return c.json({ error: 'TODO: AI rewrite' }, 501)
+})
+
+// POST /api/ai/edit-image — редактирование фото через FAL.ai FLUX Kontext
+const editImageSchema = z.object({
+  businessId: z.string(),
+  mediaId: z.string(),
+  prompt: z.string().min(1).max(2000),
+  postId: z.string().optional(),
+})
+
+ai.post('/edit-image', async (c) => {
+  const data = editImageSchema.parse(await c.req.json())
+  const user = c.get('user') as AuthUser
+  try {
+    await assertBusinessAccess(user, data.businessId)
+  } catch (e: any) {
+    if (e.message === 'FORBIDDEN') return c.json({ error: 'Нет доступа' }, 403)
+    throw e
+  }
+
+  const sourceMedia = await db.mediaFile.findUnique({ where: { id: data.mediaId } })
+  if (!sourceMedia) return c.json({ error: 'Исходный файл не найден' }, 404)
+  if (sourceMedia.businessId !== data.businessId) return c.json({ error: 'Нет доступа' }, 403)
+
+  const result = await editImage({
+    imageUrl: sourceMedia.url,
+    prompt: data.prompt,
+    businessId: data.businessId,
+    postId: data.postId || null,
+  })
+
+  return c.json(result, 201)
+})
+
+// POST /api/ai/remove-background — удаление фона через FAL.ai rembg
+const removeBgSchema = z.object({
+  businessId: z.string(),
+  mediaId: z.string(),
+  postId: z.string().optional(),
+})
+
+ai.post('/remove-background', async (c) => {
+  const data = removeBgSchema.parse(await c.req.json())
+  const user = c.get('user') as AuthUser
+  try {
+    await assertBusinessAccess(user, data.businessId)
+  } catch (e: any) {
+    if (e.message === 'FORBIDDEN') return c.json({ error: 'Нет доступа' }, 403)
+    throw e
+  }
+
+  const sourceMedia = await db.mediaFile.findUnique({ where: { id: data.mediaId } })
+  if (!sourceMedia) return c.json({ error: 'Файл не найден' }, 404)
+  if (sourceMedia.businessId !== data.businessId) return c.json({ error: 'Нет доступа' }, 403)
+
+  const result = await removeBackground({
+    imageUrl: sourceMedia.url,
+    businessId: data.businessId,
+    postId: data.postId || null,
+  })
+
+  return c.json(result, 201)
 })
 
 export { ai }

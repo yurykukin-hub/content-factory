@@ -2,7 +2,8 @@
 import { ref } from 'vue'
 import { http } from '@/api/client'
 import { useToast } from '@/composables/useToast'
-import { Upload, X, Loader2, Image, Film, Music } from 'lucide-vue-next'
+import { Upload, X, Loader2, Image, Film, Music, Wand2, Eraser } from 'lucide-vue-next'
+import ImageEditModal from '@/components/ai/ImageEditModal.vue'
 
 interface MediaFile {
   id: string
@@ -27,6 +28,28 @@ const emit = defineEmits<{
 const toast = useToast()
 const uploading = ref(false)
 const dragOver = ref(false)
+const removingBgId = ref<string | null>(null)
+const editingFile = ref<MediaFile | null>(null)
+
+async function removeBg(file: MediaFile) {
+  if (removingBgId.value) return
+  removingBgId.value = file.id
+  try {
+    const result = await http.post<{ mediaFile: MediaFile }>('/ai/remove-background', {
+      businessId: props.businessId,
+      mediaId: file.id,
+      postId: props.postId,
+    })
+    emit('uploaded', result.mediaFile)
+    toast.success('Фон удалён')
+  } catch (e: any) { toast.error('Ошибка: ' + (e.message || e)) }
+  finally { removingBgId.value = null }
+}
+
+function onEdited(file: MediaFile) {
+  emit('uploaded', file)
+  editingFile.value = null
+}
 
 async function handleFiles(fileList: FileList | null) {
   if (!fileList) return
@@ -105,13 +128,22 @@ function formatSize(bytes: number) {
           <component :is="mediaIcon(f.mimeType)" :size="24" />
           <span class="text-[10px] mt-1 truncate max-w-full px-1">{{ f.filename }}</span>
         </div>
-        <!-- Remove button -->
-        <button
-          @click="removeFile(f.id)"
-          class="absolute top-1 right-1 p-1 rounded-full bg-black/50 text-white opacity-0 group-hover:opacity-100 transition-opacity"
-        >
-          <X :size="14" />
-        </button>
+        <!-- Overlay buttons -->
+        <div class="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors" />
+        <div class="absolute top-1 right-1 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+          <button v-if="f.mimeType.startsWith('image/')" @click="editingFile = f" title="Редактировать AI"
+            class="p-1 rounded-full bg-purple-600/80 hover:bg-purple-600 text-white">
+            <Wand2 :size="13" />
+          </button>
+          <button v-if="f.mimeType.startsWith('image/')" @click="removeBg(f)" :disabled="removingBgId === f.id" title="Убрать фон"
+            class="p-1 rounded-full bg-purple-600/80 hover:bg-purple-600 text-white disabled:opacity-50">
+            <Loader2 v-if="removingBgId === f.id" :size="13" class="animate-spin" /><Eraser v-else :size="13" />
+          </button>
+          <button @click="removeFile(f.id)" title="Удалить"
+            class="p-1 rounded-full bg-black/50 hover:bg-red-600/80 text-white">
+            <X :size="13" />
+          </button>
+        </div>
         <span class="absolute bottom-1 left-1 text-[9px] text-white bg-black/50 px-1 rounded">
           {{ formatSize(f.sizeBytes) }}
         </span>
@@ -147,5 +179,17 @@ function formatSize(bytes: number) {
         @change="handleFiles(($event.target as HTMLInputElement).files)"
       />
     </div>
+
+    <!-- AI Edit Modal -->
+    <ImageEditModal
+      v-if="editingFile"
+      :visible="!!editingFile"
+      :image-url="editingFile.url"
+      :media-id="editingFile.id"
+      :business-id="businessId"
+      :post-id="postId"
+      @close="editingFile = null"
+      @edited="onEdited"
+    />
   </div>
 </template>
