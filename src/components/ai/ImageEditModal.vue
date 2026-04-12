@@ -42,10 +42,10 @@ const MODELS = [
 
 // Templates — простая подстановка текста (как раньше)
 const EDIT_TEMPLATES = [
-  { label: 'Сменить фон', prompt: 'Change the background to a beautiful sunset over water' },
-  { label: 'Стилизовать', prompt: 'Transform this image into a vibrant illustration style' },
-  { label: 'Добавить элемент', prompt: 'Add soft bokeh lights in the background' },
-  { label: 'Улучшить', prompt: 'Enhance image quality, improve lighting and colors' },
+  { label: 'Сменить фон', prompt: 'Заменить фон на красивый закат над водой' },
+  { label: 'Стилизовать', prompt: 'Стилизовать под яркую иллюстрацию' },
+  { label: 'Добавить элемент', prompt: 'Добавить мягкие огни боке на фон' },
+  { label: 'Улучшить', prompt: 'Улучшить качество, освещение и цвета' },
 ]
 
 const historyLabel = computed(() => {

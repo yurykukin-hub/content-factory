@@ -114,10 +114,10 @@ const aiLoading = ref(false)
 const aiEnhancing = ref(false)
 
 const IMAGE_TEMPLATES = [
-  { label: 'Продукт крупно', prompt: 'Product close-up on a clean neutral background, studio lighting, vertical 9:16 portrait format' },
-  { label: 'Атмосфера', prompt: 'Atmospheric vertical landscape, sunset over water, nature reflections, warm golden hour, 9:16 portrait' },
-  { label: 'Lifestyle', prompt: 'People enjoying outdoor activity, natural smiles, vertical portrait composition, 9:16 stories format' },
-  { label: 'Акция/Скидка', prompt: 'Bright bold background, minimalist vertical layout, space for text overlay, 9:16 promo style' },
+  { label: 'Продукт крупно', prompt: 'Крупный план продукта на чистом нейтральном фоне, студийное освещение' },
+  { label: 'Атмосфера', prompt: 'Атмосферный пейзаж, закат над водой, отражения, тёплый свет' },
+  { label: 'Lifestyle', prompt: 'Люди на активном отдыхе, естественные эмоции, динамичная композиция' },
+  { label: 'Акция/Скидка', prompt: 'Яркий минималистичный фон, место для текста, промо-стиль' },
 ]
 
 const removingBg = ref(false)

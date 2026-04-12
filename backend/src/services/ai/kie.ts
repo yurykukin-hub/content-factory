@@ -1,5 +1,6 @@
 import { config } from '../../config'
 import { db } from '../../db'
+import { aiComplete } from './openrouter'
 import { nanoid } from 'nanoid'
 import sharp from 'sharp'
 import { join } from 'path'
@@ -114,6 +115,30 @@ async function downloadAndSave(
 }
 
 // =====================
+// Auto-translate prompt to English for better image generation
+// =====================
+
+async function translatePrompt(prompt: string, businessId: string): Promise<string> {
+  // Skip if already English (simple heuristic: mostly ASCII)
+  const nonAscii = prompt.replace(/[\x00-\x7F]/g, '').length
+  if (nonAscii < prompt.length * 0.2) return prompt
+
+  try {
+    const result = await aiComplete({
+      systemPrompt: 'Translate the following image generation prompt to English. Keep it as a prompt for AI image generation - concise, descriptive. Return ONLY the translated prompt, nothing else.',
+      userPrompt: prompt,
+      model: config.models.haiku,
+      maxTokens: 200,
+      businessId,
+      action: 'translate_prompt',
+    })
+    return result.content.trim()
+  } catch {
+    return prompt // fallback: send as-is
+  }
+}
+
+// =====================
 // Generate Image (text2img via KIE.ai Nano Banana 2)
 // =====================
 
@@ -133,8 +158,11 @@ interface GenerateImageResult {
 }
 
 export async function generateImage(params: GenerateImageParams): Promise<GenerateImageResult> {
-  const { prompt, businessId, postId, aspectRatio = '1:1' } = params
+  const { prompt: rawPrompt, businessId, postId, aspectRatio = '1:1' } = params
   const model = 'nano-banana-2'
+
+  // Auto-translate to English for better quality
+  const prompt = await translatePrompt(rawPrompt, businessId)
 
   log.info('[KIE] generateImage', { businessId, model, prompt: prompt.slice(0, 80) })
 
@@ -234,9 +262,12 @@ interface KieImageResult {
 }
 
 export async function editImage(params: EditImageParams): Promise<KieImageResult> {
-  const { imageUrl, prompt, businessId, postId, model: modelId } = params
+  const { imageUrl, prompt: rawPrompt, businessId, postId, model: modelId } = params
   const model = modelId || config.models.kieEditImage
   const modelInfo = EDIT_MODELS[model as EditModelId] || EDIT_MODELS['flux-kontext-pro']
+
+  // Auto-translate to English
+  const prompt = await translatePrompt(rawPrompt, businessId)
 
   log.info('[KIE] editImage', { businessId, model, prompt: prompt.slice(0, 80) })
 

@@ -53,10 +53,10 @@ const aiImageRatio = ref<'1:1' | '16:9' | '9:16'>('1:1')
 const aiEnhancing = ref(false)
 
 const IMAGE_TEMPLATES = [
-  { label: 'Продукт крупно', prompt: 'Product close-up on a clean neutral background, studio lighting, professional product photography' },
-  { label: 'Атмосфера', prompt: 'Atmospheric landscape, sunset, nature, water reflections, warm golden hour mood' },
-  { label: 'Lifestyle', prompt: 'People enjoying activity, natural smiles, dynamic composition, lifestyle photography' },
-  { label: 'Акция/Скидка', prompt: 'Bright bold background, minimalist composition, space for text overlay, sale/promo style' },
+  { label: 'Продукт крупно', prompt: 'Крупный план продукта на чистом нейтральном фоне, студийное освещение' },
+  { label: 'Атмосфера', prompt: 'Атмосферный пейзаж, закат над водой, отражения, тёплый свет' },
+  { label: 'Lifestyle', prompt: 'Люди на активном отдыхе, естественные эмоции, динамичная композиция' },
+  { label: 'Акция/Скидка', prompt: 'Яркий минималистичный фон, место для текста, промо-стиль' },
 ]
 
 // Platform character limits
