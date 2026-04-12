@@ -109,6 +109,95 @@ async function downloadAndSave(
 }
 
 // =====================
+// Generate Image (text2img via KIE.ai Nano Banana 2)
+// =====================
+
+interface GenerateImageParams {
+  prompt: string
+  businessId: string
+  postId?: string | null
+  aspectRatio?: '1:1' | '16:9' | '9:16'
+}
+
+interface GenerateImageResult {
+  mediaFile: {
+    id: string; url: string; thumbUrl: string | null
+    filename: string; mimeType: string; sizeBytes: number
+  }
+  usage: { tokensIn: number; tokensOut: number; model: string }
+}
+
+export async function generateImage(params: GenerateImageParams): Promise<GenerateImageResult> {
+  const { prompt, businessId, postId, aspectRatio = '1:1' } = params
+  const model = 'nano-banana-2'
+
+  log.info('[KIE] generateImage', { businessId, model, prompt: prompt.slice(0, 80) })
+
+  const response = await kiePost('/api/v1/jobs/createTask', {
+    model,
+    input: {
+      prompt,
+      aspect_ratio: aspectRatio,
+      resolution: '2K',
+      output_format: 'png',
+    },
+  })
+
+  const taskId = response?.data?.taskId || response?.taskId
+  if (!taskId) throw new Error('KIE.ai не вернул taskId')
+
+  log.info('[KIE] generateImage polling', { taskId })
+  const result = await pollTask(taskId)
+
+  let outputUrl: string | undefined
+  if (result?.resultJson) {
+    try {
+      const parsed = typeof result.resultJson === 'string' ? JSON.parse(result.resultJson) : result.resultJson
+      outputUrl = parsed?.resultUrls?.[0] || parsed?.resultImageUrl
+    } catch {}
+  }
+  if (!outputUrl) {
+    outputUrl = result?.resultImageUrl || result?.image_url || result?.output?.image_url
+  }
+  if (!outputUrl) throw new Error('KIE.ai не вернул изображение')
+
+  const { filename, thumbFilename, pngBuffer } = await downloadAndSave(outputUrl, businessId, 'kie_gen')
+
+  const mediaFile = await db.mediaFile.create({
+    data: {
+      businessId,
+      postId: postId || null,
+      filename: `AI: ${prompt.slice(0, 50).replace(/[\r\n\t]/g, ' ')}`,
+      url: `/uploads/${businessId}/${filename}`,
+      thumbUrl: `/uploads/${businessId}/${thumbFilename}`,
+      mimeType: 'image/png',
+      sizeBytes: pngBuffer.length,
+      altText: prompt,
+    },
+  })
+
+  await db.aiUsageLog.create({
+    data: {
+      businessId,
+      action: 'generate_image',
+      model,
+      tokensIn: 0, tokensOut: 0, cachedTokens: 0,
+      costUsd: 0.06,
+    },
+  })
+
+  log.info('[KIE] generateImage complete', { businessId, mediaId: mediaFile.id })
+
+  return {
+    mediaFile: {
+      id: mediaFile.id, url: mediaFile.url, thumbUrl: mediaFile.thumbUrl,
+      filename: mediaFile.filename, mimeType: mediaFile.mimeType, sizeBytes: mediaFile.sizeBytes,
+    },
+    usage: { tokensIn: 0, tokensOut: 0, model },
+  }
+}
+
+// =====================
 // Edit Image (FLUX Kontext Pro via KIE.ai)
 // =====================
 
