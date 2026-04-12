@@ -481,7 +481,7 @@ async function uploadPhoto(e: Event) {
   if (!input.files?.length || !post.value) return
   uploading.value = true
   try {
-    if (photo.value) await http.delete(`/media/${photo.value.id}`).catch(() => {})
+    if (photo.value) await http.post(`/media/${photo.value.id}/attach`, { postId: null }).catch(() => {})
     const formData = new FormData()
     formData.append('file', input.files[0])
     formData.append('businessId', post.value.businessId)
@@ -497,11 +497,12 @@ async function uploadPhoto(e: Event) {
 
 async function removePhoto() {
   if (!photo.value || !post.value) return
-  await http.delete(`/media/${photo.value.id}`).catch(() => {})
+  if (!confirm('Открепить фото от истории?')) return
+  await http.post(`/media/${photo.value.id}/attach`, { postId: null }).catch(() => {})
   post.value.mediaFiles = []
   imgEl.value = null
   render()
-  toast.info('Фото удалено')
+  toast.info('Фото откреплено')
 }
 
 async function pickFromLibrary(file: MediaFile) {
@@ -529,7 +530,7 @@ async function generateAiImage() {
   if (!post.value || !aiPrompt.value.trim()) return
   aiLoading.value = true
   try {
-    if (photo.value) await http.delete(`/media/${photo.value.id}`).catch(() => {})
+    if (photo.value) await http.post(`/media/${photo.value.id}/attach`, { postId: null }).catch(() => {})
     const result = await http.post<{ mediaFile: MediaFile }>('/ai/generate-image', {
       businessId: post.value.businessId, postId: post.value.id,
       prompt: aiPrompt.value, aspectRatio: '9:16',
