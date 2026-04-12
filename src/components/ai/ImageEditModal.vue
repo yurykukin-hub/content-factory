@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { http } from '@/api/client'
 import { useToast } from '@/composables/useToast'
 import { Sparkles, Loader2, Wand2, X, ChevronLeft, ChevronRight } from 'lucide-vue-next'
@@ -25,32 +25,30 @@ const emit = defineEmits<{
 
 const toast = useToast()
 const prompt = ref('')
-const loading = ref(false)
-const generatingPrompt = ref(false)
+const enhancing = ref(false)
 const selectedModel = ref<'flux-kontext-pro' | 'nano-banana-2'>('flux-kontext-pro')
 
 // Prompt history
 const promptHistory = ref<string[]>([])
-const historyIndex = ref(-1) // -1 = custom text
+const historyIndex = ref(-1)
 
 const MODELS = [
   { id: 'flux-kontext-pro' as const, label: 'FLUX Kontext', desc: 'Точное редактирование' },
   { id: 'nano-banana-2' as const, label: 'Nano Banana 2', desc: 'Креативная стилизация' },
 ]
 
+// Templates — простая подстановка текста (как раньше)
 const EDIT_TEMPLATES = [
-  { label: 'Сменить фон', template: 'Change the background to a beautiful natural landscape' },
-  { label: 'Стилизовать', template: 'Transform this image into a creative artistic style' },
-  { label: 'Добавить элемент', template: 'Add atmospheric visual elements to the scene' },
-  { label: 'Улучшить', template: 'Enhance image quality, improve lighting and colors' },
+  { label: 'Сменить фон', prompt: 'Change the background to a beautiful sunset over water' },
+  { label: 'Стилизовать', prompt: 'Transform this image into a vibrant illustration style' },
+  { label: 'Добавить элемент', prompt: 'Add soft bokeh lights in the background' },
+  { label: 'Улучшить', prompt: 'Enhance image quality, improve lighting and colors' },
 ]
 
 const historyLabel = computed(() => {
-  const imageHistory = promptHistory.value
-  if (imageHistory.length === 0) return ''
-  return `${historyIndex.value + 1}/${imageHistory.length}`
+  if (promptHistory.value.length === 0) return ''
+  return `${historyIndex.value + 1}/${promptHistory.value.length}`
 })
-
 const canGoBack = computed(() => historyIndex.value > 0)
 const canGoForward = computed(() => historyIndex.value < promptHistory.value.length - 1)
 
@@ -59,14 +57,13 @@ function goBack() {
   historyIndex.value--
   prompt.value = promptHistory.value[historyIndex.value]
 }
-
 function goForward() {
   if (!canGoForward.value) return
   historyIndex.value++
   prompt.value = promptHistory.value[historyIndex.value]
 }
 
-// Load history from DB on mount
+// Load history from DB
 onMounted(async () => {
   if (!props.postId) return
   try {
@@ -80,29 +77,35 @@ onMounted(async () => {
   } catch {}
 })
 
-// Template click → AI generates detailed prompt
-async function onTemplateClick(template: string) {
-  if (generatingPrompt.value || !props.postId) return
-  generatingPrompt.value = true
+// AI Enhance — берёт простой текст и делает детальный промпт
+async function enhancePrompt() {
+  if (!prompt.value.trim() || enhancing.value) return
+  enhancing.value = true
   try {
-    const res = await http.post<{ prompt: string; historyIndex: number }>('/ai/generate-edit-prompt', {
+    const res = await http.post<{ enhancedPrompt: string }>('/ai/enhance-image-prompt', {
+      prompt: prompt.value,
+      aspectRatio: '9:16',
       businessId: props.businessId,
-      postId: props.postId,
-      template,
     })
-    prompt.value = res.prompt
-    promptHistory.value.push(res.prompt)
+    prompt.value = res.enhancedPrompt
+    // Save to history
+    promptHistory.value.push(res.enhancedPrompt)
     historyIndex.value = promptHistory.value.length - 1
-  } catch (e: any) {
-    toast.error('Ошибка: ' + (e.message || e))
-  } finally {
-    generatingPrompt.value = false
-  }
+    // Persist in DB
+    if (props.postId) {
+      http.post('/ai/generate-edit-prompt', {
+        businessId: props.businessId,
+        postId: props.postId,
+        template: res.enhancedPrompt,
+      }).catch(() => {}) // fire and forget
+    }
+  } catch (e: any) { toast.error('Ошибка: ' + (e.message || e)) }
+  finally { enhancing.value = false }
 }
 
-// Submit — emit to parent for background processing
+// Submit for background processing
 function submit() {
-  if (!prompt.value.trim() || loading.value) return
+  if (!prompt.value.trim()) return
   emit('submitted', {
     prompt: prompt.value,
     model: selectedModel.value,
@@ -145,22 +148,18 @@ function submit() {
           </div>
         </div>
 
-        <!-- Template pills (click → AI generates prompt) -->
+        <!-- Template pills — простая подстановка текста -->
         <div>
           <label class="block text-sm font-medium mb-1.5">Шаблоны</label>
           <div class="flex flex-wrap gap-1.5">
-            <button v-for="t in EDIT_TEMPLATES" :key="t.label" @click="onTemplateClick(t.template)"
-              :disabled="generatingPrompt"
-              class="px-2.5 py-1 rounded-full text-xs font-medium bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300 hover:bg-purple-200 dark:hover:bg-purple-800 transition-colors disabled:opacity-50">
+            <button v-for="t in EDIT_TEMPLATES" :key="t.label" @click="prompt = t.prompt"
+              class="px-2.5 py-1 rounded-full text-xs font-medium bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300 hover:bg-purple-200 dark:hover:bg-purple-800 transition-colors">
               {{ t.label }}
             </button>
-            <span v-if="generatingPrompt" class="flex items-center gap-1 text-xs text-purple-500">
-              <Loader2 :size="12" class="animate-spin" /> Генерация...
-            </span>
           </div>
         </div>
 
-        <!-- Prompt + history navigation -->
+        <!-- Prompt + history + enhance -->
         <div>
           <div class="flex items-center justify-between mb-1">
             <label class="block text-sm font-medium">Что изменить?</label>
@@ -178,6 +177,12 @@ function submit() {
           </div>
           <textarea v-model="prompt" rows="3" placeholder="Замени фон на закат над морем..."
             class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 focus:ring-2 focus:ring-purple-500 text-sm" />
+          <!-- Enhance button — под textarea -->
+          <button @click="enhancePrompt" :disabled="enhancing || !prompt.trim()"
+            class="mt-1.5 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-purple-300 dark:border-purple-700 text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-950 disabled:opacity-50 transition-colors">
+            <Loader2 v-if="enhancing" :size="14" class="animate-spin" /><Sparkles v-else :size="14" />
+            {{ enhancing ? 'Улучшаю...' : 'Улучшить промпт' }}
+          </button>
         </div>
       </div>
 
@@ -185,7 +190,7 @@ function submit() {
         <button @click="emit('close')" class="px-4 py-2 rounded-lg text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800">
           Отмена
         </button>
-        <button @click="submit" :disabled="!prompt.trim() || generatingPrompt"
+        <button @click="submit" :disabled="!prompt.trim() || enhancing"
           class="flex items-center gap-2 px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-700 text-white text-sm font-medium disabled:opacity-50">
           <Sparkles :size="16" />
           Применить
