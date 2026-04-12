@@ -25,7 +25,7 @@ services:
       DATABASE_URL: postgresql://contentfactory:${DB_PASSWORD}@postgres:5432/contentfactory
       JWT_SECRET: ${JWT_SECRET}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
-      FAL_API_KEY: ${FAL_API_KEY}
+      KIE_API_KEY: ${KIE_API_KEY}
       NODE_ENV: production
       PORT: 3800
     volumes:

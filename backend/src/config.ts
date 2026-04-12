@@ -5,7 +5,7 @@ const envSchema = z.object({
   JWT_SECRET: z.string().min(32),
   PORT: z.coerce.number().default(3800),
   OPENROUTER_API_KEY: z.string().default(''),  // Можно задать через UI (Settings → AI)
-  FAL_API_KEY: z.string().default(''),          // FAL.ai — image editing, video generation
+  KIE_API_KEY: z.string().default(''),            // KIE.ai — image editing, video generation
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
 })
 
@@ -25,7 +25,7 @@ export const config = {
     haiku: 'anthropic/claude-3.5-haiku',
     sonnet: 'anthropic/claude-sonnet-4',
     imageGen: 'google/gemini-2.5-flash-image',
-    falEditImage: 'fal-ai/flux-pro/kontext',
-    falRemoveBg: 'fal-ai/imageutils/rembg',
+    kieEditImage: 'flux-kontext-pro',
+    kieRemoveBg: 'recraft/remove-background',
   },
 }
