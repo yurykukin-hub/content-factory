@@ -86,6 +86,7 @@ async function enhancePrompt() {
       prompt: prompt.value,
       aspectRatio: '9:16',
       businessId: props.businessId,
+      mode: 'edit',
     })
     prompt.value = res.enhancedPrompt
     // Save to history

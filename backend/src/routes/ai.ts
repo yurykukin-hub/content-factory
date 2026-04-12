@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { db } from '../db'
 import { config } from '../config'
 import { aiComplete } from '../services/ai/openrouter'
-import { buildBrandContext, buildPlanPrompt, buildPostPrompt, buildAdaptPrompt, buildHashtagPrompt, buildImageEnhancerPrompt, buildStoryTitlePrompt } from '../services/ai/prompt-builder'
+import { buildBrandContext, buildPlanPrompt, buildPostPrompt, buildAdaptPrompt, buildHashtagPrompt, buildImageEnhancerPrompt, buildEditEnhancerPrompt, buildStoryTitlePrompt } from '../services/ai/prompt-builder'
 import { generateImage } from '../services/ai/image-generation'
 import { editImage, removeBackground, EDIT_MODELS } from '../services/ai/kie'
 import { emitEvent } from '../eventBus'
@@ -220,6 +220,7 @@ const enhanceImagePromptSchema = z.object({
   prompt: z.string().min(1).max(2000),
   aspectRatio: z.enum(['1:1', '16:9', '9:16']).default('1:1'),
   businessId: z.string(),
+  mode: z.enum(['generate', 'edit']).default('generate'),
 })
 
 ai.post('/enhance-image-prompt', async (c) => {
@@ -232,14 +233,19 @@ ai.post('/enhance-image-prompt', async (c) => {
     throw e
   }
 
-  const brandContext = await buildBrandContext(data.businessId)
-  const systemPrompt = buildImageEnhancerPrompt(brandContext)
+  // edit mode: только инструкции изменения, без описания сцены
+  // generate mode: полный промпт с композицией, освещением и т.д.
+  const systemPrompt = data.mode === 'edit'
+    ? buildEditEnhancerPrompt()
+    : buildImageEnhancerPrompt(await buildBrandContext(data.businessId))
 
   const result = await aiComplete({
     systemPrompt,
-    userPrompt: `Описание: ${data.prompt}\nФормат: ${data.aspectRatio}`,
+    userPrompt: data.mode === 'edit'
+      ? `Инструкция: ${data.prompt}`
+      : `Описание: ${data.prompt}\nФормат: ${data.aspectRatio}`,
     model: config.models.haiku,
-    maxTokens: 500,
+    maxTokens: data.mode === 'edit' ? 100 : 500,
     businessId: data.businessId,
     action: 'enhance_image_prompt',
   })

@@ -184,6 +184,30 @@ ${brandContext}
 }
 
 /**
+ * System prompt для улучшения промпта РЕДАКТИРОВАНИЯ изображения (img2img).
+ * Не описывает содержание кадра — только инструкции по изменению.
+ */
+export function buildEditEnhancerPrompt(): string {
+  return `Ты — эксперт по промптам для AI-редактирования изображений (img2img).
+Тебе дают СУЩЕСТВУЮЩЕЕ изображение и краткую инструкцию что изменить. Твоя задача — превратить краткую инструкцию в точный промпт для редактирования.
+
+## Важно
+- НЕ описывай что изображено на фото — ты не знаешь содержания
+- НЕ выдумывай сцену, объекты, людей — это уже есть на фото
+- Пиши ТОЛЬКО инструкции по изменению: что сделать с фоном, стилем, цветами, освещением
+- Будь конкретным в технических деталях изменений
+- Пиши на английском
+- Длина: 1-2 предложения, максимум 50 слов
+
+## Примеры
+Вход: "Сменить фон" → "Replace the background with a soft gradient sunset sky in warm orange and pink tones"
+Вход: "Стилизовать" → "Apply a vibrant pop-art style with bold outlines and saturated colors"
+Вход: "Улучшить" → "Enhance sharpness, increase contrast slightly, improve color vibrancy and add subtle warm tone correction"
+
+Верни ТОЛЬКО промпт редактирования, без пояснений.`
+}
+
+/**
  * System prompt для генерации заголовка Stories.
  */
 export function buildStoryTitlePrompt(brandContext: string): string {
