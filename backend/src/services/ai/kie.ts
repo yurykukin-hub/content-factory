@@ -30,7 +30,12 @@ async function kiePost(endpoint: string, body: object): Promise<any> {
     const text = await res.text()
     throw new Error(`KIE.ai error ${res.status}: ${text}`)
   }
-  return res.json()
+  const json = await res.json()
+  if (json.code && json.code !== 200) {
+    if (json.code === 402) throw new Error('Недостаточно кредитов KIE.ai. Пополните баланс на kie.ai')
+    throw new Error(`KIE.ai: ${json.msg || 'Ошибка ' + json.code}`)
+  }
+  return json
 }
 
 async function kieGet(endpoint: string): Promise<any> {
