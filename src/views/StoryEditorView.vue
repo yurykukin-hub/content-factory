@@ -7,9 +7,10 @@ import { useToast } from '@/composables/useToast'
 import { formatDate } from '@/composables/useFormatters'
 import {
   ArrowLeft, Upload, Sparkles, Loader2, Send, CheckCircle,
-  ExternalLink, AlertCircle, Image, Link, Trash2, ZoomIn, ZoomOut, Eye, Wand2, Eraser
+  ExternalLink, AlertCircle, Image, Images, Link, Trash2, ZoomIn, ZoomOut, Eye, Wand2, Eraser
 } from 'lucide-vue-next'
 import ImageEditModal from '@/components/ai/ImageEditModal.vue'
+import MediaPickerModal from '@/components/MediaPickerModal.vue'
 
 interface MediaFile { id: string; url: string; thumbUrl: string | null; filename: string; mimeType: string; sizeBytes: number }
 interface PlatformAccount { id: string; platform: string; accountName: string; accountId: string }
@@ -85,6 +86,7 @@ const IMAGE_TEMPLATES = [
 
 const removingBg = ref(false)
 const showEditModal = ref(false)
+const showMediaPicker = ref(false)
 
 async function doRemoveBg() {
   if (!post.value || !photo.value || removingBg.value) return
@@ -383,6 +385,27 @@ async function removePhoto() {
   toast.info('Фото удалено')
 }
 
+async function pickFromLibrary(file: MediaFile) {
+  if (!post.value) return
+  uploading.value = true
+  try {
+    // Отвязать текущее фото (не удаляем — оно остаётся в медиатеке)
+    if (photo.value) {
+      await http.post(`/media/${photo.value.id}/attach`, { postId: null }).catch(() => {})
+    }
+    // Привязать выбранное фото к посту
+    await http.post(`/media/${file.id}/attach`, { postId: post.value.id })
+    post.value.mediaFiles = [file]
+    loadImage(file.url)
+    showMediaPicker.value = false
+    toast.success('Фото выбрано из медиатеки')
+  } catch (e: any) {
+    toast.error('Ошибка: ' + (e.message || e))
+  } finally {
+    uploading.value = false
+  }
+}
+
 async function generateAiImage() {
   if (!post.value || !aiPrompt.value.trim()) return
   aiLoading.value = true
@@ -674,13 +697,17 @@ onUnmounted(() => {
             </div>
             <button @click="removePhoto" class="p-1.5 rounded text-gray-400 hover:text-red-500"><Trash2 :size="14" /></button>
           </div>
-          <div class="flex gap-2">
-            <label :class="['flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border-2 border-dashed cursor-pointer text-xs font-medium',
+          <div class="flex flex-wrap gap-2">
+            <label :class="['flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border-2 border-dashed cursor-pointer text-xs font-medium',
               uploading ? 'opacity-50' : 'border-gray-300 dark:border-gray-700 text-gray-500 hover:border-brand-400']">
               <Loader2 v-if="uploading" :size="14" class="animate-spin" /><Upload v-else :size="14" />
               {{ photo ? 'Заменить' : 'Загрузить' }}
               <input type="file" accept="image/*,video/*" class="hidden" @change="uploadPhoto" :disabled="uploading" />
             </label>
+            <button @click="showMediaPicker = true"
+              class="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300 text-xs font-medium hover:bg-blue-200 dark:hover:bg-blue-800">
+              <Images :size="14" /> Медиатека
+            </button>
             <button @click="showAiImage = true"
               class="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300 text-xs font-medium hover:bg-purple-200">
               <Sparkles :size="14" /> AI
@@ -918,6 +945,15 @@ onUnmounted(() => {
       :post-id="post.id"
       @close="showEditModal = false"
       @edited="onImageEdited"
+    />
+
+    <!-- Media Picker Modal -->
+    <MediaPickerModal
+      v-if="post"
+      :visible="showMediaPicker"
+      :business-id="post.businessId"
+      @close="showMediaPicker = false"
+      @selected="pickFromLibrary"
     />
   </div>
 </template>
