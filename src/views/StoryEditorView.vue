@@ -8,7 +8,7 @@ import { formatDate } from '@/composables/useFormatters'
 import {
   ArrowLeft, Upload, Sparkles, Loader2, Send, CheckCircle,
   ExternalLink, AlertCircle, Image, Images, Link, Trash2, ZoomIn, ZoomOut, Eye, Wand2, Eraser,
-  ChevronLeft, ChevronRight
+  ChevronLeft, ChevronRight, Calendar, Clock
 } from 'lucide-vue-next'
 import ImageEditModal from '@/components/ai/ImageEditModal.vue'
 import MediaPickerModal from '@/components/MediaPickerModal.vue'
@@ -16,7 +16,7 @@ import MediaPickerModal from '@/components/MediaPickerModal.vue'
 interface MediaFile { id: string; url: string; thumbUrl: string | null; filename: string; mimeType: string; sizeBytes: number }
 interface PlatformAccount { id: string; platform: string; accountName: string; accountId: string }
 interface PostVersion {
-  id: string; status: string; externalUrl: string | null; publishedAt: string | null
+  id: string; status: string; externalUrl: string | null; publishedAt: string | null; scheduledAt: string | null
   platformAccount: PlatformAccount
   publishLogs: { status: string; errorMessage: string | null; attemptedAt: string }[]
 }
@@ -34,6 +34,8 @@ const post = ref<Post | null>(null)
 const loading = ref(true)
 const publishing = ref(false)
 const uploading = ref(false)
+const scheduling = ref(false)
+const scheduledAt = ref('')
 
 // Canvas
 const canvasRef = ref<HTMLCanvasElement | null>(null)
@@ -199,7 +201,7 @@ const selectedChannel = ref('')
 
 const photo = computed(() => post.value?.mediaFiles?.[0] || null)
 const version = computed(() => post.value?.versions?.[0] || null)
-const isPublished = computed(() => version.value?.status === 'PUBLISHED')
+const isPublished = computed(() => version.value?.status === 'PUBLISHED' || version.value?.status === 'SCHEDULED')
 
 const fontSizePx = computed(() => ({ S: 14, M: 18, L: 24 }[fontSize.value]))
 const fontSizeExport = computed(() => ({ S: 42, M: 54, L: 72 }[fontSize.value]))
@@ -641,6 +643,56 @@ async function confirmPublish() {
   finally { publishing.value = false }
 }
 
+async function schedulePublish() {
+  if (!post.value || !previewBlob.value || !scheduledAt.value) return
+  scheduling.value = true
+  try {
+    // Шаги 1-5 идентичны confirmPublish
+    const formData = new FormData()
+    formData.append('file', previewBlob.value, 'story-rendered.jpg')
+    formData.append('businessId', post.value.businessId)
+    const uploadRes = await fetch('/api/media/upload', { method: 'POST', body: formData, credentials: 'include' })
+    const renderedFile = await uploadRes.json() as MediaFile
+
+    await http.put(`/posts/${post.value.id}`, { body: overlayText.value, title: storyTitle.value || null })
+
+    let versionId = version.value?.id
+    if (!versionId) {
+      const v = await http.post<{ id: string }>(`/posts/${post.value.id}/versions`, {
+        platformAccountId: selectedChannel.value, body: overlayText.value, hashtags: [],
+      })
+      versionId = v.id
+    }
+
+    const originalFileIds = post.value.mediaFiles.map(m => m.id)
+    for (const mfId of originalFileIds) {
+      await http.post(`/media/${mfId}/attach`, { postId: null }).catch(() => {})
+    }
+    await http.post(`/media/${renderedFile.id}/attach`, { postId: post.value.id }).catch(() => {})
+
+    // 6. Запланировать (вместо publish)
+    await http.post(`/post-versions/${versionId}/schedule`, {
+      scheduledAt: new Date(scheduledAt.value).toISOString(),
+    })
+
+    // 7. Вернуть оригиналы
+    await http.delete(`/media/${renderedFile.id}`).catch(() => {})
+    for (const mfId of originalFileIds) {
+      await http.post(`/media/${mfId}/attach`, { postId: post.value.id }).catch(() => {})
+    }
+
+    showPreview.value = false
+    toast.success(`Запланировано на ${new Date(scheduledAt.value).toLocaleString('ru')}`)
+
+    try {
+      const freshPost = await http.get<Post>(`/posts/${post.value.id}`)
+      if (freshPost) { post.value.versions = freshPost.versions; post.value.status = freshPost.status }
+    } catch {}
+    render()
+  } catch (e: any) { toast.error('Ошибка: ' + e.message) }
+  finally { scheduling.value = false }
+}
+
 function closePreview() {
   showPreview.value = false
 }
@@ -946,6 +998,16 @@ onUnmounted(() => {
           <div v-else-if="vkChannels.length === 1" class="text-xs text-gray-400 mb-3">{{ vkChannels[0].accountName }}</div>
           <div v-else class="text-xs text-red-500 mb-3">Нет VK каналов. <router-link :to="'/businesses/' + post.businessId + '?tab=channels'" class="text-brand-500 underline">Настроить каналы</router-link></div>
 
+          <div v-if="version?.status === 'SCHEDULED'" class="p-3 rounded-lg bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 mb-3">
+            <div class="flex items-center gap-2">
+              <Clock :size="16" class="text-blue-600" />
+              <div>
+                <div class="text-sm font-medium text-blue-700 dark:text-blue-300">Запланировано</div>
+                <div v-if="version.scheduledAt" class="text-[10px] text-blue-500">{{ new Date(version.scheduledAt).toLocaleString('ru') }}</div>
+              </div>
+            </div>
+          </div>
+
           <div v-if="version?.status === 'PUBLISHED'" class="p-3 rounded-lg bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800 mb-3">
             <div class="flex items-center gap-2">
               <CheckCircle :size="16" class="text-green-600" />
@@ -1012,16 +1074,33 @@ onUnmounted(() => {
           </div>
         </div>
 
+        <!-- Schedule -->
+        <div class="bg-gray-50 dark:bg-gray-800 rounded-xl p-4 mb-4">
+          <label class="flex items-center gap-2 text-sm font-medium mb-2">
+            <Calendar :size="14" /> Запланировать
+          </label>
+          <div class="flex gap-2">
+            <input v-model="scheduledAt" type="datetime-local"
+              :min="new Date().toISOString().slice(0, 16)"
+              class="flex-1 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm" />
+            <button @click="schedulePublish" :disabled="scheduling || !scheduledAt"
+              class="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium disabled:opacity-50">
+              <Loader2 v-if="scheduling" :size="14" class="animate-spin" /><Clock v-else :size="14" />
+              {{ scheduling ? '...' : 'Запланировать' }}
+            </button>
+          </div>
+        </div>
+
         <!-- Actions -->
         <div class="flex gap-3">
           <button @click="closePreview"
             class="flex-1 px-4 py-3 rounded-lg border border-gray-300 dark:border-gray-700 text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800">
-            ← Назад к редактору
+            ← Назад
           </button>
           <button @click="confirmPublish" :disabled="publishing"
             class="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg bg-green-600 hover:bg-green-700 text-white font-medium disabled:opacity-50">
             <Loader2 v-if="publishing" :size="16" class="animate-spin" /><Send v-else :size="16" />
-            {{ publishing ? 'Публикация...' : 'Подтвердить' }}
+            {{ publishing ? 'Публикация...' : 'Опубликовать сейчас' }}
           </button>
         </div>
       </div>
