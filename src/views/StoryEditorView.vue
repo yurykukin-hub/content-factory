@@ -97,6 +97,7 @@ watch([overlayText, storyTitle], autoSave)
 const TEXT_COLORS = ['#ffffff', '#000000', '#ef4444', '#f97316', '#eab308', '#22c55e', '#3b82f6', '#8b5cf6', '#ec4899', '#d946ef']
 const linkType = ref('')
 const linkUrl = ref('')
+const savedLinks = ref<{ label: string; url: string }[]>([])
 
 // Preview modal
 const showPreview = ref(false)
@@ -417,9 +418,13 @@ async function loadPost() {
         }
       }
     }
-    // Load story templates from DB
+    // Load story templates + brand links from DB
     try {
       storyTemplates.value = await http.get<DbStoryTemplate[]>(`/businesses/${post.value.businessId}/story-templates`)
+    } catch {}
+    try {
+      const bp = await http.get<{ links?: { label: string; url: string }[] }>(`/businesses/${post.value.businessId}/brand-profile`)
+      savedLinks.value = Array.isArray(bp?.links) ? bp.links.filter(l => l.url) : []
     } catch {}
 
     // Load text history from aiPromptHistory
@@ -963,6 +968,15 @@ onUnmounted(() => {
           </select>
           <input v-if="linkType" v-model="linkUrl" placeholder="https://nawode.ru"
             class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />
+          <div v-if="linkType && savedLinks.length" class="flex flex-wrap gap-1 mt-1.5">
+            <button v-for="sl in savedLinks" :key="sl.url" @click="linkUrl = sl.url"
+              :class="['px-2 py-0.5 rounded-full text-[10px] font-medium transition-colors',
+                linkUrl === sl.url
+                  ? 'bg-brand-600 text-white'
+                  : 'bg-gray-100 dark:bg-gray-800 text-gray-500 hover:bg-brand-50 dark:hover:bg-brand-950 hover:text-brand-600']">
+              {{ sl.label || sl.url }}
+            </button>
+          </div>
         </div>
 
         <!-- Publish -->

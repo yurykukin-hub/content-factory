@@ -31,6 +31,7 @@ interface BrandProfile {
   keyTopics: string[]
   doNotMention: string[]
   postsPerWeek: number
+  links?: { label: string; url: string }[]
 }
 
 interface BusinessDetail {
@@ -207,6 +208,7 @@ function initProfileForm() {
     keyTopics: (bp?.keyTopics || []).join(', '),
     doNotMention: (bp?.doNotMention || []).join(', '),
     postsPerWeek: bp?.postsPerWeek || 3,
+    links: bp?.links || [],
   }
 }
 
@@ -491,10 +493,28 @@ onMounted(() => {
                 class="w-20 px-2 py-1.5 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-center"
               />
             </div>
+            <!-- Links for Stories -->
+            <div class="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+              <label class="block text-sm font-medium mb-2">
+                <Link :size="14" class="inline mr-1" /> Ссылки (для кнопок в Stories)
+              </label>
+              <div v-for="(link, i) in (profileForm.links || [])" :key="i" class="flex gap-2 mb-2">
+                <input v-model="link.label" placeholder="Название" class="w-1/3 px-2 py-1.5 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-xs" />
+                <input v-model="link.url" placeholder="https://..." class="flex-1 px-2 py-1.5 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-xs" />
+                <button @click="profileForm.links.splice(i, 1)" class="p-1.5 rounded-lg hover:bg-red-100 dark:hover:bg-red-900">
+                  <Trash2 :size="14" class="text-red-400" />
+                </button>
+              </div>
+              <button @click="(profileForm.links = profileForm.links || []).push({ label: '', url: '' })"
+                class="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-950">
+                <Plus :size="12" /> Добавить ссылку
+              </button>
+            </div>
+
             <button
               @click="saveProfile"
               :disabled="savingProfile"
-              class="flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium disabled:opacity-50"
+              class="mt-4 flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium disabled:opacity-50"
             >
               <Loader2 v-if="savingProfile" :size="16" class="animate-spin" />
               <Save v-else :size="16" />

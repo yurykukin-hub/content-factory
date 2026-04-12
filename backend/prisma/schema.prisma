@@ -156,6 +156,7 @@ model BrandProfile {
   doNotMention    String[] @default([]) @map("do_not_mention")
   examplePosts    Json?    @map("example_posts") // примеры хороших постов
   postsPerWeek    Int      @default(3) @map("posts_per_week")
+  links           Json?    // [{label: "Сайт", url: "https://..."}, {label: "Бронирование", url: "..."}]
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
 
