@@ -83,6 +83,7 @@ async function uploadFile(file: File) {
 }
 
 async function removeFile(id: string) {
+  if (!confirm('Удалить файл? Это действие необратимо.')) return
   try {
     await http.delete(`/media/${id}`)
     emit('removed', id)
