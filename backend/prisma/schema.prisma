@@ -119,8 +119,29 @@ model Business {
   aiUsageLogs      AiUsageLog[]
   webhookRules     WebhookRule[]
   users            UserBusiness[]
+  storyTemplates   StoryTemplate[]
 
   @@map("businesses")
+}
+
+model StoryTemplate {
+  id           String  @id @default(cuid())
+  businessId   String  @map("business_id")
+  name         String                                    // "SUP рассвет", "Акция"
+  emoji        String  @default("")                      // "🌅", "🔥"
+  overlayText  String  @default("") @map("overlay_text") // текст на фото
+  textPosition String  @default("bottom") @map("text_position") // top/center/bottom
+  textColor    String  @default("#ffffff") @map("text_color")
+  fontSize     String  @default("M") @map("font_size")  // S/M/L
+  bgStyle      String  @default("dark") @map("bg_style") // dark/light/none
+  linkType     String  @default("") @map("link_type")   // book/order/learn_more/""
+  sortOrder    Int     @default(0) @map("sort_order")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@map("story_templates")
 }
 
 /// Профиль бренда (контекст для AI-промптов)

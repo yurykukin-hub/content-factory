@@ -128,12 +128,12 @@ const textHistory = ref<{ title: string; body: string }[]>([])
 const textHistoryIndex = ref(-1)
 const generatingText = ref(false)
 
-const TEXT_TEMPLATES = [
-  { label: 'Акция', text: 'Скидка на услуги' },
-  { label: 'Приглашение', text: 'Приглашение на активность' },
-  { label: 'Факт', text: 'Интересный факт' },
-  { label: 'Отзыв', text: 'Отзыв клиента' },
-]
+// Story templates from DB (loaded in loadPost)
+interface DbStoryTemplate {
+  id: string; name: string; emoji: string; overlayText: string
+  textPosition: string; textColor: string; fontSize: string; bgStyle: string; linkType: string
+}
+const storyTemplates = ref<DbStoryTemplate[]>([])
 
 const textHistoryLabel = computed(() => {
   if (textHistory.value.length === 0) return ''
@@ -417,6 +417,11 @@ async function loadPost() {
         }
       }
     }
+    // Load story templates from DB
+    try {
+      storyTemplates.value = await http.get<DbStoryTemplate[]>(`/businesses/${post.value.businessId}/story-templates`)
+    } catch {}
+
     // Load text history from aiPromptHistory
     try {
       const res = await http.get<{ history: any[] }>(`/ai/prompt-history/${post.value.id}`)
@@ -714,53 +719,14 @@ function closePreview() {
 }
 
 // VK link_text → реальный текст кнопки в VK (проверено)
-// Story templates
-interface StoryTemplate {
-  name: string
-  emoji: string
-  overlayText: string
-  textPosition: 'top' | 'center' | 'bottom'
-  textColor: string
-  fontSize: 'S' | 'M' | 'L'
-  bgStyle: 'dark' | 'light' | 'none'
-  linkType: string
-}
-
-const STORY_TEMPLATES: StoryTemplate[] = [
-  {
-    name: 'SUP рассвет', emoji: '🌅',
-    overlayText: 'Рассвет на воде — лучшее начало дня',
-    textPosition: 'bottom', textColor: '#ffffff', fontSize: 'L', bgStyle: 'dark', linkType: 'book',
-  },
-  {
-    name: 'Прогноз дня', emoji: '☀️',
-    overlayText: 'Сегодня идеальная погода для SUP!',
-    textPosition: 'top', textColor: '#ffffff', fontSize: 'M', bgStyle: 'light', linkType: 'book',
-  },
-  {
-    name: 'Акция', emoji: '🔥',
-    overlayText: 'Скидка 20% на утренний прокат!',
-    textPosition: 'center', textColor: '#ffffff', fontSize: 'L', bgStyle: 'dark', linkType: 'order',
-  },
-  {
-    name: 'Факт о SUP', emoji: '💡',
-    overlayText: 'SUP — один из самых быстрорастущих видов спорта в мире',
-    textPosition: 'bottom', textColor: '#ffffff', fontSize: 'M', bgStyle: 'dark', linkType: '',
-  },
-  {
-    name: 'Отзыв', emoji: '⭐',
-    overlayText: '«Лучший отдых за последний год!»',
-    textPosition: 'center', textColor: '#ffffff', fontSize: 'L', bgStyle: 'dark', linkType: 'learn_more',
-  },
-]
-
-function applyTemplate(tpl: StoryTemplate) {
-  overlayText.value = tpl.overlayText
-  textPosition.value = tpl.textPosition
-  textColor.value = tpl.textColor
-  fontSize.value = tpl.fontSize
-  bgStyle.value = tpl.bgStyle
-  linkType.value = tpl.linkType
+function applyTemplate(tpl: DbStoryTemplate) {
+  if (tpl.overlayText) overlayText.value = tpl.overlayText
+  if (tpl.textPosition) textPosition.value = tpl.textPosition as any
+  if (tpl.textColor) textColor.value = tpl.textColor
+  if (tpl.fontSize) fontSize.value = tpl.fontSize as any
+  if (tpl.bgStyle) bgStyle.value = tpl.bgStyle as any
+  if (tpl.linkType !== undefined) linkType.value = tpl.linkType
+  render()
   toast.info(`Шаблон "${tpl.name}" применён`)
 }
 
@@ -900,16 +866,19 @@ onUnmounted(() => {
 
         <!-- Text + Templates -->
         <div :class="['bg-white dark:bg-gray-900 rounded-xl p-5 border border-gray-200 dark:border-gray-800', isPublished && 'opacity-60 pointer-events-none select-none']">
-          <!-- Templates -->
-          <div class="mb-4">
+          <!-- Templates from DB -->
+          <div v-if="storyTemplates.length" class="mb-4">
             <div class="text-xs text-gray-400 mb-1.5">Шаблоны</div>
             <div class="flex flex-wrap gap-1.5">
-              <button v-for="tpl in STORY_TEMPLATES" :key="tpl.name" @click="applyTemplate(tpl)"
+              <button v-for="tpl in storyTemplates" :key="tpl.id" @click="applyTemplate(tpl)"
                 class="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-gray-100 dark:bg-gray-800 text-xs font-medium hover:bg-brand-50 dark:hover:bg-brand-950 hover:text-brand-700 dark:hover:text-brand-300 transition-colors">
-                <span>{{ tpl.emoji }}</span>
+                <span v-if="tpl.emoji">{{ tpl.emoji }}</span>
                 {{ tpl.name }}
               </button>
             </div>
+          </div>
+          <div v-else class="mb-4">
+            <p class="text-xs text-gray-400">Нет шаблонов. <router-link v-if="post" :to="'/businesses/' + post.businessId + '?tab=templates'" class="text-brand-500 hover:underline">Создать →</router-link></p>
           </div>
 
           <div class="flex items-center justify-between mb-2">
@@ -926,13 +895,6 @@ onUnmounted(() => {
                 <ChevronRight :size="14" class="text-gray-500" />
               </button>
             </div>
-          </div>
-          <!-- Text template pills — простая подстановка -->
-          <div class="flex flex-wrap gap-1 mb-2">
-            <button v-for="t in TEXT_TEMPLATES" :key="t.label" @click="overlayText = t.text"
-              class="px-2 py-0.5 rounded-full text-[10px] font-medium bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300 hover:bg-purple-200 dark:hover:bg-purple-800 transition-colors">
-              {{ t.label }}
-            </button>
           </div>
           <textarea v-model="overlayText" rows="4" placeholder="Короткий текст поверх фото..."
             class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 focus:ring-2 focus:ring-brand-500 text-sm" />
