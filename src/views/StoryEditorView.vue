@@ -60,6 +60,22 @@ const bgStyle = ref<'dark' | 'light' | 'none'>('dark')
 const bgRadius = ref<'round' | 'square'>('round')
 const textAlign = ref<'left' | 'center' | 'right'>('center')
 
+// Auto-save title + text (debounce 1.5s)
+let saveTimer: ReturnType<typeof setTimeout> | null = null
+function autoSave() {
+  if (!post.value || isPublished.value) return
+  if (saveTimer) clearTimeout(saveTimer)
+  saveTimer = setTimeout(async () => {
+    try {
+      await http.put(`/posts/${post.value!.id}`, {
+        body: overlayText.value,
+        title: storyTitle.value || null,
+      })
+    } catch {}
+  }, 1500)
+}
+watch([overlayText, storyTitle], autoSave)
+
 const TEXT_COLORS = ['#ffffff', '#000000', '#ef4444', '#f97316', '#eab308', '#22c55e', '#3b82f6', '#8b5cf6', '#ec4899', '#d946ef']
 const linkType = ref('')
 const linkUrl = ref('')
