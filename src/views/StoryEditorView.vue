@@ -36,6 +36,22 @@ const publishing = ref(false)
 const uploading = ref(false)
 const scheduling = ref(false)
 const scheduledAt = ref('')
+const cancellingSchedule = ref(false)
+
+async function cancelSchedule() {
+  if (!version.value || cancellingSchedule.value) return
+  if (!confirm('Отменить запланированную публикацию?')) return
+  cancellingSchedule.value = true
+  try {
+    await http.post(`/post-versions/${version.value.id}/schedule`, {
+      scheduledAt: null,
+    })
+    toast.success('Публикация отменена')
+    const freshPost = await http.get<Post>(`/posts/${post.value!.id}`)
+    if (freshPost) { post.value!.versions = freshPost.versions; post.value!.status = freshPost.status }
+  } catch (e: any) { toast.error('Ошибка: ' + (e.message || e)) }
+  finally { cancellingSchedule.value = false }
+}
 
 // Canvas
 const canvasRef = ref<HTMLCanvasElement | null>(null)
@@ -999,12 +1015,18 @@ onUnmounted(() => {
           <div v-else class="text-xs text-red-500 mb-3">Нет VK каналов. <router-link :to="'/businesses/' + post.businessId + '?tab=channels'" class="text-brand-500 underline">Настроить каналы</router-link></div>
 
           <div v-if="version?.status === 'SCHEDULED'" class="p-3 rounded-lg bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 mb-3">
-            <div class="flex items-center gap-2">
-              <Clock :size="16" class="text-blue-600" />
-              <div>
-                <div class="text-sm font-medium text-blue-700 dark:text-blue-300">Запланировано</div>
-                <div v-if="version.scheduledAt" class="text-[10px] text-blue-500">{{ new Date(version.scheduledAt).toLocaleString('ru') }}</div>
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <Clock :size="16" class="text-blue-600" />
+                <div>
+                  <div class="text-sm font-medium text-blue-700 dark:text-blue-300">Запланировано</div>
+                  <div v-if="version.scheduledAt" class="text-[10px] text-blue-500">{{ new Date(version.scheduledAt).toLocaleString('ru') }}</div>
+                </div>
               </div>
+              <button @click="cancelSchedule" :disabled="cancellingSchedule"
+                class="px-2.5 py-1 rounded-lg text-xs font-medium text-red-600 dark:text-red-400 border border-red-300 dark:border-red-700 hover:bg-red-50 dark:hover:bg-red-950 disabled:opacity-50">
+                {{ cancellingSchedule ? '...' : 'Отменить' }}
+              </button>
             </div>
           </div>
 

@@ -111,15 +111,20 @@ publish.post('/post-versions/:id/schedule', async (c) => {
     if (e.message === 'FORBIDDEN') return c.json({ error: 'Нет доступа' }, 403)
     throw e
   }
-  const { scheduledAt } = await c.req.json<{ scheduledAt: string }>()
+  const { scheduledAt } = await c.req.json<{ scheduledAt: string | null }>()
 
+  // null = отменить планирование
   const version = await db.postVersion.update({
     where: { id },
-    data: {
-      scheduledAt: new Date(scheduledAt),
-      status: 'SCHEDULED',
-    },
+    data: scheduledAt
+      ? { scheduledAt: new Date(scheduledAt), status: 'SCHEDULED' }
+      : { scheduledAt: null, status: 'DRAFT' },
   })
+
+  // Sync post status
+  if (!scheduledAt) {
+    await db.post.update({ where: { id: version.postId }, data: { status: 'DRAFT' } })
+  }
 
   return c.json(version)
 })
