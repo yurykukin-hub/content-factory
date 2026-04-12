@@ -25,6 +25,12 @@ const emit = defineEmits<{
 const toast = useToast()
 const prompt = ref('')
 const loading = ref(false)
+const selectedModel = ref<'flux-kontext-pro' | 'nano-banana-2'>('flux-kontext-pro')
+
+const MODELS = [
+  { id: 'flux-kontext-pro' as const, label: 'FLUX Kontext', desc: 'Точное редактирование' },
+  { id: 'nano-banana-2' as const, label: 'Nano Banana 2', desc: 'Креативная стилизация' },
+]
 
 const EDIT_TEMPLATES = [
   { label: 'Сменить фон', prompt: 'Change the background to a beautiful sunset over water' },
@@ -42,6 +48,7 @@ async function submit() {
       mediaId: props.mediaId,
       prompt: prompt.value,
       postId: props.postId,
+      model: selectedModel.value,
     })
     emit('edited', result.mediaFile)
     emit('close')
@@ -73,6 +80,21 @@ async function submit() {
       </div>
 
       <div class="space-y-3">
+        <!-- Model selector -->
+        <div>
+          <label class="block text-sm font-medium mb-1.5">Модель</label>
+          <div class="flex gap-2">
+            <button v-for="m in MODELS" :key="m.id" @click="selectedModel = m.id"
+              :class="['flex-1 px-3 py-2 rounded-lg text-xs font-medium border-2 transition-colors text-left',
+                selectedModel === m.id
+                  ? 'border-purple-500 bg-purple-50 dark:bg-purple-950 text-purple-700 dark:text-purple-300'
+                  : 'border-gray-200 dark:border-gray-700 text-gray-500 hover:border-gray-300']">
+              <div class="font-semibold">{{ m.label }}</div>
+              <div class="text-[10px] opacity-70 mt-0.5">{{ m.desc }}</div>
+            </button>
+          </div>
+        </div>
+
         <!-- Template pills -->
         <div>
           <label class="block text-sm font-medium mb-1.5">Шаблоны</label>

@@ -112,11 +112,20 @@ async function downloadAndSave(
 // Edit Image (FLUX Kontext Pro via KIE.ai)
 // =====================
 
+// Available edit models
+export const EDIT_MODELS = {
+  'flux-kontext-pro': { label: 'FLUX Kontext', cost: 0.04 },
+  'nano-banana-2': { label: 'Nano Banana 2', cost: 0.06 },
+} as const
+
+export type EditModelId = keyof typeof EDIT_MODELS
+
 interface EditImageParams {
   imageUrl: string       // local path: /uploads/bizId/file.png
   prompt: string
   businessId: string
   postId?: string | null
+  model?: EditModelId
 }
 
 interface KieImageResult {
@@ -131,20 +140,36 @@ interface KieImageResult {
 }
 
 export async function editImage(params: EditImageParams): Promise<KieImageResult> {
-  const { imageUrl, prompt, businessId, postId } = params
-  const model = config.models.kieEditImage
+  const { imageUrl, prompt, businessId, postId, model: modelId } = params
+  const model = modelId || config.models.kieEditImage
+  const modelInfo = EDIT_MODELS[model as EditModelId] || EDIT_MODELS['flux-kontext-pro']
 
-  log.info('[KIE] editImage', { businessId, prompt: prompt.slice(0, 80) })
+  log.info('[KIE] editImage', { businessId, model, prompt: prompt.slice(0, 80) })
 
   const publicUrl = resolvePublicUrl(imageUrl)
 
-  // POST to Flux Kontext API
-  const response = await kiePost('/api/v1/flux/kontext/generate', {
-    prompt,
-    model,
-    inputImage: publicUrl,
-    outputFormat: 'png',
-  })
+  // Different endpoints for different models
+  let response: any
+  if (model === 'nano-banana-2') {
+    // Nano Banana 2 uses /api/v1/jobs/createTask
+    response = await kiePost('/api/v1/jobs/createTask', {
+      model,
+      input: {
+        prompt,
+        image_input: [publicUrl],
+        resolution: '2K',
+        output_format: 'png',
+      },
+    })
+  } else {
+    // FLUX Kontext uses /api/v1/flux/kontext/generate
+    response = await kiePost('/api/v1/flux/kontext/generate', {
+      prompt,
+      model,
+      inputImage: publicUrl,
+      outputFormat: 'png',
+    })
+  }
 
   const taskId = response?.data?.taskId || response?.taskId
   if (!taskId) throw new Error('KIE.ai не вернул taskId')
@@ -182,7 +207,7 @@ export async function editImage(params: EditImageParams): Promise<KieImageResult
       tokensIn: 0,
       tokensOut: 0,
       cachedTokens: 0,
-      costUsd: 0.04,
+      costUsd: modelInfo.cost,
     },
   })
 

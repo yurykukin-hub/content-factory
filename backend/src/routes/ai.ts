@@ -5,7 +5,7 @@ import { config } from '../config'
 import { aiComplete } from '../services/ai/openrouter'
 import { buildBrandContext, buildPlanPrompt, buildPostPrompt, buildAdaptPrompt, buildHashtagPrompt, buildImageEnhancerPrompt } from '../services/ai/prompt-builder'
 import { generateImage } from '../services/ai/image-generation'
-import { editImage, removeBackground } from '../services/ai/kie'
+import { editImage, removeBackground, EDIT_MODELS } from '../services/ai/kie'
 import { emitEvent } from '../eventBus'
 import type { AuthUser } from '../middleware/auth'
 import { verifyPostAccess, assertBusinessAccess } from '../middleware/resource-access'
@@ -344,12 +344,19 @@ ai.post('/rewrite', async (c) => {
   return c.json({ error: 'TODO: AI rewrite' }, 501)
 })
 
-// POST /api/ai/edit-image — редактирование фото через FAL.ai FLUX Kontext
+// GET /api/ai/edit-models — список доступных моделей редактирования
+ai.get('/edit-models', (c) => {
+  const models = Object.entries(EDIT_MODELS).map(([id, info]) => ({ id, ...info }))
+  return c.json({ models })
+})
+
+// POST /api/ai/edit-image — редактирование фото через KIE.ai
 const editImageSchema = z.object({
   businessId: z.string(),
   mediaId: z.string(),
   prompt: z.string().min(1).max(2000),
   postId: z.string().optional(),
+  model: z.enum(['flux-kontext-pro', 'nano-banana-2'] as const).default('flux-kontext-pro'),
 })
 
 ai.post('/edit-image', async (c) => {
@@ -371,6 +378,7 @@ ai.post('/edit-image', async (c) => {
     prompt: data.prompt,
     businessId: data.businessId,
     postId: data.postId || null,
+    model: data.model,
   })
 
   return c.json(result, 201)
