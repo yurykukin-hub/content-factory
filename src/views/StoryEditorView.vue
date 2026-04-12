@@ -95,10 +95,10 @@ const textHistoryIndex = ref(-1)
 const generatingText = ref(false)
 
 const TEXT_TEMPLATES = [
-  { label: 'Акция', topic: 'Скидка или акция на услуги' },
-  { label: 'Приглашение', topic: 'Приглашение на мероприятие или активность' },
-  { label: 'Факт', topic: 'Интересный факт о бизнесе или услуге' },
-  { label: 'Отзыв', topic: 'Отзыв довольного клиента' },
+  { label: 'Акция', text: 'Скидка на услуги' },
+  { label: 'Приглашение', text: 'Приглашение на активность' },
+  { label: 'Факт', text: 'Интересный факт' },
+  { label: 'Отзыв', text: 'Отзыв клиента' },
 ]
 
 const textHistoryLabel = computed(() => {
@@ -829,34 +829,34 @@ onUnmounted(() => {
 
           <div class="flex items-center justify-between mb-2">
             <h3 class="font-semibold text-sm">Текст на фото</h3>
-            <div class="flex items-center gap-1.5">
-              <!-- Text history navigation -->
-              <div v-if="textHistory.length > 0" class="flex items-center gap-0.5">
-                <button @click="textGoBack" :disabled="textHistoryIndex <= 0"
-                  class="p-0.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-30">
-                  <ChevronLeft :size="14" class="text-gray-500" />
-                </button>
-                <span class="text-[10px] text-gray-400 min-w-[24px] text-center">{{ textHistoryLabel }}</span>
-                <button @click="textGoForward" :disabled="textHistoryIndex >= textHistory.length - 1"
-                  class="p-0.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-30">
-                  <ChevronRight :size="14" class="text-gray-500" />
-                </button>
-              </div>
-              <button @click="generateStoryText()" :disabled="generatingText"
-                class="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300 text-[11px] font-medium hover:bg-purple-200 disabled:opacity-50">
-                <Loader2 v-if="generatingText" :size="12" class="animate-spin" /><Sparkles v-else :size="12" /> AI текст
+            <!-- Text history navigation -->
+            <div v-if="textHistory.length > 0" class="flex items-center gap-0.5">
+              <button @click="textGoBack" :disabled="textHistoryIndex <= 0"
+                class="p-0.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-30">
+                <ChevronLeft :size="14" class="text-gray-500" />
+              </button>
+              <span class="text-[10px] text-gray-400 min-w-[24px] text-center">{{ textHistoryLabel }}</span>
+              <button @click="textGoForward" :disabled="textHistoryIndex >= textHistory.length - 1"
+                class="p-0.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-30">
+                <ChevronRight :size="14" class="text-gray-500" />
               </button>
             </div>
           </div>
-          <!-- Text template pills -->
+          <!-- Text template pills — простая подстановка -->
           <div class="flex flex-wrap gap-1 mb-2">
-            <button v-for="t in TEXT_TEMPLATES" :key="t.label" @click="generateStoryText(t.topic)" :disabled="generatingText"
-              class="px-2 py-0.5 rounded-full text-[10px] font-medium bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300 hover:bg-purple-200 dark:hover:bg-purple-800 disabled:opacity-50 transition-colors">
+            <button v-for="t in TEXT_TEMPLATES" :key="t.label" @click="overlayText = t.text"
+              class="px-2 py-0.5 rounded-full text-[10px] font-medium bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300 hover:bg-purple-200 dark:hover:bg-purple-800 transition-colors">
               {{ t.label }}
             </button>
           </div>
           <textarea v-model="overlayText" rows="4" placeholder="Короткий текст поверх фото..."
             class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 focus:ring-2 focus:ring-brand-500 text-sm" />
+          <!-- AI enhance button — под textarea -->
+          <button @click="generateStoryText(overlayText || undefined)" :disabled="generatingText"
+            class="mt-1.5 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-purple-300 dark:border-purple-700 text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-950 disabled:opacity-50 transition-colors">
+            <Loader2 v-if="generatingText" :size="14" class="animate-spin" /><Sparkles v-else :size="14" />
+            {{ generatingText ? 'Генерация...' : 'AI текст + заголовок' }}
+          </button>
 
           <div class="flex items-center gap-2 mt-3">
             <span class="text-xs text-gray-500">Позиция:</span>
