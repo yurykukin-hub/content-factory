@@ -147,6 +147,7 @@ interface GenerateImageParams {
   businessId: string
   postId?: string | null
   aspectRatio?: '1:1' | '16:9' | '9:16'
+  characterId?: string | null
 }
 
 interface GenerateImageResult {
@@ -158,22 +159,53 @@ interface GenerateImageResult {
 }
 
 export async function generateImage(params: GenerateImageParams): Promise<GenerateImageResult> {
-  const { prompt: rawPrompt, businessId, postId, aspectRatio = '1:1' } = params
+  const { prompt: rawPrompt, businessId, postId, aspectRatio = '1:1', characterId } = params
   const model = 'nano-banana-2'
 
-  // Auto-translate to English for better quality
-  const prompt = await translatePrompt(rawPrompt, businessId)
+  // If character provided, enrich prompt with character description and use reference image
+  let enrichedPrompt = rawPrompt
+  let referenceImageUrl: string | undefined
 
-  log.info('[KIE] generateImage', { businessId, model, prompt: prompt.slice(0, 80) })
+  if (characterId) {
+    const character = await db.character.findUnique({
+      where: { id: characterId },
+      include: { referenceMedia: { select: { url: true } } },
+    })
+    if (character) {
+      // Add character context to prompt
+      const charContext = character.description
+        ? `${character.name} (${character.description})`
+        : character.name
+      enrichedPrompt = `${rawPrompt}. Главный персонаж: ${charContext}`
+      if (character.style) enrichedPrompt += `. Стиль: ${character.style}`
+
+      // Set reference image for img2img
+      if (character.referenceMedia?.url) {
+        referenceImageUrl = resolvePublicUrl(character.referenceMedia.url)
+      }
+    }
+  }
+
+  // Auto-translate to English for better quality
+  const prompt = await translatePrompt(enrichedPrompt, businessId)
+
+  log.info('[KIE] generateImage', { businessId, model, prompt: prompt.slice(0, 80), hasCharacter: !!characterId })
+
+  const input: any = {
+    prompt,
+    aspect_ratio: aspectRatio,
+    resolution: '2K',
+    output_format: 'png',
+  }
+
+  // If character has reference image, use img2img mode
+  if (referenceImageUrl) {
+    input.image_input = [referenceImageUrl]
+  }
 
   const response = await kiePost('/api/v1/jobs/createTask', {
     model,
-    input: {
-      prompt,
-      aspect_ratio: aspectRatio,
-      resolution: '2K',
-      output_format: 'png',
-    },
+    input,
   })
 
   const taskId = response?.data?.taskId || response?.taskId

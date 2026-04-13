@@ -120,6 +120,8 @@ model Business {
   webhookRules     WebhookRule[]
   users            UserBusiness[]
   storyTemplates   StoryTemplate[]
+  characters       Character[]
+  scenarios        Scenario[]
 
   @@map("businesses")
 }
@@ -309,8 +311,9 @@ model MediaFile {
   sortOrder Int      @default(0) @map("sort_order")
   createdAt DateTime @default(now()) @map("created_at")
 
-  post     Post?    @relation(fields: [postId], references: [id])
-  business Business @relation(fields: [businessId], references: [id])
+  post         Post?       @relation(fields: [postId], references: [id])
+  business     Business    @relation(fields: [businessId], references: [id])
+  characterRef Character[] @relation("CharacterReference")
 
   @@index([businessId])
   @@index([postId])
@@ -375,4 +378,43 @@ model AppConfig {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   @@map("app_config")
+}
+
+/// AI-персонаж бренда (реальное лицо или маскот/аватар)
+model Character {
+  id               String   @id @default(cuid())
+  businessId       String   @map("business_id")
+  name             String                          // "Юрий", "SUP-маскот"
+  description      String   @default("")           // описание для AI-промпта
+  type             String   @default("person")     // "person" | "mascot" | "avatar"
+  style            String   @default("")           // "cartoon", "realistic", "anime"
+  referenceMediaId String?  @map("reference_media_id")
+  isActive         Boolean  @default(true) @map("is_active")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  business       Business   @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  referenceMedia MediaFile? @relation("CharacterReference", fields: [referenceMediaId], references: [id])
+
+  @@index([businessId])
+  @@map("characters")
+}
+
+/// Сценарий для видео/контента (структурированный набор сцен)
+model Scenario {
+  id           String   @id @default(cuid())
+  businessId   String   @map("business_id")
+  title        String
+  description  String   @default("")
+  scenes       Json     @default("[]") // [{sceneNumber, description, voiceover, durationSec, imagePrompt}]
+  status       String   @default("DRAFT") // DRAFT, READY, IN_PRODUCTION, COMPLETED
+  generatedBy  String   @default("manual") @map("generated_by") // "ai" | "manual"
+  aiPromptUsed String?  @map("ai_prompt_used")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@map("scenarios")
 }

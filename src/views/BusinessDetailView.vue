@@ -9,7 +9,7 @@ import {
   ArrowLeft, Building2, Save, Loader2, Megaphone, Users, MessageSquare,
   Hash, Plus, Trash2, RefreshCw, CheckCircle, XCircle, Link,
   Eye, EyeOff, ChevronDown, ChevronUp, Radio, FileText, ClipboardList,
-  Ban, Sparkles, Pencil
+  Ban, Sparkles, Pencil, UserCircle, Image as ImageIcon
 } from 'lucide-vue-next'
 
 interface PlatformAccount {
@@ -67,7 +67,7 @@ const business = ref<BusinessDetail | null>(null)
 const loading = ref(true)
 
 // Tabs
-const activeTab = ref<'brand' | 'channels' | 'overview' | 'templates'>('brand')
+const activeTab = ref<'brand' | 'channels' | 'overview' | 'templates' | 'characters'>('brand')
 
 // Story templates
 interface StoryTemplate {
@@ -81,6 +81,85 @@ const savingTpl = ref(false)
 async function loadTemplates() {
   if (!route.params.id) return
   try { templates.value = await http.get<StoryTemplate[]>(`/businesses/${route.params.id}/story-templates`) } catch {}
+}
+
+// Characters
+interface Character {
+  id: string; name: string; description: string; type: string; style: string
+  isActive: boolean; referenceMediaId: string | null
+  referenceMedia?: { id: string; url: string; thumbUrl: string | null } | null
+}
+const characters = ref<Character[]>([])
+const showCharForm = ref(false)
+const charForm = ref({ name: '', description: '', type: 'person', style: '', referenceMediaId: null as string | null })
+const charSaving = ref(false)
+const editingCharId = ref<string | null>(null)
+
+const charTypeLabels: Record<string, string> = { person: 'Человек', mascot: 'Маскот', avatar: 'Аватар' }
+const charTypeColors: Record<string, string> = {
+  person: 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300',
+  mascot: 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300',
+  avatar: 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300',
+}
+
+async function loadCharacters() {
+  if (!route.params.id) return
+  try { characters.value = await http.get<Character[]>(`/businesses/${route.params.id}/characters`) } catch {}
+}
+
+function openCharForm(char?: Character) {
+  if (char) {
+    editingCharId.value = char.id
+    charForm.value = { name: char.name, description: char.description, type: char.type, style: char.style, referenceMediaId: char.referenceMediaId }
+  } else {
+    editingCharId.value = null
+    charForm.value = { name: '', description: '', type: 'person', style: '', referenceMediaId: null }
+  }
+  showCharForm.value = true
+}
+
+async function saveChar() {
+  if (!charForm.value.name.trim()) return
+  charSaving.value = true
+  try {
+    if (editingCharId.value) {
+      await http.put(`/characters/${editingCharId.value}`, charForm.value)
+    } else {
+      await http.post(`/businesses/${route.params.id}/characters`, charForm.value)
+    }
+    showCharForm.value = false
+    editingCharId.value = null
+    await loadCharacters()
+    toast.success(editingCharId.value ? 'Персонаж обновлён' : 'Персонаж создан')
+  } catch (e: any) { toast.error(e.message || 'Ошибка') }
+  finally { charSaving.value = false }
+}
+
+async function deleteChar(id: string) {
+  if (!confirm('Удалить персонажа?')) return
+  try { await http.delete(`/characters/${id}`); await loadCharacters(); toast.success('Удалён') } catch {}
+}
+
+async function uploadCharPhoto(event: Event) {
+  const input = event.target as HTMLInputElement
+  if (!input.files?.length) return
+  const formData = new FormData()
+  formData.append('file', input.files[0])
+  formData.append('businessId', route.params.id as string)
+  formData.append('tags', JSON.stringify(['character', 'reference']))
+
+  try {
+    const res = await fetch('/api/media/upload', {
+      method: 'POST',
+      credentials: 'include',
+      body: formData,
+    })
+    if (!res.ok) throw new Error('Upload failed')
+    const media = await res.json()
+    charForm.value.referenceMediaId = media.id
+    toast.success('Фото загружено')
+  } catch (e: any) { toast.error('Ошибка загрузки фото') }
+  input.value = ''
 }
 
 async function saveTpl() {
@@ -314,10 +393,12 @@ onMounted(() => {
   loadBusiness()
   loadUsers()
   loadTemplates()
+  loadCharacters()
   // Handle ?tab=channels from external links (e.g. StoryEditor "Настроить каналы")
   const tabQuery = route.query.tab as string | undefined
   if (tabQuery === 'channels') activeTab.value = 'channels'
   if (tabQuery === 'templates') activeTab.value = 'templates'
+  if (tabQuery === 'characters') activeTab.value = 'characters'
 })
 </script>
 
@@ -398,6 +479,18 @@ onMounted(() => {
         >
           <Sparkles :size="16" />
           Шаблоны
+        </button>
+        <button
+          @click="activeTab = 'characters'"
+          :class="[
+            'flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-all',
+            activeTab === 'characters'
+              ? 'bg-white dark:bg-gray-900 text-brand-600 dark:text-brand-400 shadow-sm'
+              : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
+          ]"
+        >
+          <UserCircle :size="16" />
+          Персонажи ({{ characters.length }})
         </button>
       </div>
 
@@ -1015,6 +1108,111 @@ onMounted(() => {
       </div>
       <div v-else-if="!editingTpl" class="text-center py-8 text-sm text-gray-400">
         Шаблонов пока нет. Нажмите «Создать» чтобы добавить первый.
+      </div>
+    </div>
+
+    <!-- ========== Characters Tab ========== -->
+    <div v-if="activeTab === 'characters'" class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-6">
+      <div class="flex items-center justify-between mb-4">
+        <div>
+          <h2 class="text-lg font-bold">Персонажи</h2>
+          <p class="text-xs text-gray-500 mt-0.5">Лица, маскоты и аватары для AI-генерации контента</p>
+        </div>
+        <button @click="openCharForm()" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium">
+          <Plus :size="14" /> Создать
+        </button>
+      </div>
+
+      <!-- Character form modal -->
+      <div v-if="showCharForm" class="mb-6 p-4 rounded-xl bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 space-y-3">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-medium mb-1">Имя *</label>
+            <input v-model="charForm.name" class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm" placeholder="Юрий" />
+          </div>
+          <div>
+            <label class="block text-xs font-medium mb-1">Тип</label>
+            <select v-model="charForm.type" class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm">
+              <option value="person">Человек</option>
+              <option value="mascot">Маскот</option>
+              <option value="avatar">Аватар</option>
+            </select>
+          </div>
+        </div>
+        <div>
+          <label class="block text-xs font-medium mb-1">Описание для AI</label>
+          <textarea v-model="charForm.description" rows="2" class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm" placeholder="Молодой мужчина, тёмные волосы, спортивное телосложение, улыбчивый..." />
+          <p class="text-[11px] text-gray-400 mt-0.5">Опишите внешность — AI использует это при генерации</p>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-medium mb-1">Стиль</label>
+            <input v-model="charForm.style" class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm" placeholder="realistic, cartoon, anime..." />
+          </div>
+          <div>
+            <label class="block text-xs font-medium mb-1">Фото-референс</label>
+            <div class="flex items-center gap-2">
+              <label class="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm cursor-pointer hover:border-brand-400 transition-colors">
+                <ImageIcon :size="14" class="text-gray-400" />
+                {{ charForm.referenceMediaId ? 'Заменить' : 'Загрузить' }}
+                <input type="file" accept="image/*" @change="uploadCharPhoto" class="hidden" />
+              </label>
+              <span v-if="charForm.referenceMediaId" class="text-xs text-green-600">Загружено</span>
+            </div>
+          </div>
+        </div>
+        <div class="flex gap-2">
+          <button @click="saveChar" :disabled="charSaving || !charForm.name.trim()"
+            class="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium disabled:opacity-50">
+            <Loader2 v-if="charSaving" :size="14" class="animate-spin" /><Save v-else :size="14" />
+            {{ editingCharId ? 'Сохранить' : 'Создать' }}
+          </button>
+          <button @click="showCharForm = false; editingCharId = null" class="px-4 py-2 rounded-lg text-sm text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800">Отмена</button>
+        </div>
+      </div>
+
+      <!-- Characters grid -->
+      <div v-if="characters.length" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        <div v-for="char in characters" :key="char.id"
+          class="relative p-4 rounded-xl bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:border-brand-300 dark:hover:border-brand-700 transition-colors">
+          <div class="flex items-start gap-3">
+            <!-- Avatar -->
+            <div class="w-12 h-12 rounded-xl bg-gray-200 dark:bg-gray-700 overflow-hidden shrink-0 flex items-center justify-center">
+              <img v-if="char.referenceMedia?.thumbUrl || char.referenceMedia?.url"
+                :src="char.referenceMedia.thumbUrl || char.referenceMedia.url"
+                :alt="char.name"
+                class="w-full h-full object-cover"
+              />
+              <UserCircle v-else :size="24" class="text-gray-400" />
+            </div>
+            <div class="flex-1 min-w-0">
+              <div class="flex items-center gap-2">
+                <h3 class="text-sm font-semibold truncate">{{ char.name }}</h3>
+                <span :class="['px-1.5 py-0.5 rounded text-[10px] font-medium', charTypeColors[char.type] || charTypeColors.person]">
+                  {{ charTypeLabels[char.type] || char.type }}
+                </span>
+              </div>
+              <p v-if="char.description" class="text-xs text-gray-500 mt-0.5 line-clamp-2">{{ char.description }}</p>
+              <p v-if="char.style" class="text-[10px] text-gray-400 mt-1">Стиль: {{ char.style }}</p>
+            </div>
+          </div>
+          <!-- Actions -->
+          <div class="absolute top-2 right-2 flex gap-0.5">
+            <button @click="openCharForm(char)" class="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700">
+              <Pencil :size="12" class="text-gray-400" />
+            </button>
+            <button @click="deleteChar(char.id)" class="p-1 rounded hover:bg-red-100 dark:hover:bg-red-900">
+              <Trash2 :size="12" class="text-red-400" />
+            </button>
+          </div>
+        </div>
+      </div>
+      <div v-else-if="!showCharForm" class="text-center py-8">
+        <UserCircle :size="48" class="mx-auto text-gray-300 dark:text-gray-600 mb-3" />
+        <p class="text-sm text-gray-400 mb-3">Создайте персонажа — AI будет генерировать контент с ним</p>
+        <button @click="openCharForm()" class="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-brand-600 text-white text-sm font-medium">
+          <Plus :size="14" /> Создать первого
+        </button>
       </div>
     </div>
   </div>

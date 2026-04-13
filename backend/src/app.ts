@@ -23,6 +23,8 @@ import { settings } from './routes/settings'
 import { vkOauthRoutes } from './routes/vk-oauth'
 import { ideas } from './routes/ideas'
 import { storyTemplates } from './routes/story-templates'
+import { characters } from './routes/characters'
+import { scenarios } from './routes/scenarios'
 
 const app = new Hono()
 
@@ -92,6 +94,8 @@ app.route('/api/vk-oauth', vkOauthRoutes)
 app.route('/api', publish) // /api/post-versions/:id/publish|schedule
 app.route('/api/ideas', ideas)
 app.route('/api', storyTemplates) // /api/businesses/:bizId/story-templates + /api/story-templates/:id
+app.route('/api', characters) // /api/businesses/:bizId/characters + /api/characters/:id
+app.route('/api/scenarios', scenarios)
 app.route('/api/dashboard', dashboard)
 app.route('/api/sse', sse)
 

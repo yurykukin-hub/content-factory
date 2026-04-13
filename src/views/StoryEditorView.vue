@@ -112,6 +112,20 @@ const showAiImage = ref(false)
 const aiPrompt = ref('')
 const aiLoading = ref(false)
 const aiEnhancing = ref(false)
+const selectedCharacterId = ref<string | null>(null)
+
+// Characters for AI image generation
+interface CharacterRef {
+  id: string; name: string; type: string
+  referenceMedia?: { url: string; thumbUrl: string | null } | null
+}
+const characters = ref<CharacterRef[]>([])
+
+async function loadCharacters(businessId: string) {
+  try {
+    characters.value = await http.get<CharacterRef[]>(`/businesses/${businessId}/characters`)
+  } catch { characters.value = [] }
+}
 
 const IMAGE_TEMPLATES = [
   { label: 'Продукт крупно', prompt: 'Крупный план продукта на чистом нейтральном фоне, студийное освещение' },
@@ -418,10 +432,11 @@ async function loadPost() {
         }
       }
     }
-    // Load story templates + brand links from DB
+    // Load story templates + brand links + characters from DB
     try {
       storyTemplates.value = await http.get<DbStoryTemplate[]>(`/businesses/${post.value.businessId}/story-templates`)
     } catch {}
+    loadCharacters(post.value.businessId)
     try {
       const bp = await http.get<{ links?: { label: string; url: string }[] }>(`/businesses/${post.value.businessId}/brand-profile`)
       savedLinks.value = Array.isArray(bp?.links) ? bp.links.filter(l => l.url) : []
@@ -534,6 +549,7 @@ async function generateAiImage() {
     const result = await http.post<{ mediaFile: MediaFile }>('/ai/generate-image', {
       businessId: post.value.businessId, postId: post.value.id,
       prompt: aiPrompt.value, aspectRatio: '9:16',
+      characterId: selectedCharacterId.value || undefined,
     })
     post.value.mediaFiles = [result.mediaFile]
     loadImage(result.mediaFile.url)
@@ -1119,6 +1135,17 @@ onUnmounted(() => {
                 {{ t.label }}
               </button>
             </div>
+          </div>
+          <!-- Character selector -->
+          <div v-if="characters.length">
+            <label class="block text-sm font-medium mb-1.5">Персонаж</label>
+            <select v-model="selectedCharacterId"
+              class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm">
+              <option :value="null">Без персонажа</option>
+              <option v-for="char in characters" :key="char.id" :value="char.id">
+                {{ char.name }} ({{ char.type === 'person' ? 'человек' : char.type === 'mascot' ? 'маскот' : 'аватар' }})
+              </option>
+            </select>
           </div>
           <!-- Prompt textarea -->
           <textarea v-model="aiPrompt" rows="3" placeholder="SUP на закате, вертикальное фото..."

@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { db } from '../db'
 import { config } from '../config'
 import { aiComplete } from '../services/ai/openrouter'
-import { buildBrandContext, buildPlanPrompt, buildPostPrompt, buildAdaptPrompt, buildHashtagPrompt, buildImageEnhancerPrompt, buildEditEnhancerPrompt, buildStoryTitlePrompt } from '../services/ai/prompt-builder'
+import { buildBrandContext, buildPlanPrompt, buildPostPrompt, buildAdaptPrompt, buildHashtagPrompt, buildImageEnhancerPrompt, buildEditEnhancerPrompt, buildStoryTitlePrompt, buildScenarioPrompt } from '../services/ai/prompt-builder'
 import { generateImage, editImage, removeBackground, EDIT_MODELS } from '../services/ai/kie'
 import { emitEvent } from '../eventBus'
 import type { AuthUser } from '../middleware/auth'
@@ -192,6 +192,7 @@ const generateImageSchema = z.object({
   postId: z.string().optional(),
   prompt: z.string().min(1),
   aspectRatio: z.enum(['1:1', '16:9', '9:16']).default('1:1'),
+  characterId: z.string().optional(),
 })
 
 ai.post('/generate-image', async (c) => {
@@ -209,6 +210,7 @@ ai.post('/generate-image', async (c) => {
     businessId: data.businessId,
     postId: data.postId || null,
     aspectRatio: data.aspectRatio,
+    characterId: data.characterId || null,
   })
 
   return c.json(result, 201)
@@ -525,6 +527,56 @@ ai.post('/generate-story-text', async (c) => {
   }
 
   return c.json({ title, body })
+})
+
+// POST /api/ai/generate-scenario — AI-генерация сценария
+const generateScenarioSchema = z.object({
+  businessId: z.string(),
+  topic: z.string().min(1).max(500),
+  sceneCount: z.number().int().min(2).max(20).default(5),
+  style: z.string().max(200).optional(),
+})
+
+ai.post('/generate-scenario', async (c) => {
+  const data = generateScenarioSchema.parse(await c.req.json())
+  const user = c.get('user') as AuthUser
+  try {
+    await assertBusinessAccess(user, data.businessId)
+  } catch (e: any) {
+    if (e.message === 'FORBIDDEN') return c.json({ error: 'Нет доступа' }, 403)
+    throw e
+  }
+
+  const brandContext = await buildBrandContext(data.businessId)
+  const systemPrompt = buildScenarioPrompt(brandContext, {
+    sceneCount: data.sceneCount,
+    style: data.style,
+  })
+
+  const result = await aiComplete({
+    systemPrompt,
+    userPrompt: `Тема сценария: ${data.topic}. Количество сцен: ${data.sceneCount}.`,
+    model: config.models.sonnet,
+    maxTokens: 3000,
+    businessId: data.businessId,
+    action: 'generate_scenario',
+  })
+
+  // Парсить JSON (защита от markdown ```json```)
+  let scenes: any[]
+  try {
+    let raw = result.content.trim()
+    const jsonMatch = raw.match(/\[[\s\S]*\]/)
+    if (jsonMatch) raw = jsonMatch[0]
+    scenes = JSON.parse(raw)
+  } catch {
+    return c.json({ error: 'AI вернул некорректный JSON', raw: result.content }, 422)
+  }
+
+  // Генерируем заголовок из темы
+  const title = data.topic.length > 50 ? data.topic.slice(0, 50) + '...' : data.topic
+
+  return c.json({ title, scenes, usage: result.usage })
 })
 
 export { ai }

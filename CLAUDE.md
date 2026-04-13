@@ -13,7 +13,7 @@ AI-контент-фабрика для автоматизации SMM. Гене
 - **Backend:** Bun + Hono + TypeScript
 - **Frontend:** Vue 3 + Tailwind CSS + Lucide Icons + Pinia
 - **ORM/DB:** Prisma + PostgreSQL 16
-- **AI:** OpenRouter (Haiku для адаптации, Sonnet для генерации, Gemini 2.5 Flash Image для картинок) + FAL.ai (FLUX Kontext для img2img, rembg для удаления фона)
+- **AI:** OpenRouter (Haiku для адаптации, Sonnet для генерации) + KIE.ai (Nano Banana 2 для text2img/img2img, FLUX Kontext Pro для img2img, recraft для удаления фона)
 - **Testing:** Vitest (48 тестов)
 - **Deploy:** Docker Compose + Caddy (SSL auto)
 
@@ -40,19 +40,21 @@ content-factory/
 │   │   │   ├── auth.ts         # JWT httpOnly cookie + requireRole
 │   │   │   ├── business-access.ts  # requireBusinessAccess + getUserBusinessIds
 │   │   │   └── resource-access.ts  # verifyPost/Plan/Media/PostVersionAccess
-│   │   ├── routes/             # API endpoints (~14 файлов)
+│   │   ├── routes/             # API endpoints (~16 файлов)
 │   │   │   ├── auth.ts         # login/logout/me/refresh (access+refresh tokens)
 │   │   │   ├── users.ts        # CRUD пользователей (ADMIN-only)
 │   │   │   ├── businesses.ts   # CRUD + brand profile + isActive toggle (ADMIN sees inactive)
 │   │   │   ├── platforms.ts    # platformsByBiz + platformsById
 │   │   │   ├── posts.ts        # CRUD + approve + versions (access checks)
 │   │   │   ├── content-plans.ts # CRUD + create-post/ai-generate + batch
-│   │   │   ├── ai.ts           # generate-post/image, adapt, enhance-prompt, edit-image, remove-bg
+│   │   │   ├── ai.ts           # generate-post/image/scenario, adapt, enhance-prompt, edit-image, remove-bg
 │   │   │   ├── publish.ts      # publish + schedule (access checks)
 │   │   │   ├── media.ts        # upload/delete/attach + library + tags
 │   │   │   ├── settings.ts     # AppConfig CRUD (ADMIN-only, .env fallback)
 │   │   │   ├── vk-oauth.ts     # VK OAuth 2.1 PKCE
 │   │   │   ├── ideas.ts        # CRUD идей (per-user, ownership check)
+│   │   │   ├── characters.ts   # CRUD AI-персонажей (person/mascot/avatar, per-business)
+│   │   │   ├── scenarios.ts    # CRUD сценариев (scenes JSON, AI-генерация)
 │   │   │   ├── dashboard.ts    # metrics (scoped by business access)
 │   │   │   └── sse.ts          # Server-Sent Events
 │   │   ├── services/
@@ -100,8 +102,8 @@ content-factory/
 └── scripts/deploy.sh, backup-db.sh
 ```
 
-## Schema (16 моделей, 8 enums)
-User, UserBusiness, Business, BrandProfile, PlatformAccount, ContentPlan, ContentPlanItem, Post, PostVersion, PublishLog, MediaFile, AiUsageLog, WebhookRule, AppConfig, Idea
+## Schema (18 моделей, 8 enums)
+User, UserBusiness, Business, BrandProfile, PlatformAccount, ContentPlan, ContentPlanItem, Post, PostVersion, PublishLog, MediaFile, AiUsageLog, WebhookRule, AppConfig, Idea, StoryTemplate, Character, Scenario
 
 Enums: UserRole, Platform, AccountType, PostType, PostStatus, ContentPlanStatus, PublishStatus
 

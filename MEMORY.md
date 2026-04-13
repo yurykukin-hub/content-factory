@@ -9,8 +9,8 @@
 ## Блокеры
 - [2026-04-05] VK OAuth: заявка подана, ожидаем. До получения — фото в VK не публикуются
 
-## Schema (15 моделей, 8 enums)
-User, UserBusiness, Business, BrandProfile, PlatformAccount, ContentPlan, ContentPlanItem, Post, PostVersion, PublishLog, MediaFile, AiUsageLog, WebhookRule, AppConfig, **Idea** (NEW)
+## Schema (18 моделей, 8 enums)
+User, UserBusiness, Business, BrandProfile, PlatformAccount, ContentPlan, ContentPlanItem, Post, PostVersion, PublishLog, MediaFile, AiUsageLog, WebhookRule, AppConfig, Idea, StoryTemplate, **Character** (NEW 13.04), **Scenario** (NEW 13.04)
 
 ## Endpoints
 - POST /api/auth/login, /logout, GET /me, POST /refresh
@@ -63,6 +63,18 @@ User, UserBusiness, Business, BrandProfile, PlatformAccount, ContentPlan, Conten
 - [2026-04-12] FAL.ai SDK интегрирован: @fal-ai/client. FLUX Kontext Pro (img2img $0.04), rembg (remove bg $0.01)
 - [2026-04-12] FAL.ai: images[] возвращает URL на CDN (не base64), нужен downloadAndSave. В prod — public URL, в dev — fal.storage.upload
 - [2026-04-12] FAL.ai: баланс аккаунта нулевой, ждёт пополнения. Ключ настроен в .env.prod + docker-compose.prod.yml
+
+## Content Factory v2: AI-воркспейс (2026-04-13)
+- [2026-04-13] Character модель: person/mascot/avatar, referenceMediaId → MediaFile, CRUD /api/characters
+- [2026-04-13] Scenario модель: title, scenes (JSON: sceneNumber/description/voiceover/durationSec/imagePrompt), status (DRAFT/READY/IN_PRODUCTION/COMPLETED)
+- [2026-04-13] ScenariosView: AI-генерация сценария (Sonnet), inline-edit сцен, drag карточки, статусы
+- [2026-04-13] Characters tab в BusinessDetailView: карточки с аватарами, upload reference photo, type badges
+- [2026-04-13] StoryEditorView: дропдаун "Персонаж" при генерации картинки → characterId передаётся в KIE.ai generateImage
+- [2026-04-13] KIE.ai generateImage: если characterId — подставляет reference image_input + описание в промпт (Nano Banana 2 img2img)
+- [2026-04-13] buildScenarioPrompt() в prompt-builder.ts: структурированный JSON сценария с voiceover и imagePrompt
+- [2026-04-13] Навигация: добавлен пункт "Сценарии" (Clapperboard icon) между Идеи и Контент-планы
+- [2026-04-13] Провайдер AI-картинок: KIE.ai (Nano Banana 2 + FLUX Kontext Pro). FAL.ai → KIE.ai (миграция 12.04)
+- [2026-04-13] Планы: AI-видео (KIE.ai Seedance 2 → Kling), TTS (ElevenLabs), Pipeline Wizard — Фазы 2-4
 
 ## Паттерны
 - HTTP client: fetch + httpOnly cookie + X-Tab-ID (из nawode-erp)
