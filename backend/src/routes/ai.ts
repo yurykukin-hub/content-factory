@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { db } from '../db'
 import { config } from '../config'
 import { aiComplete } from '../services/ai/openrouter'
-import { buildBrandContext, buildPlanPrompt, buildPostPrompt, buildAdaptPrompt, buildHashtagPrompt, buildImageEnhancerPrompt, buildEditEnhancerPrompt, buildStoryTitlePrompt, buildScenarioPrompt } from '../services/ai/prompt-builder'
+import { buildBrandContext, buildPlanPrompt, buildPostPrompt, buildAdaptPrompt, buildHashtagPrompt, buildImageEnhancerPrompt, buildEditEnhancerPrompt, buildStoryTitlePrompt, buildScenarioPrompt, buildVideoPromptEnhancer } from '../services/ai/prompt-builder'
 import { generateImage, editImage, removeBackground, generateVideo, EDIT_MODELS } from '../services/ai/kie'
 import { emitEvent } from '../eventBus'
 import type { AuthUser } from '../middleware/auth'
@@ -579,13 +579,48 @@ ai.post('/generate-scenario', async (c) => {
   return c.json({ title, scenes, usage: result.usage })
 })
 
+// POST /api/ai/enhance-video-prompt — улучшение промпта для видео
+const enhanceVideoPromptSchema = z.object({
+  prompt: z.string().min(1),
+  businessId: z.string(),
+  duration: z.number().optional(),
+})
+
+ai.post('/enhance-video-prompt', async (c) => {
+  const data = enhanceVideoPromptSchema.parse(await c.req.json())
+  const user = c.get('user') as AuthUser
+  try {
+    await assertBusinessAccess(user, data.businessId)
+  } catch (e: any) {
+    if (e.message === 'FORBIDDEN') return c.json({ error: 'Нет доступа' }, 403)
+    throw e
+  }
+
+  const brandContext = await buildBrandContext(data.businessId)
+  const systemPrompt = buildVideoPromptEnhancer(brandContext)
+
+  const durationHint = data.duration ? ` Видео длительностью ${data.duration} секунд.` : ''
+
+  const result = await aiComplete({
+    systemPrompt,
+    userPrompt: data.prompt + durationHint,
+    model: config.models.haiku,
+    maxTokens: 500,
+    businessId: data.businessId,
+    action: 'enhance_video_prompt',
+  })
+
+  return c.json({ enhancedPrompt: result.content.trim() })
+})
+
 // POST /api/ai/generate-video — AI-генерация видео (Seedance 2)
 const generateVideoSchema = z.object({
   businessId: z.string(),
   postId: z.string().optional(),
   prompt: z.string().min(1).max(2000),
-  duration: z.number().int().min(3).max(30).default(5),
+  duration: z.number().int().min(4).max(15).default(5),
   aspectRatio: z.enum(['1:1', '16:9', '9:16']).default('9:16'),
+  generateAudio: z.boolean().default(true),
 })
 
 ai.post('/generate-video', async (c) => {
@@ -604,6 +639,7 @@ ai.post('/generate-video', async (c) => {
     postId: data.postId || null,
     duration: data.duration,
     aspectRatio: data.aspectRatio,
+    generateAudio: data.generateAudio,
   })
 
   return c.json(result, 201)

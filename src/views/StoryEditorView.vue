@@ -116,6 +116,19 @@ const selectedCharacterId = ref<string | null>(null)
 const showAiVideo = ref(false)
 const aiVideoLoading = ref(false)
 const videoDuration = ref(5)
+const videoAudio = ref(true)
+const videoEnhancing = ref(false)
+const videoPromptHistory = ref<string[]>([])
+const videoHistoryIndex = ref(-1)
+
+const VIDEO_TEMPLATES = [
+  { label: 'SUP рассвет', prompt: 'SUP-борд на спокойной воде на рассвете, плавное отражение солнца, лёгкий туман' },
+  { label: 'Динамика', prompt: 'Быстрое движение камеры вдоль набережной, энергичная атмосфера, солнечный день' },
+  { label: 'Природа', prompt: 'Спокойный лесной пейзаж с озером, птицы, плавное панорамирование' },
+  { label: 'Продукт', prompt: 'Крупный план продукта, медленное вращение на 360°, студийный свет' },
+  { label: 'Ивент', prompt: 'Концертная площадка с цветным освещением, энергичная толпа, динамичные переходы' },
+  { label: 'Атмосфера', prompt: 'Закат над городом, тёплые тона, медленный дрон-пролёт, кинематографично' },
+]
 
 // Characters for AI image generation
 interface CharacterRef {
@@ -571,17 +584,54 @@ async function generateAiVideo() {
     const result = await http.post<{ mediaFile: any }>('/ai/generate-video', {
       businessId: post.value.businessId, postId: post.value.id,
       prompt: aiPrompt.value, duration: videoDuration.value,
-      aspectRatio: '9:16',
+      aspectRatio: '9:16', generateAudio: videoAudio.value,
     })
+    // Сохранить промпт в историю
+    videoPromptHistory.value.push(aiPrompt.value)
+    videoHistoryIndex.value = videoPromptHistory.value.length - 1
+    // Сохранить в БД (fire and forget)
+    http.post('/ai/generate-edit-prompt', {
+      businessId: post.value.businessId, postId: post.value.id,
+      template: aiPrompt.value, type: 'video',
+    }).catch(() => {})
+
     post.value.mediaFiles = [result.mediaFile]
-    // Для видео — не loadImage, а просто обновить state
     showAiVideo.value = false
     showAiImage.value = false
     aiPrompt.value = ''
     toast.success(`Видео сгенерировано (${videoDuration.value} сек)`)
-    await loadPost() // перезагрузить пост чтобы обновить mediaFiles
+    await loadPost()
   } catch (e: any) { toast.error('Ошибка: ' + e.message) }
   finally { aiVideoLoading.value = false }
+}
+
+async function enhanceVideoPrompt() {
+  if (!post.value || !aiPrompt.value.trim()) return
+  videoEnhancing.value = true
+  try {
+    const result = await http.post<{ enhancedPrompt: string }>('/ai/enhance-video-prompt', {
+      prompt: aiPrompt.value,
+      duration: videoDuration.value,
+      businessId: post.value.businessId,
+    })
+    aiPrompt.value = result.enhancedPrompt
+    videoPromptHistory.value.push(result.enhancedPrompt)
+    videoHistoryIndex.value = videoPromptHistory.value.length - 1
+    toast.success('Промпт улучшен')
+  } catch (e: any) { toast.error('Ошибка: ' + e.message) }
+  finally { videoEnhancing.value = false }
+}
+
+function videoHistoryBack() {
+  if (videoHistoryIndex.value <= 0) return
+  videoHistoryIndex.value--
+  aiPrompt.value = videoPromptHistory.value[videoHistoryIndex.value]
+}
+
+function videoHistoryForward() {
+  if (videoHistoryIndex.value >= videoPromptHistory.value.length - 1) return
+  videoHistoryIndex.value++
+  aiPrompt.value = videoPromptHistory.value[videoHistoryIndex.value]
 }
 
 async function enhanceImagePrompt() {
@@ -1196,27 +1246,80 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <!-- AI Video Modal -->
-    <div v-if="showAiVideo" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50" @click.self="showAiVideo = false">
-      <div class="bg-white dark:bg-gray-900 rounded-2xl p-6 w-full max-w-md shadow-xl">
-        <h2 class="text-lg font-bold mb-4 flex items-center gap-2"><Video :size="20" class="text-emerald-500" /> AI Видео (9:16)</h2>
-        <div class="space-y-3">
-          <!-- Duration selector -->
+    <!-- AI Video Modal (расширенный) -->
+    <div v-if="showAiVideo" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" @click.self="showAiVideo = false">
+      <div class="bg-white dark:bg-gray-900 rounded-2xl p-6 w-full max-w-xl shadow-xl max-h-[90vh] overflow-y-auto">
+        <h2 class="text-lg font-bold mb-4 flex items-center gap-2">
+          <Video :size="20" class="text-emerald-500" /> AI Видео (9:16)
+          <!-- History navigation -->
+          <div v-if="videoPromptHistory.length > 0" class="flex items-center gap-0.5 ml-auto">
+            <button @click="videoHistoryBack" :disabled="videoHistoryIndex <= 0"
+              class="p-0.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-30">
+              <ChevronLeft :size="14" />
+            </button>
+            <span class="text-[10px] text-gray-400 min-w-[24px] text-center">
+              {{ videoHistoryIndex + 1 }}/{{ videoPromptHistory.length }}
+            </span>
+            <button @click="videoHistoryForward" :disabled="videoHistoryIndex >= videoPromptHistory.length - 1"
+              class="p-0.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-30">
+              <ChevronRight :size="14" />
+            </button>
+          </div>
+        </h2>
+
+        <div class="space-y-4">
+          <!-- Template pills -->
           <div>
-            <label class="block text-sm font-medium mb-1.5">Длительность</label>
-            <div class="flex gap-2">
-              <button v-for="d in [5, 10]" :key="d" @click="videoDuration = d"
-                :class="['px-4 py-2 rounded-lg text-sm font-medium border transition-colors',
-                  videoDuration === d
-                    ? 'bg-emerald-100 dark:bg-emerald-900 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700'
-                    : 'bg-gray-100 dark:bg-gray-800 text-gray-600 border-gray-200 dark:border-gray-700 hover:border-emerald-300']">
-                {{ d }} сек
+            <label class="block text-xs font-medium text-gray-500 mb-1.5">Шаблоны</label>
+            <div class="flex flex-wrap gap-1.5">
+              <button v-for="t in VIDEO_TEMPLATES" :key="t.label" @click="aiPrompt = t.prompt"
+                class="px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-200 dark:hover:bg-emerald-800 transition-colors">
+                {{ t.label }}
               </button>
             </div>
           </div>
+
+          <!-- Prompt textarea -->
+          <div>
+            <textarea v-model="aiPrompt" rows="5" placeholder="Опишите видео: что в кадре, действие, движение камеры, освещение, настроение..."
+              class="w-full px-3 py-2.5 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 focus:ring-2 focus:ring-emerald-500 text-sm resize-none" />
+            <!-- Enhance button -->
+            <button @click="enhanceVideoPrompt" :disabled="videoEnhancing || !aiPrompt.trim()"
+              class="mt-1.5 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-emerald-300 dark:border-emerald-700 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950 disabled:opacity-50 transition-colors">
+              <Loader2 v-if="videoEnhancing" :size="14" class="animate-spin" /><Wand2 v-else :size="14" />
+              {{ videoEnhancing ? 'Улучшаю...' : 'Улучшить промпт (AI)' }}
+            </button>
+          </div>
+
+          <!-- Duration slider + Audio toggle row -->
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="block text-xs font-medium text-gray-500 mb-1.5">Длительность: {{ videoDuration }} сек</label>
+              <input type="range" v-model.number="videoDuration" min="4" max="15" step="1"
+                class="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-emerald-500" />
+              <div class="flex justify-between text-[10px] text-gray-400 mt-0.5">
+                <span>4с</span>
+                <span>15с</span>
+              </div>
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-gray-500 mb-1.5">Звук</label>
+              <label class="flex items-center gap-2 cursor-pointer">
+                <div class="relative">
+                  <input type="checkbox" v-model="videoAudio" class="sr-only peer" />
+                  <div class="w-9 h-5 bg-gray-200 dark:bg-gray-700 rounded-full peer peer-checked:bg-emerald-500 transition-colors"></div>
+                  <div class="absolute left-0.5 top-0.5 w-4 h-4 bg-white rounded-full transition-transform peer-checked:translate-x-4 shadow-sm"></div>
+                </div>
+                <span class="text-xs text-gray-600 dark:text-gray-400">
+                  {{ videoAudio ? 'Генерировать звук' : 'Без звука' }}
+                </span>
+              </label>
+            </div>
+          </div>
+
           <!-- Character selector -->
           <div v-if="characters.length">
-            <label class="block text-sm font-medium mb-1.5">Персонаж</label>
+            <label class="block text-xs font-medium text-gray-500 mb-1.5">Персонаж</label>
             <select v-model="selectedCharacterId"
               class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm">
               <option :value="null">Без персонажа</option>
@@ -1225,17 +1328,16 @@ onUnmounted(() => {
               </option>
             </select>
           </div>
-          <!-- Prompt -->
-          <textarea v-model="aiPrompt" rows="3" placeholder="SUP на рассвете, плавное движение камеры по воде..."
-            class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 focus:ring-2 focus:ring-emerald-500 text-sm" />
-          <p class="text-[10px] text-gray-400">Seedance 2 · генерация ~1-3 мин · KIE.ai</p>
+
+          <p class="text-[10px] text-gray-400">Seedance 2 · KIE.ai · генерация ~1-3 мин · промпт автоматически переводится на английский</p>
         </div>
-        <div class="flex justify-end gap-2 mt-4">
-          <button @click="showAiVideo = false" class="px-4 py-2 rounded-lg text-sm text-gray-500">Отмена</button>
+
+        <div class="flex justify-end gap-2 mt-5">
+          <button @click="showAiVideo = false" class="px-4 py-2.5 rounded-lg text-sm text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800">Отмена</button>
           <button @click="generateAiVideo" :disabled="aiVideoLoading || !aiPrompt.trim()"
-            class="flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium disabled:opacity-50">
+            class="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium disabled:opacity-50">
             <Loader2 v-if="aiVideoLoading" :size="16" class="animate-spin" /><Video v-else :size="16" />
-            {{ aiVideoLoading ? 'Генерация видео...' : 'Сгенерировать' }}
+            {{ aiVideoLoading ? 'Генерация...' : 'Сгенерировать' }}
           </button>
         </div>
       </div>

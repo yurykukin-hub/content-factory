@@ -483,8 +483,9 @@ interface GenerateVideoParams {
   prompt: string
   businessId: string
   postId?: string | null
-  duration?: number          // 5 | 10 сек
+  duration?: number          // 4-15 сек
   aspectRatio?: '1:1' | '16:9' | '9:16'
+  generateAudio?: boolean    // генерировать звук (Seedance 2 native audio)
 }
 
 interface GenerateVideoResult {
@@ -516,12 +517,12 @@ async function downloadAndSaveVideo(
 }
 
 export async function generateVideo(params: GenerateVideoParams): Promise<GenerateVideoResult> {
-  const { prompt: rawPrompt, businessId, postId, duration = 5, aspectRatio = '9:16' } = params
+  const { prompt: rawPrompt, businessId, postId, duration = 5, aspectRatio = '9:16', generateAudio = true } = params
   const model = 'seedance-2'
 
   const prompt = await translatePrompt(rawPrompt, businessId)
 
-  log.info('[KIE] generateVideo', { businessId, model, duration, prompt: prompt.slice(0, 80) })
+  log.info('[KIE] generateVideo', { businessId, model, duration, generateAudio, prompt: prompt.slice(0, 80) })
 
   const response = await kiePost('/api/v1/jobs/createTask', {
     model,
@@ -530,6 +531,7 @@ export async function generateVideo(params: GenerateVideoParams): Promise<Genera
       duration,
       aspect_ratio: aspectRatio,
       output_format: 'mp4',
+      generate_audio: generateAudio,
     },
   })
 
