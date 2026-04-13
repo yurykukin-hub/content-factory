@@ -1264,6 +1264,14 @@ onUnmounted(() => {
             <Loader2 v-if="aiEnhancing" :size="14" class="animate-spin" /><Wand2 v-else :size="14" />
             {{ aiEnhancing ? 'Улучшаю...' : 'Улучшить промпт' }}
           </button>
+          <div class="flex items-center gap-2 text-[10px] text-gray-400 mt-1">
+            <span class="px-1.5 py-0.5 bg-purple-100 dark:bg-purple-900/50 text-purple-600 dark:text-purple-400 rounded font-medium">nano-banana-2</span>
+            <span>~$0.06</span>
+            <span>·</span>
+            <span>~30 сек</span>
+            <span>·</span>
+            <span>промпт → EN авто</span>
+          </div>
         </div>
         <div class="flex justify-end gap-2 mt-4">
           <button @click="showAiImage = false" class="px-4 py-2 rounded-lg text-sm text-gray-500">Отмена</button>
@@ -1359,7 +1367,14 @@ onUnmounted(() => {
             </select>
           </div>
 
-          <p class="text-[10px] text-gray-400">Seedance 2 · KIE.ai · генерация ~1-3 мин · промпт автоматически переводится на английский</p>
+          <div class="flex items-center gap-2 text-[10px] text-gray-400">
+            <span class="px-1.5 py-0.5 bg-emerald-100 dark:bg-emerald-900/50 text-emerald-600 dark:text-emerald-400 rounded font-medium">bytedance/seedance-2</span>
+            <span>~$0.10</span>
+            <span>·</span>
+            <span>~1-3 мин</span>
+            <span>·</span>
+            <span>промпт → EN авто</span>
+          </div>
         </div>
 
         <div class="flex justify-end gap-2 mt-5">

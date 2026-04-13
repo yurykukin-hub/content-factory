@@ -36,8 +36,8 @@ const promptHistory = ref<string[]>([])
 const historyIndex = ref(-1)
 
 const MODELS = [
-  { id: 'flux-kontext-pro' as const, label: 'FLUX Kontext', desc: 'Точное редактирование' },
-  { id: 'nano-banana-2' as const, label: 'Nano Banana 2', desc: 'Креативная стилизация' },
+  { id: 'flux-kontext-pro' as const, label: 'FLUX Kontext', desc: 'Точное редактирование', cost: '$0.04' },
+  { id: 'nano-banana-2' as const, label: 'Nano Banana 2', desc: 'Креативная стилизация', cost: '$0.06' },
 ]
 
 // Templates — простая подстановка текста (как раньше)
@@ -187,6 +187,14 @@ function submit() {
             <Loader2 v-if="enhancing" :size="14" class="animate-spin" /><Sparkles v-else :size="14" />
             {{ enhancing ? 'Улучшаю...' : 'Улучшить промпт' }}
           </button>
+          <div class="flex items-center gap-2 text-[10px] text-gray-400 mt-1.5">
+            <span class="px-1.5 py-0.5 bg-purple-100 dark:bg-purple-900/50 text-purple-600 dark:text-purple-400 rounded font-medium">{{ MODELS.find(m => m.id === selectedModel)?.label || selectedModel }}</span>
+            <span>{{ MODELS.find(m => m.id === selectedModel)?.cost || '' }}</span>
+            <span>·</span>
+            <span>~30 сек</span>
+            <span>·</span>
+            <span>промпт → EN авто</span>
+          </div>
         </div>
       </div>
 
