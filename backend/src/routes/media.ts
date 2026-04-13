@@ -20,6 +20,7 @@ media.post('/upload', async (c) => {
   const file = body['file']
   const businessId = body['businessId'] as string
   const postId = (body['postId'] as string) || null
+  const folderId = (body['folderId'] as string) || null
 
   if (!file || typeof file === 'string') {
     return c.json({ error: 'Файл не найден' }, 400)
@@ -81,6 +82,7 @@ media.post('/upload', async (c) => {
     data: {
       businessId,
       postId,
+      folderId,
       filename: blob.name || filename,
       url: `/uploads/${businessId}/${filename}`,
       thumbUrl,
@@ -100,6 +102,7 @@ media.get('/library/:bizId', async (c) => {
   const tag = c.req.query('tag')
   const search = c.req.query('search')
   const unattached = c.req.query('unattached') === 'true'
+  const folderId = c.req.query('folderId') // filter by folder (null = root, specific id = folder)
 
   const where: Record<string, unknown> = { businessId: bizId }
 
@@ -110,11 +113,22 @@ media.get('/library/:bizId', async (c) => {
   if (search) where.filename = { contains: search, mode: 'insensitive' }
   if (unattached) where.postId = null
 
+  // Folder filter: 'root' = files without folder, specific id = files in folder
+  // No folderId param = all files (for search across folders)
+  if (folderId === 'root') {
+    where.folderId = null
+  } else if (folderId) {
+    where.folderId = folderId
+  }
+
   const files = await db.mediaFile.findMany({
     where,
     orderBy: { createdAt: 'desc' },
-    take: 100,
-    include: { post: { select: { id: true, title: true, status: true } } },
+    take: 200,
+    include: {
+      post: { select: { id: true, title: true, status: true } },
+      folder: { select: { id: true, name: true } },
+    },
   })
 
   return c.json(files)

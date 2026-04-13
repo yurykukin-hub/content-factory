@@ -19,6 +19,7 @@ import { publish } from './routes/publish'
 import { dashboard } from './routes/dashboard'
 import { sse } from './routes/sse'
 import { media } from './routes/media'
+import { mediaFolders } from './routes/media-folders'
 import { settings } from './routes/settings'
 import { vkOauthRoutes } from './routes/vk-oauth'
 import { ideas } from './routes/ideas'
@@ -89,6 +90,7 @@ app.route('/api/plans', contentPlans)
 app.route('/api', contentPlans)       // /api/plan-items/:id/*
 app.route('/api/ai', ai)
 app.route('/api/media', media)
+app.route('/api/media', mediaFolders)
 app.route('/api/settings', settings)
 app.route('/api/vk-oauth', vkOauthRoutes)
 app.route('/api', publish) // /api/post-versions/:id/publish|schedule
