@@ -233,76 +233,30 @@ onMounted(() => { loadCharacters(); loadVideos(); loadSavedPrompts() })
       <!-- LEFT: Генератор (2/3) -->
       <div class="lg:col-span-2 space-y-4">
 
-        <!-- Шаблоны -->
+        <!-- 1. РЕЖИМ ВХОДА (основной выбор) -->
         <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-4">
-          <label class="block text-xs font-medium text-gray-500 mb-2">Шаблоны промптов</label>
-          <div class="flex flex-wrap gap-1.5">
-            <button v-for="t in TEMPLATES" :key="t.label" @click="prompt = t.prompt"
-              class="px-2.5 py-1.5 rounded-full text-xs font-medium bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-200 dark:hover:bg-emerald-800 transition-colors">
-              {{ t.label }}
-            </button>
-          </div>
-        </div>
-
-        <!-- Промпт -->
-        <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-4">
-          <!-- Mode toggle + history -->
-          <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
-            <label class="text-sm font-semibold">Промпт</label>
-            <div class="flex items-center gap-3">
-              <div class="flex border border-emerald-300 dark:border-emerald-700 rounded-lg overflow-hidden">
-                <button @click="promptMode = 'constructor'"
-                  :class="['flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors',
-                    promptMode === 'constructor' ? 'bg-emerald-600 text-white' : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800']">
-                  <PenTool :size="12" /> Конструктор
-                </button>
-                <button @click="promptMode = 'freetext'"
-                  :class="['flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors',
-                    promptMode === 'freetext' ? 'bg-emerald-600 text-white' : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800']">
-                  <Type :size="12" /> Свободный
-                </button>
-              </div>
-              <div v-if="promptHistory.length" class="flex items-center gap-0.5">
-                <button @click="historyBack" :disabled="historyIndex <= 0" class="p-0.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-30"><ChevronLeft :size="14" /></button>
-                <span class="text-[10px] text-gray-400 min-w-[24px] text-center">{{ historyIndex + 1 }}/{{ promptHistory.length }}</span>
-                <button @click="historyForward" :disabled="historyIndex >= promptHistory.length - 1" class="p-0.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-30"><ChevronRight :size="14" /></button>
-              </div>
-            </div>
-          </div>
-
-          <!-- Constructor mode -->
-          <div v-if="promptMode === 'constructor'" class="mb-3">
-            <PromptConstructor v-model="prompt" :reference-images="inputMode === 'references' ? refImages : []" />
-          </div>
-
-          <!-- Assembled/free prompt -->
-          <textarea v-model="prompt" :rows="promptMode === 'constructor' ? 3 : 6"
-            :placeholder="promptMode === 'constructor' ? 'Промпт собирается автоматически. Можете дополнить вручную.' : 'Опишите видео подробно: объект, действие, камера, освещение, настроение...'"
-            class="w-full px-4 py-3 rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 focus:ring-2 focus:ring-emerald-500 text-sm resize-none" />
-          <div class="flex items-center gap-2 mt-2">
-            <button @click="enhance" :disabled="enhancing || !prompt.trim()"
-              class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-emerald-300 dark:border-emerald-700 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950 disabled:opacity-50 transition-colors">
-              <Loader2 v-if="enhancing" :size="14" class="animate-spin" /><Wand2 v-else :size="14" />
-              {{ enhancing ? 'Улучшаю...' : 'Улучшить промпт (AI)' }}
-            </button>
-          </div>
-        </div>
-
-        <!-- Входные изображения -->
-        <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-4">
-          <label class="block text-sm font-semibold mb-2">Входные изображения</label>
-          <!-- Mode -->
-          <div class="flex gap-1.5 mb-3">
-            <button v-for="m in [{ id: 'text', l: 'Без фото', d: '41 кр/с' }, { id: 'frames', l: 'Кадры (1-2)', d: '25 кр/с' }, { id: 'references', l: 'Референсы (до 9)', d: '25 кр/с' }]" :key="m.id"
+          <label class="block text-sm font-semibold mb-3">Режим генерации</label>
+          <div class="grid grid-cols-3 gap-2">
+            <button v-for="m in [
+              { id: 'references', l: 'Референсы', d: 'до 9 фото · 25 кр/с', icon: '🖼️' },
+              { id: 'frames', l: 'Кадры', d: '1-2 фото · 25 кр/с', icon: '🎬' },
+              { id: 'text', l: 'Только текст', d: 'без фото · 41 кр/с', icon: '✏️' },
+            ]" :key="m.id"
               @click="inputMode = m.id as any"
-              :class="['px-3 py-2 rounded-lg text-xs font-medium border transition-colors',
+              :class="['px-3 py-3 rounded-xl text-center border-2 transition-all',
                 inputMode === m.id
-                  ? 'bg-emerald-100 dark:bg-emerald-900 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700'
-                  : 'bg-gray-50 dark:bg-gray-800 text-gray-500 border-gray-200 dark:border-gray-700 hover:border-emerald-300']">
-              <div>{{ m.l }}</div>
-              <div class="text-[9px] opacity-60 mt-0.5">{{ m.d }}</div>
+                  ? 'bg-emerald-50 dark:bg-emerald-900/30 border-emerald-400 dark:border-emerald-600'
+                  : 'bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:border-emerald-300']">
+              <div class="text-lg mb-1">{{ m.icon }}</div>
+              <div class="text-xs font-semibold">{{ m.l }}</div>
+              <div class="text-[9px] text-gray-400 mt-0.5">{{ m.d }}</div>
             </button>
           </div>
+        </div>
+
+        <!-- 2. ВХОДНЫЕ ИЗОБРАЖЕНИЯ (если не text) -->
+        <div v-if="inputMode !== 'text'" class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-4">
+          <label class="block text-sm font-semibold mb-3">{{ inputMode === 'references' ? 'Референсы' : 'Кадры' }}</label>
 
           <!-- Frames -->
           <div v-if="inputMode === 'frames'" class="grid grid-cols-2 gap-3">
@@ -371,12 +325,61 @@ onMounted(() => { loadCharacters(); loadVideos(); loadSavedPrompts() })
             <p v-else class="text-[10px] text-gray-400">Загрузи фото — AI распознает содержимое и вставит теги в промпт</p>
           </div>
 
-          <div v-if="inputMode === 'text'" class="text-center py-4 text-xs text-gray-400">
-            Видео генерируется только из текстового промпта
+        </div>
+
+        <!-- 3. ПРОМПТ -->
+        <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-4">
+          <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+            <label class="text-sm font-semibold">Промпт</label>
+            <div class="flex items-center gap-3">
+              <div class="flex border border-emerald-300 dark:border-emerald-700 rounded-lg overflow-hidden">
+                <button @click="promptMode = 'constructor'"
+                  :class="['flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors',
+                    promptMode === 'constructor' ? 'bg-emerald-600 text-white' : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800']">
+                  <PenTool :size="12" /> Конструктор
+                </button>
+                <button @click="promptMode = 'freetext'"
+                  :class="['flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors',
+                    promptMode === 'freetext' ? 'bg-emerald-600 text-white' : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800']">
+                  <Type :size="12" /> Свободный
+                </button>
+              </div>
+              <div v-if="promptHistory.length" class="flex items-center gap-0.5">
+                <button @click="historyBack" :disabled="historyIndex <= 0" class="p-0.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-30"><ChevronLeft :size="14" /></button>
+                <span class="text-[10px] text-gray-400 min-w-[24px] text-center">{{ historyIndex + 1 }}/{{ promptHistory.length }}</span>
+                <button @click="historyForward" :disabled="historyIndex >= promptHistory.length - 1" class="p-0.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-30"><ChevronRight :size="14" /></button>
+              </div>
+            </div>
+          </div>
+
+          <div v-if="promptMode === 'constructor'" class="mb-3">
+            <PromptConstructor v-model="prompt" :reference-images="inputMode === 'references' ? refImages : []" />
+          </div>
+
+          <textarea v-model="prompt" :rows="promptMode === 'constructor' ? 3 : 6"
+            :placeholder="promptMode === 'constructor' ? 'Промпт собирается автоматически. Можете дополнить вручную.' : 'Опишите видео подробно: объект, действие, камера, освещение, настроение...'"
+            class="w-full px-4 py-3 rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 focus:ring-2 focus:ring-emerald-500 text-sm resize-none" />
+          <div class="flex items-center gap-2 mt-2">
+            <button @click="enhance" :disabled="enhancing || !prompt.trim()"
+              class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-emerald-300 dark:border-emerald-700 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950 disabled:opacity-50 transition-colors">
+              <Loader2 v-if="enhancing" :size="14" class="animate-spin" /><Wand2 v-else :size="14" />
+              {{ enhancing ? 'Улучшаю...' : 'Улучшить промпт (AI)' }}
+            </button>
           </div>
         </div>
 
-        <!-- Настройки + Генерация -->
+        <!-- 4. ШАБЛОНЫ ПРОМПТОВ -->
+        <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-4">
+          <label class="block text-xs font-medium text-gray-500 mb-2">Шаблоны промптов</label>
+          <div class="flex flex-wrap gap-1.5">
+            <button v-for="t in TEMPLATES" :key="t.label" @click="prompt = t.prompt"
+              class="px-2.5 py-1.5 rounded-full text-xs font-medium bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-200 dark:hover:bg-emerald-800 transition-colors">
+              {{ t.label }}
+            </button>
+          </div>
+        </div>
+
+        <!-- 5. НАСТРОЙКИ РЕНДЕРИНГА + ГЕНЕРАЦИЯ -->
         <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-4">
           <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
             <!-- Duration -->
