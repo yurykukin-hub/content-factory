@@ -228,23 +228,22 @@ onMounted(() => { loadCharacters(); loadVideos(); loadSavedPrompts() })
 
         <!-- Промпт -->
         <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-4">
-          <div class="flex items-center justify-between mb-3">
+          <!-- Mode toggle + history -->
+          <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
             <label class="text-sm font-semibold">Промпт</label>
-            <div class="flex items-center gap-2">
-              <!-- Mode toggle -->
-              <div class="flex gap-0.5 bg-gray-100 dark:bg-gray-800 rounded-lg p-0.5">
+            <div class="flex items-center gap-3">
+              <div class="flex border border-emerald-300 dark:border-emerald-700 rounded-lg overflow-hidden">
                 <button @click="promptMode = 'constructor'"
-                  :class="['flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium transition-colors',
-                    promptMode === 'constructor' ? 'bg-white dark:bg-gray-700 text-emerald-600 shadow-sm' : 'text-gray-500']">
-                  <PenTool :size="10" /> Конструктор
+                  :class="['flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors',
+                    promptMode === 'constructor' ? 'bg-emerald-600 text-white' : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800']">
+                  <PenTool :size="12" /> Конструктор
                 </button>
                 <button @click="promptMode = 'freetext'"
-                  :class="['flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium transition-colors',
-                    promptMode === 'freetext' ? 'bg-white dark:bg-gray-700 text-emerald-600 shadow-sm' : 'text-gray-500']">
-                  <Type :size="10" /> Свободный
+                  :class="['flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors',
+                    promptMode === 'freetext' ? 'bg-emerald-600 text-white' : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800']">
+                  <Type :size="12" /> Свободный
                 </button>
               </div>
-              <!-- History -->
               <div v-if="promptHistory.length" class="flex items-center gap-0.5">
                 <button @click="historyBack" :disabled="historyIndex <= 0" class="p-0.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-30"><ChevronLeft :size="14" /></button>
                 <span class="text-[10px] text-gray-400 min-w-[24px] text-center">{{ historyIndex + 1 }}/{{ promptHistory.length }}</span>
