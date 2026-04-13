@@ -2,6 +2,7 @@
 import { ref, onMounted, computed, watch, nextTick, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { http } from '@/api/client'
+import { useAuthStore } from '@/stores/auth'
 import { useBusinessesStore } from '@/stores/businesses'
 import { useToast } from '@/composables/useToast'
 import { formatDate } from '@/composables/useFormatters'
@@ -27,8 +28,10 @@ interface Post {
 
 const route = useRoute()
 const router = useRouter()
+const auth = useAuthStore()
 const businesses = useBusinessesStore()
 const toast = useToast()
+const isAdmin = computed(() => auth.user?.role === 'ADMIN')
 
 const post = ref<Post | null>(null)
 const loading = ref(true)
@@ -1044,7 +1047,7 @@ onUnmounted(() => {
               class="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300 text-xs font-medium hover:bg-purple-200">
               <Sparkles :size="14" /> AI Фото
             </button>
-            <button @click="openVideoModal"
+            <button v-if="isAdmin" @click="openVideoModal"
               class="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-100 dark:bg-emerald-900 text-emerald-700 dark:text-emerald-300 text-xs font-medium hover:bg-emerald-200 dark:hover:bg-emerald-800">
               <Video :size="14" /> AI Видео
             </button>
