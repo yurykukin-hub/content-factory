@@ -137,8 +137,12 @@ const VIDEO_CREDIT_PRICE = 0.005
 const VIDEO_AUDIO_MULTIPLIER = 2.0
 const USD_TO_RUB = 95
 
+const videoFirstFrame = ref<{ url: string; thumbUrl?: string | null; filename: string } | null>(null)
+const videoLastFrame = ref<{ url: string; thumbUrl?: string | null; filename: string } | null>(null)
+
 const videoCostUsd = computed(() => {
-  const base = VIDEO_CREDITS_PER_SEC * videoDuration.value * VIDEO_CREDIT_PRICE
+  const creditsPerSec = videoFirstFrame.value ? 25 : VIDEO_CREDITS_PER_SEC // image-to-video дешевле
+  const base = creditsPerSec * videoDuration.value * VIDEO_CREDIT_PRICE
   return videoAudio.value ? base * VIDEO_AUDIO_MULTIPLIER : base
 })
 const videoCostRub = computed(() => Math.round(videoCostUsd.value * USD_TO_RUB))
@@ -608,6 +612,8 @@ async function generateAiVideo() {
       businessId: post.value.businessId, postId: post.value.id,
       prompt: videoPrompt.value, duration: videoDuration.value,
       aspectRatio: '9:16', generateAudio: videoAudio.value,
+      firstFrameUrl: videoFirstFrame.value?.url || null,
+      lastFrameUrl: videoLastFrame.value?.url || null,
     })
     // Сохранить промпт в историю
     videoPromptHistory.value.push(videoPrompt.value)
@@ -641,6 +647,25 @@ async function enhanceVideoPrompt() {
     toast.success('Промпт улучшен')
   } catch (e: any) { toast.error('Ошибка: ' + e.message) }
   finally { videoEnhancing.value = false }
+}
+
+async function pickFrame(event: Event, which: 'first' | 'last') {
+  const input = event.target as HTMLInputElement
+  if (!input.files?.length || !post.value) return
+  const formData = new FormData()
+  formData.append('file', input.files[0])
+  formData.append('businessId', post.value.businessId)
+  formData.append('tags', JSON.stringify(['video-frame']))
+  try {
+    const res = await fetch('/api/media/upload', { method: 'POST', credentials: 'include', body: formData })
+    if (!res.ok) throw new Error('Upload failed')
+    const media = await res.json()
+    const frame = { url: media.url, thumbUrl: media.thumbUrl, filename: media.filename }
+    if (which === 'first') videoFirstFrame.value = frame
+    else videoLastFrame.value = frame
+    toast.success(`${which === 'first' ? 'Первый' : 'Последний'} кадр загружен`)
+  } catch { toast.error('Ошибка загрузки') }
+  input.value = ''
 }
 
 function videoHistoryBack() {
@@ -1329,6 +1354,56 @@ onUnmounted(() => {
             </div>
           </div>
 
+          <!-- Image-to-Video: первый и последний кадр -->
+          <div>
+            <label class="block text-xs font-medium text-gray-500 mb-1.5">
+              Исходные кадры
+              <span class="font-normal text-gray-400">(опционально — image-to-video, дешевле)</span>
+            </label>
+            <div class="grid grid-cols-2 gap-2">
+              <!-- First frame -->
+              <div class="relative">
+                <div v-if="videoFirstFrame"
+                  class="flex items-center gap-2 p-2 rounded-lg bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-200 dark:border-emerald-800">
+                  <img :src="videoFirstFrame.thumbUrl || videoFirstFrame.url" class="w-10 h-10 rounded object-cover" />
+                  <div class="flex-1 min-w-0">
+                    <div class="text-[10px] font-medium truncate">Первый кадр</div>
+                    <div class="text-[9px] text-gray-400 truncate">{{ videoFirstFrame.filename }}</div>
+                  </div>
+                  <button @click="videoFirstFrame = null" class="p-0.5 text-gray-400 hover:text-red-500"><Trash2 :size="12" /></button>
+                </div>
+                <label v-else class="flex flex-col items-center gap-1 p-3 rounded-lg border-2 border-dashed border-gray-300 dark:border-gray-700 cursor-pointer hover:border-emerald-400 transition-colors">
+                  <Image :size="16" class="text-gray-400" />
+                  <span class="text-[10px] text-gray-500">Первый кадр</span>
+                  <input type="file" accept="image/*" class="hidden" @change="(e: Event) => pickFrame(e, 'first')" />
+                </label>
+              </div>
+              <!-- Last frame -->
+              <div class="relative">
+                <div v-if="videoLastFrame"
+                  class="flex items-center gap-2 p-2 rounded-lg bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-200 dark:border-emerald-800">
+                  <img :src="videoLastFrame.thumbUrl || videoLastFrame.url" class="w-10 h-10 rounded object-cover" />
+                  <div class="flex-1 min-w-0">
+                    <div class="text-[10px] font-medium truncate">Последний кадр</div>
+                    <div class="text-[9px] text-gray-400 truncate">{{ videoLastFrame.filename }}</div>
+                  </div>
+                  <button @click="videoLastFrame = null" class="p-0.5 text-gray-400 hover:text-red-500"><Trash2 :size="12" /></button>
+                </div>
+                <label v-else class="flex flex-col items-center gap-1 p-3 rounded-lg border-2 border-dashed border-gray-300 dark:border-gray-700 cursor-pointer hover:border-emerald-400 transition-colors">
+                  <Image :size="16" class="text-gray-400" />
+                  <span class="text-[10px] text-gray-500">Последний кадр</span>
+                  <input type="file" accept="image/*" class="hidden" @change="(e: Event) => pickFrame(e, 'last')" />
+                </label>
+              </div>
+            </div>
+            <!-- Existing photo as first frame -->
+            <button v-if="photo && !isVideoMedia && !videoFirstFrame"
+              @click="videoFirstFrame = { url: photo!.url, thumbUrl: photo!.thumbUrl, filename: photo!.filename }"
+              class="mt-1.5 text-[10px] text-emerald-600 dark:text-emerald-400 hover:underline">
+              Использовать текущее фото как первый кадр
+            </button>
+          </div>
+
           <!-- Prompt textarea -->
           <div>
             <textarea v-model="videoPrompt" rows="5" placeholder="Опишите видео: что в кадре, действие, движение камеры, освещение, настроение..."
@@ -1384,6 +1459,8 @@ onUnmounted(() => {
               <div class="flex items-center gap-2 text-[10px] text-gray-400">
                 <span class="px-1.5 py-0.5 bg-emerald-100 dark:bg-emerald-900/50 text-emerald-600 dark:text-emerald-400 rounded font-medium">seedance-2</span>
                 <span>720p</span>
+                <span>·</span>
+                <span>{{ videoFirstFrame ? 'img→video' : 'text→video' }}</span>
                 <span>·</span>
                 <span>~1-3 мин</span>
               </div>

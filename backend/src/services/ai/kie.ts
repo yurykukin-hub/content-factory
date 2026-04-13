@@ -489,9 +489,11 @@ interface GenerateVideoParams {
   prompt: string
   businessId: string
   postId?: string | null
-  duration?: number          // 4-15 сек
+  duration?: number            // 4-15 сек
   aspectRatio?: '1:1' | '16:9' | '9:16'
-  generateAudio?: boolean    // генерировать звук (Seedance 2 native audio)
+  generateAudio?: boolean      // генерировать звук (Seedance 2 native audio)
+  firstFrameUrl?: string | null  // URL первого кадра (image-to-video)
+  lastFrameUrl?: string | null   // URL последнего кадра (interpolation)
 }
 
 interface GenerateVideoResult {
@@ -523,27 +525,42 @@ async function downloadAndSaveVideo(
 }
 
 export async function generateVideo(params: GenerateVideoParams): Promise<GenerateVideoResult> {
-  const { prompt: rawPrompt, businessId, postId, duration = 5, aspectRatio = '9:16', generateAudio = true } = params
+  const { prompt: rawPrompt, businessId, postId, duration = 5, aspectRatio = '9:16', generateAudio = true, firstFrameUrl, lastFrameUrl } = params
   const model = 'bytedance/seedance-2'
 
-  // Ценообразование: 41 credits/sec (720p), 1 credit = $0.005, audio ~2x
-  const creditsPerSec = 41
+  const hasImageInput = !!firstFrameUrl
+  // Ценообразование: text-to-video 41 cr/s, image-to-video 25 cr/s (720p), audio ~2x
+  const creditsPerSec = hasImageInput ? 25 : 41
   const audioMultiplier = generateAudio ? 2.0 : 1.0
   const videoCostUsd = creditsPerSec * duration * 0.005 * audioMultiplier
 
   const prompt = await translatePrompt(rawPrompt, businessId)
 
-  log.info('[KIE] generateVideo', { businessId, model, duration, generateAudio, prompt: prompt.slice(0, 80) })
+  // Resolve image URLs to public
+  const resolvedFirstFrame = firstFrameUrl ? resolvePublicUrl(firstFrameUrl) : undefined
+  const resolvedLastFrame = lastFrameUrl ? resolvePublicUrl(lastFrameUrl) : undefined
+
+  log.info('[KIE] generateVideo', { businessId, model, duration, generateAudio, hasFirstFrame: !!resolvedFirstFrame, hasLastFrame: !!resolvedLastFrame, prompt: prompt.slice(0, 80) })
+
+  const input: any = {
+    prompt,
+    duration,
+    aspect_ratio: aspectRatio,
+    output_format: 'mp4',
+    generate_audio: generateAudio,
+  }
+
+  // Image-to-video: first frame (+ optional last frame)
+  if (resolvedFirstFrame) {
+    input.first_frame_url = resolvedFirstFrame
+    if (resolvedLastFrame) {
+      input.last_frame_url = resolvedLastFrame
+    }
+  }
 
   const response = await kiePost('/api/v1/jobs/createTask', {
     model,
-    input: {
-      prompt,
-      duration,
-      aspect_ratio: aspectRatio,
-      output_format: 'mp4',
-      generate_audio: generateAudio,
-    },
+    input,
   })
 
   const taskId = response?.data?.taskId || response?.taskId

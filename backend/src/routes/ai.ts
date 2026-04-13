@@ -621,6 +621,8 @@ const generateVideoSchema = z.object({
   duration: z.number().int().min(4).max(15).default(5),
   aspectRatio: z.enum(['1:1', '16:9', '9:16']).default('9:16'),
   generateAudio: z.boolean().default(true),
+  firstFrameUrl: z.string().optional().nullable(),
+  lastFrameUrl: z.string().optional().nullable(),
 })
 
 ai.post('/generate-video', async (c) => {
@@ -640,6 +642,8 @@ ai.post('/generate-video', async (c) => {
     duration: data.duration,
     aspectRatio: data.aspectRatio,
     generateAudio: data.generateAudio,
+    firstFrameUrl: data.firstFrameUrl || null,
+    lastFrameUrl: data.lastFrameUrl || null,
   })
 
   return c.json(result, 201)
