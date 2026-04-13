@@ -26,6 +26,8 @@ import { ideas } from './routes/ideas'
 import { storyTemplates } from './routes/story-templates'
 import { characters } from './routes/characters'
 import { scenarios } from './routes/scenarios'
+import { promptLibrary } from './routes/prompt-library'
+import { promptTemplates } from './routes/prompt-templates'
 
 const app = new Hono()
 
@@ -98,6 +100,8 @@ app.route('/api/ideas', ideas)
 app.route('/api', storyTemplates) // /api/businesses/:bizId/story-templates + /api/story-templates/:id
 app.route('/api', characters) // /api/businesses/:bizId/characters + /api/characters/:id
 app.route('/api/scenarios', scenarios)
+app.route('/api/prompt-library', promptLibrary)
+app.route('/api/prompt-templates', promptTemplates)
 app.route('/api/dashboard', dashboard)
 app.route('/api/sse', sse)
 

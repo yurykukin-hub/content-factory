@@ -123,6 +123,8 @@ model Business {
   storyTemplates      StoryTemplate[]
   characterRelations  CharacterBusiness[]
   scenarios           Scenario[]
+  promptEntries       PromptEntry[]
+  promptTemplates     PromptTemplate[]
 
   @@map("businesses")
 }
@@ -403,6 +405,44 @@ model AppConfig {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   @@map("app_config")
+}
+
+/// Библиотека промптов (сохранённые промпты с результатами и рейтингом)
+model PromptEntry {
+  id        String   @id @default(cuid())
+  businessId String  @map("business_id")
+  type      String   @default("video") // "video" | "image" | "text"
+  prompt    String
+  resultUrl String?  @map("result_url") // URL сгенерированного медиа
+  rating    Int?     // 1-5 или null
+  tags      String[] @default([])
+  metadata  Json?    // { duration, model, cost, aspectRatio, audio }
+  createdAt DateTime @default(now()) @map("created_at")
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([type])
+  @@map("prompt_entries")
+}
+
+/// Шаблоны промптов (редактируемые, per-business или глобальные)
+model PromptTemplate {
+  id        String   @id @default(cuid())
+  businessId String? @map("business_id") // null = глобальный
+  type      String   @default("video")   // "video" | "image" | "text"
+  name      String
+  emoji     String   @default("")
+  prompt    String
+  tags      String[] @default([])
+  isSystem  Boolean  @default(false) @map("is_system")
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  business Business? @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([type])
+  @@map("prompt_templates")
 }
 
 /// AI-персонаж (глобальный, привязывается к бизнесам через CharacterBusiness)

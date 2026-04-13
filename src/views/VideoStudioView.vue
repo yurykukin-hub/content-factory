@@ -5,9 +5,11 @@ import { useToast } from '@/composables/useToast'
 import { useBusinessesStore } from '@/stores/businesses'
 import { formatDate } from '@/composables/useFormatters'
 import BusinessFilter from '@/components/BusinessFilter.vue'
+import PromptConstructor from '@/components/video/PromptConstructor.vue'
 import {
-  Video, Sparkles, Loader2, Wand2, ChevronLeft, ChevronRight,
+  Video, Sparkles, Loader2, Wand2, ChevronLeft, ChevronRight, ChevronDown, ChevronUp,
   Image, Trash2, Plus, Play, Download, UserCircle, Volume2, VolumeX,
+  PenTool, Type,
 } from 'lucide-vue-next'
 
 const toast = useToast()
@@ -15,6 +17,7 @@ const businesses = useBusinessesStore()
 const selectedBizId = ref<string | null>(businesses.currentBusinessId)
 
 // Prompt
+const promptMode = ref<'constructor' | 'freetext'>('constructor')
 const prompt = ref('')
 const enhancing = ref(false)
 const generating = ref(false)
@@ -37,6 +40,30 @@ const refImages = ref<{ url: string; thumbUrl?: string | null; filename: string 
 interface CharacterRef { id: string; name: string; type: string; referenceMedia?: { url: string; thumbUrl: string | null } | null }
 const characters = ref<CharacterRef[]>([])
 const selectedCharacterId = ref<string | null>(null)
+
+// Prompt library
+interface PromptEntry { id: string; prompt: string; resultUrl: string | null; rating: number | null; tags: string[]; metadata: any; createdAt: string }
+const savedPrompts = ref<PromptEntry[]>([])
+const showLibrary = ref(false)
+
+async function loadSavedPrompts() {
+  if (!selectedBizId.value) return
+  try { savedPrompts.value = await http.get<PromptEntry[]>(`/prompt-library?businessId=${selectedBizId.value}&type=video`) } catch { savedPrompts.value = [] }
+}
+
+async function ratePrompt(id: string, rating: number) {
+  try {
+    await http.put(`/prompt-library/${id}`, { rating })
+    const idx = savedPrompts.value.findIndex(p => p.id === id)
+    if (idx !== -1) savedPrompts.value[idx].rating = rating
+  } catch {}
+}
+
+function usePrompt(entry: PromptEntry) {
+  prompt.value = entry.prompt
+  showLibrary.value = false
+  toast.success('Промпт загружен')
+}
 
 // Generated videos
 interface GeneratedVideo {
@@ -122,6 +149,12 @@ async function generate() {
     historyIndex.value = promptHistory.value.length - 1
     generatedVideos.value.unshift(result.mediaFile)
     activeVideoUrl.value = result.mediaFile.url
+    // Auto-save в библиотеку промптов
+    http.post('/prompt-library', {
+      businessId: selectedBizId.value, type: 'video', prompt: prompt.value,
+      resultUrl: result.mediaFile.url,
+      metadata: { duration: duration.value, model: 'bytedance/seedance-2', cost: costUsd.value, audio: audio.value, inputMode: inputMode.value },
+    }).catch(() => {})
     toast.success(`Видео готово (${duration.value} сек)`)
   } catch (e: any) { toast.error(e.message || 'Ошибка генерации') }
   finally { generating.value = false }
@@ -163,7 +196,7 @@ async function addRef(event: Event) {
   input.value = ''
 }
 
-onMounted(() => { loadCharacters(); loadVideos() })
+onMounted(() => { loadCharacters(); loadVideos(); loadSavedPrompts() })
 </script>
 
 <template>
@@ -195,15 +228,39 @@ onMounted(() => { loadCharacters(); loadVideos() })
 
         <!-- Промпт -->
         <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-4">
-          <div class="flex items-center justify-between mb-2">
+          <div class="flex items-center justify-between mb-3">
             <label class="text-sm font-semibold">Промпт</label>
-            <div v-if="promptHistory.length" class="flex items-center gap-1">
-              <button @click="historyBack" :disabled="historyIndex <= 0" class="p-0.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-30"><ChevronLeft :size="14" /></button>
-              <span class="text-[10px] text-gray-400 min-w-[28px] text-center">{{ historyIndex + 1 }}/{{ promptHistory.length }}</span>
-              <button @click="historyForward" :disabled="historyIndex >= promptHistory.length - 1" class="p-0.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-30"><ChevronRight :size="14" /></button>
+            <div class="flex items-center gap-2">
+              <!-- Mode toggle -->
+              <div class="flex gap-0.5 bg-gray-100 dark:bg-gray-800 rounded-lg p-0.5">
+                <button @click="promptMode = 'constructor'"
+                  :class="['flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium transition-colors',
+                    promptMode === 'constructor' ? 'bg-white dark:bg-gray-700 text-emerald-600 shadow-sm' : 'text-gray-500']">
+                  <PenTool :size="10" /> Конструктор
+                </button>
+                <button @click="promptMode = 'freetext'"
+                  :class="['flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium transition-colors',
+                    promptMode === 'freetext' ? 'bg-white dark:bg-gray-700 text-emerald-600 shadow-sm' : 'text-gray-500']">
+                  <Type :size="10" /> Свободный
+                </button>
+              </div>
+              <!-- History -->
+              <div v-if="promptHistory.length" class="flex items-center gap-0.5">
+                <button @click="historyBack" :disabled="historyIndex <= 0" class="p-0.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-30"><ChevronLeft :size="14" /></button>
+                <span class="text-[10px] text-gray-400 min-w-[24px] text-center">{{ historyIndex + 1 }}/{{ promptHistory.length }}</span>
+                <button @click="historyForward" :disabled="historyIndex >= promptHistory.length - 1" class="p-0.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-30"><ChevronRight :size="14" /></button>
+              </div>
             </div>
           </div>
-          <textarea v-model="prompt" rows="6" placeholder="Опишите видео подробно: объект, действие, камера, освещение, настроение...&#10;&#10;Для референсов используйте @Image1, @Image2 и т.д."
+
+          <!-- Constructor mode -->
+          <div v-if="promptMode === 'constructor'" class="mb-3">
+            <PromptConstructor v-model="prompt" />
+          </div>
+
+          <!-- Assembled/free prompt -->
+          <textarea v-model="prompt" :rows="promptMode === 'constructor' ? 3 : 6"
+            :placeholder="promptMode === 'constructor' ? 'Промпт собирается автоматически. Можете дополнить вручную.' : 'Опишите видео подробно: объект, действие, камера, освещение, настроение...'"
             class="w-full px-4 py-3 rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 focus:ring-2 focus:ring-emerald-500 text-sm resize-none" />
           <div class="flex items-center gap-2 mt-2">
             <button @click="enhance" :disabled="enhancing || !prompt.trim()"
@@ -370,6 +427,37 @@ onMounted(() => { loadCharacters(); loadVideos() })
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+
+        <!-- Prompt Library -->
+        <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 overflow-hidden">
+          <button @click="showLibrary = !showLibrary" class="w-full flex items-center justify-between p-4 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+            <h3 class="text-sm font-semibold flex items-center gap-1.5">
+              <Sparkles :size="14" class="text-purple-500" /> Библиотека промптов
+              <span v-if="savedPrompts.length" class="text-[10px] text-gray-400 font-normal">({{ savedPrompts.length }})</span>
+            </h3>
+            <component :is="showLibrary ? ChevronUp : ChevronDown" :size="14" class="text-gray-400" />
+          </button>
+          <div v-if="showLibrary && savedPrompts.length" class="border-t border-gray-100 dark:border-gray-800 max-h-80 overflow-y-auto">
+            <div v-for="entry in savedPrompts" :key="entry.id"
+              class="p-3 border-b border-gray-100 dark:border-gray-800 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-800/50 cursor-pointer transition-colors"
+              @click="usePrompt(entry)">
+              <p class="text-[11px] text-gray-600 dark:text-gray-400 line-clamp-2 mb-1.5">{{ entry.prompt }}</p>
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-1">
+                  <button v-for="star in 5" :key="star" @click.stop="ratePrompt(entry.id, star)"
+                    :class="['text-[10px]', (entry.rating || 0) >= star ? 'text-amber-400' : 'text-gray-300 dark:text-gray-600']">★</button>
+                </div>
+                <div class="flex items-center gap-1.5 text-[9px] text-gray-400">
+                  <span v-if="entry.metadata?.duration">{{ entry.metadata.duration }}с</span>
+                  <span v-if="entry.metadata?.cost">${{ entry.metadata.cost.toFixed(2) }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div v-if="showLibrary && !savedPrompts.length" class="p-4 text-center text-xs text-gray-400 border-t border-gray-100 dark:border-gray-800">
+            Промпты сохраняются автоматически при генерации
           </div>
         </div>
       </div>
