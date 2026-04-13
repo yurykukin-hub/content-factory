@@ -6,11 +6,30 @@ import {
   ChevronDown, ChevronUp, Eraser,
 } from 'lucide-vue-next'
 
+export interface RefImage {
+  url: string
+  thumbUrl?: string | null
+  filename: string
+  role?: string // 'face' | 'background' | 'object' | 'style' | ''
+}
+
 const emit = defineEmits<{
   (e: 'update:modelValue', value: string): void
 }>()
 
-defineProps<{ modelValue: string }>()
+const props = defineProps<{
+  modelValue: string
+  referenceImages?: RefImage[]
+}>()
+
+const ROLES: { id: string; label: string; en: string }[] = [
+  { id: 'face', label: 'Лицо', en: 'character appearance from' },
+  { id: 'background', label: 'Фон', en: 'background environment from' },
+  { id: 'object', label: 'Объект', en: 'object shown in' },
+  { id: 'style', label: 'Стиль', en: 'visual style reference from' },
+  { id: 'outfit', label: 'Одежда', en: 'outfit and clothing from' },
+  { id: 'pose', label: 'Поза', en: 'pose and body position from' },
+]
 
 // --- Options ---
 
@@ -168,9 +187,24 @@ const assembledPrompt = computed(() => {
     parts.push(`Sound: ${sections.audio.description}`)
   }
 
+  // Reference images with roles
+  if (props.referenceImages?.length) {
+    const refParts: string[] = []
+    props.referenceImages.forEach((ref, idx) => {
+      const tag = `@Image${idx + 1}`
+      const role = ROLES.find(r => r.id === ref.role)
+      if (role) {
+        refParts.push(`${role.en} ${tag}`)
+      } else {
+        refParts.push(`reference ${tag}`)
+      }
+    })
+    if (refParts.length) parts.push('Using ' + refParts.join(', '))
+  }
+
   // Quality constraint
   if (parts.length) {
-    parts.push('Smooth motion, high detail, no distortion')
+    parts.push('Smooth motion, high detail, no distortion, maintain consistency with reference images')
   }
 
   return parts.join('. ') + (parts.length ? '.' : '')

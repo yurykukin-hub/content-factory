@@ -33,8 +33,8 @@ const inputMode = ref<'text' | 'frames' | 'references'>('text')
 const firstFrame = ref<{ url: string; thumbUrl?: string | null; filename: string } | null>(null)
 const lastFrame = ref<{ url: string; thumbUrl?: string | null; filename: string } | null>(null)
 
-// References
-const refImages = ref<{ url: string; thumbUrl?: string | null; filename: string }[]>([])
+// References (с ролями для конструктора промптов)
+const refImages = ref<{ url: string; thumbUrl?: string | null; filename: string; role: string }[]>([])
 
 // Characters
 interface CharacterRef { id: string; name: string; type: string; referenceMedia?: { url: string; thumbUrl: string | null } | null }
@@ -191,7 +191,7 @@ async function addRef(event: Event) {
     const res = await fetch('/api/media/upload', { method: 'POST', credentials: 'include', body: fd })
     if (!res.ok) throw new Error()
     const m = await res.json()
-    refImages.value.push({ url: m.url, thumbUrl: m.thumbUrl, filename: m.filename })
+    refImages.value.push({ url: m.url, thumbUrl: m.thumbUrl, filename: m.filename, role: '' })
   } catch { toast.error('Ошибка загрузки') }
   input.value = ''
 }
@@ -254,7 +254,7 @@ onMounted(() => { loadCharacters(); loadVideos(); loadSavedPrompts() })
 
           <!-- Constructor mode -->
           <div v-if="promptMode === 'constructor'" class="mb-3">
-            <PromptConstructor v-model="prompt" />
+            <PromptConstructor v-model="prompt" :reference-images="inputMode === 'references' ? refImages : []" />
           </div>
 
           <!-- Assembled/free prompt -->
@@ -312,16 +312,28 @@ onMounted(() => { loadCharacters(); loadVideos(); loadSavedPrompts() })
             </div>
           </div>
 
-          <!-- References -->
+          <!-- References с ролями -->
           <div v-if="inputMode === 'references'">
-            <div class="flex flex-wrap gap-2.5 mb-2">
-              <div v-for="(r, idx) in refImages" :key="idx"
-                class="relative group w-20 h-20 rounded-xl overflow-hidden border-2 border-emerald-200 dark:border-emerald-800">
-                <img :src="r.thumbUrl || r.url" class="w-full h-full object-cover" />
-                <div class="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
-                  <button @click="refImages.splice(idx, 1)" class="p-1.5 bg-red-500/80 rounded-full"><Trash2 :size="12" class="text-white" /></button>
+            <div class="flex flex-wrap gap-3 mb-2">
+              <div v-for="(r, idx) in refImages" :key="idx" class="flex flex-col items-center gap-1">
+                <div class="relative group w-20 h-20 rounded-xl overflow-hidden border-2 border-emerald-200 dark:border-emerald-800">
+                  <img :src="r.thumbUrl || r.url" class="w-full h-full object-cover" />
+                  <div class="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                    <button @click="refImages.splice(idx, 1)" class="p-1.5 bg-red-500/80 rounded-full"><Trash2 :size="12" class="text-white" /></button>
+                  </div>
+                  <span class="absolute bottom-0.5 left-0.5 px-1 py-0.5 bg-black/70 text-white text-[8px] rounded font-mono">@Image{{ idx + 1 }}</span>
                 </div>
-                <span class="absolute bottom-1 left-1 px-1.5 py-0.5 bg-black/70 text-white text-[9px] rounded font-mono">@Image{{ idx + 1 }}</span>
+                <!-- Role selector -->
+                <select v-model="r.role"
+                  class="w-20 px-1 py-0.5 rounded text-[9px] bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-center">
+                  <option value="">Роль...</option>
+                  <option value="face">Лицо</option>
+                  <option value="background">Фон</option>
+                  <option value="object">Объект</option>
+                  <option value="style">Стиль</option>
+                  <option value="outfit">Одежда</option>
+                  <option value="pose">Поза</option>
+                </select>
               </div>
               <label v-if="refImages.length < 9"
                 class="w-20 h-20 rounded-xl border-2 border-dashed border-gray-300 dark:border-gray-700 flex flex-col items-center justify-center cursor-pointer hover:border-emerald-400 transition-colors">
@@ -330,7 +342,8 @@ onMounted(() => { loadCharacters(); loadVideos(); loadSavedPrompts() })
                 <input type="file" accept="image/*" class="hidden" @change="addRef" />
               </label>
             </div>
-            <p class="text-[10px] text-gray-400">В промпте: <code class="text-emerald-500 bg-emerald-50 dark:bg-emerald-950 px-1 rounded">@Image1</code> — лицо, <code class="text-emerald-500 bg-emerald-50 dark:bg-emerald-950 px-1 rounded">@Image2</code> — фон, и т.д.</p>
+            <p v-if="refImages.length" class="text-[10px] text-gray-400">Выбери роль — конструктор автоматически добавит <code class="text-emerald-500">@Image1</code>...<code class="text-emerald-500">@Image{{ refImages.length }}</code> в промпт</p>
+            <p v-else class="text-[10px] text-gray-400">Загрузи фото — лицо, фон, объект, стиль. Конструктор сам вставит теги в промпт.</p>
           </div>
 
           <div v-if="inputMode === 'text'" class="text-center py-4 text-xs text-gray-400">
