@@ -3,6 +3,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { http } from '@/api/client'
 import { useAuthStore } from '@/stores/auth'
+import { useBusinessesStore } from '@/stores/businesses'
 import { useToast } from '@/composables/useToast'
 import { platformBgColor, platformLabel, accountTypeLabel } from '@/composables/usePlatform'
 import {
@@ -59,6 +60,7 @@ const router = useRouter()
 const auth = useAuthStore()
 const toast = useToast()
 
+const businessesStore = useBusinessesStore()
 const isAdmin = computed(() => auth.user?.role === 'ADMIN')
 const bizId = computed(() => route.params.id as string)
 
@@ -88,10 +90,11 @@ interface Character {
   id: string; name: string; description: string; type: string; style: string
   isActive: boolean; referenceMediaId: string | null
   referenceMedia?: { id: string; url: string; thumbUrl: string | null } | null
+  businessIds?: string[]; businessNames?: string[]
 }
 const characters = ref<Character[]>([])
 const showCharForm = ref(false)
-const charForm = ref({ name: '', description: '', type: 'person', style: '', referenceMediaId: null as string | null })
+const charForm = ref({ name: '', description: '', type: 'person', style: '', referenceMediaId: null as string | null, businessIds: [] as string[] })
 const charSaving = ref(false)
 const editingCharId = ref<string | null>(null)
 
@@ -110,27 +113,28 @@ async function loadCharacters() {
 function openCharForm(char?: Character) {
   if (char) {
     editingCharId.value = char.id
-    charForm.value = { name: char.name, description: char.description, type: char.type, style: char.style, referenceMediaId: char.referenceMediaId }
+    charForm.value = { name: char.name, description: char.description, type: char.type, style: char.style, referenceMediaId: char.referenceMediaId, businessIds: char.businessIds || [bizId.value] }
   } else {
     editingCharId.value = null
-    charForm.value = { name: '', description: '', type: 'person', style: '', referenceMediaId: null }
+    charForm.value = { name: '', description: '', type: 'person', style: '', referenceMediaId: null, businessIds: [bizId.value] }
   }
   showCharForm.value = true
 }
 
 async function saveChar() {
-  if (!charForm.value.name.trim()) return
+  if (!charForm.value.name.trim() || !charForm.value.businessIds.length) return
   charSaving.value = true
+  const isEdit = !!editingCharId.value
   try {
-    if (editingCharId.value) {
+    if (isEdit) {
       await http.put(`/characters/${editingCharId.value}`, charForm.value)
     } else {
-      await http.post(`/businesses/${route.params.id}/characters`, charForm.value)
+      await http.post('/characters', charForm.value)
     }
     showCharForm.value = false
     editingCharId.value = null
     await loadCharacters()
-    toast.success(editingCharId.value ? 'Персонаж обновлён' : 'Персонаж создан')
+    toast.success(isEdit ? 'Персонаж обновлён' : 'Персонаж создан')
   } catch (e: any) { toast.error(e.message || 'Ошибка') }
   finally { charSaving.value = false }
 }
@@ -1144,6 +1148,23 @@ onMounted(() => {
           <textarea v-model="charForm.description" rows="2" class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm" placeholder="Молодой мужчина, тёмные волосы, спортивное телосложение, улыбчивый..." />
           <p class="text-[11px] text-gray-400 mt-0.5">Опишите внешность — AI использует это при генерации</p>
         </div>
+        <!-- Бизнесы (мультивыбор) -->
+        <div>
+          <label class="block text-xs font-medium mb-1.5">Привязка к бизнесам *</label>
+          <div class="flex flex-wrap gap-1.5">
+            <label v-for="biz in businessesStore.businesses" :key="biz.id"
+              :class="[
+                'flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium cursor-pointer transition-colors border',
+                charForm.businessIds.includes(biz.id)
+                  ? 'bg-brand-100 dark:bg-brand-900 text-brand-700 dark:text-brand-300 border-brand-300 dark:border-brand-700'
+                  : 'bg-gray-100 dark:bg-gray-800 text-gray-500 border-gray-200 dark:border-gray-700 hover:border-brand-300',
+              ]">
+              <input type="checkbox" :value="biz.id" v-model="charForm.businessIds" class="hidden" />
+              {{ biz.name }}
+            </label>
+          </div>
+          <p class="text-[10px] text-gray-400 mt-1">Персонаж будет доступен для AI-генерации в выбранных бизнесах</p>
+        </div>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <label class="block text-xs font-medium mb-1">Стиль</label>
@@ -1193,7 +1214,10 @@ onMounted(() => {
                 </span>
               </div>
               <p v-if="char.description" class="text-xs text-gray-500 mt-0.5 line-clamp-2">{{ char.description }}</p>
-              <p v-if="char.style" class="text-[10px] text-gray-400 mt-1">Стиль: {{ char.style }}</p>
+              <div v-if="char.businessNames && char.businessNames.length > 1" class="flex flex-wrap gap-1 mt-1">
+                <span v-for="bn in char.businessNames" :key="bn" class="px-1.5 py-0.5 rounded text-[9px] bg-gray-200 dark:bg-gray-700 text-gray-500">{{ bn }}</span>
+              </div>
+              <p v-if="char.style" class="text-[10px] text-gray-400 mt-0.5">Стиль: {{ char.style }}</p>
             </div>
           </div>
           <!-- Actions -->

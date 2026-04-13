@@ -3,8 +3,28 @@ import { z } from 'zod'
 import { db } from '../db'
 import type { AuthUser } from '../middleware/auth'
 import { assertBusinessAccess } from '../middleware/resource-access'
+import { getUserBusinessIds } from '../middleware/business-access'
 
 const characters = new Hono()
+
+const characterInclude = {
+  referenceMedia: { select: { id: true, url: true, thumbUrl: true } },
+  businesses: {
+    select: {
+      business: { select: { id: true, name: true, slug: true } },
+    },
+  },
+} as const
+
+// Helper: преобразовать Prisma результат в плоский формат для фронтенда
+function formatCharacter(char: any) {
+  return {
+    ...char,
+    businessIds: char.businesses?.map((b: any) => b.business.id) || [],
+    businessNames: char.businesses?.map((b: any) => b.business.name) || [],
+    businesses: undefined, // убрать вложенную структуру
+  }
+}
 
 const characterSchema = z.object({
   name: z.string().min(1).max(100),
@@ -13,9 +33,30 @@ const characterSchema = z.object({
   style: z.string().max(50).default(''),
   referenceMediaId: z.string().optional().nullable(),
   isActive: z.boolean().default(true),
+  businessIds: z.array(z.string()).min(1, 'Выберите хотя бы 1 бизнес'),
 })
 
-// GET /api/businesses/:bizId/characters — список персонажей бизнеса
+// --- Глобальный CRUD ---
+
+// GET /api/characters — все персонажи (фильтр по доступным бизнесам)
+characters.get('/characters', async (c) => {
+  const user = c.get('user') as AuthUser
+
+  let where: any = {}
+  if (user.role !== 'ADMIN') {
+    const bizIds = await getUserBusinessIds(user)
+    where = { businesses: { some: { businessId: { in: bizIds } } } }
+  }
+
+  const list = await db.character.findMany({
+    where,
+    include: characterInclude,
+    orderBy: { createdAt: 'desc' },
+  })
+  return c.json(list.map(formatCharacter))
+})
+
+// GET /api/businesses/:bizId/characters — персонажи конкретного бизнеса
 characters.get('/businesses/:bizId/characters', async (c) => {
   const bizId = c.req.param('bizId')
   const user = c.get('user') as AuthUser
@@ -24,16 +65,39 @@ characters.get('/businesses/:bizId/characters', async (c) => {
   }
 
   const list = await db.character.findMany({
-    where: { businessId: bizId },
-    include: {
-      referenceMedia: { select: { id: true, url: true, thumbUrl: true } },
-    },
+    where: { businesses: { some: { businessId: bizId } } },
+    include: characterInclude,
     orderBy: { createdAt: 'desc' },
   })
-  return c.json(list)
+  return c.json(list.map(formatCharacter))
 })
 
-// POST /api/businesses/:bizId/characters — создать персонажа
+// POST /api/characters — создать персонажа + привязать к бизнесам
+characters.post('/characters', async (c) => {
+  const user = c.get('user') as AuthUser
+  const body = await c.req.json()
+  const { businessIds, ...data } = characterSchema.parse(body)
+
+  // Проверить доступ хотя бы к одному бизнесу
+  for (const bizId of businessIds) {
+    try { await assertBusinessAccess(user, bizId) } catch (e: any) {
+      if (e.message === 'FORBIDDEN') return c.json({ error: `Нет доступа к бизнесу ${bizId}` }, 403); throw e
+    }
+  }
+
+  const character = await db.character.create({
+    data: {
+      ...data,
+      businesses: {
+        create: businessIds.map(bizId => ({ businessId: bizId })),
+      },
+    },
+    include: characterInclude,
+  })
+  return c.json(formatCharacter(character), 201)
+})
+
+// Обратная совместимость: POST /api/businesses/:bizId/characters
 characters.post('/businesses/:bizId/characters', async (c) => {
   const bizId = c.req.param('bizId')
   const user = c.get('user') as AuthUser
@@ -41,14 +105,17 @@ characters.post('/businesses/:bizId/characters', async (c) => {
     if (e.message === 'FORBIDDEN') return c.json({ error: 'Нет доступа' }, 403); throw e
   }
 
-  const data = characterSchema.parse(await c.req.json())
+  const body = await c.req.json()
+  const data = characterSchema.omit({ businessIds: true }).parse(body)
+
   const character = await db.character.create({
-    data: { ...data, businessId: bizId },
-    include: {
-      referenceMedia: { select: { id: true, url: true, thumbUrl: true } },
+    data: {
+      ...data,
+      businesses: { create: [{ businessId: bizId }] },
     },
+    include: characterInclude,
   })
-  return c.json(character, 201)
+  return c.json(formatCharacter(character), 201)
 })
 
 // GET /api/characters/:id — получить персонажа
@@ -58,55 +125,103 @@ characters.get('/characters/:id', async (c) => {
 
   const character = await db.character.findUnique({
     where: { id },
-    include: {
-      referenceMedia: { select: { id: true, url: true, thumbUrl: true } },
-    },
+    include: characterInclude,
   })
   if (!character) return c.json({ error: 'Не найден' }, 404)
 
-  try { await assertBusinessAccess(user, character.businessId) } catch (e: any) {
-    if (e.message === 'FORBIDDEN') return c.json({ error: 'Нет доступа' }, 403); throw e
+  // Проверить доступ хотя бы к одному привязанному бизнесу
+  if (user.role !== 'ADMIN') {
+    const bizIds = await getUserBusinessIds(user)
+    const hasAccess = character.businesses.some(b => bizIds.includes(b.business.id))
+    if (!hasAccess) return c.json({ error: 'Нет доступа' }, 403)
   }
 
-  return c.json(character)
+  return c.json(formatCharacter(character))
 })
 
-// PUT /api/characters/:id — обновить персонажа
+// PUT /api/characters/:id — обновить персонажа (+ пересоздать привязки)
 characters.put('/characters/:id', async (c) => {
   const { id } = c.req.param()
   const user = c.get('user') as AuthUser
 
-  const existing = await db.character.findUnique({ where: { id } })
+  const existing = await db.character.findUnique({
+    where: { id },
+    include: { businesses: true },
+  })
   if (!existing) return c.json({ error: 'Не найден' }, 404)
 
-  try { await assertBusinessAccess(user, existing.businessId) } catch (e: any) {
-    if (e.message === 'FORBIDDEN') return c.json({ error: 'Нет доступа' }, 403); throw e
+  // Проверить доступ хотя бы к одному текущему бизнесу
+  if (user.role !== 'ADMIN') {
+    const bizIds = await getUserBusinessIds(user)
+    const hasAccess = existing.businesses.some(b => bizIds.includes(b.businessId))
+    if (!hasAccess) return c.json({ error: 'Нет доступа' }, 403)
   }
 
-  const data = characterSchema.partial().parse(await c.req.json())
+  const body = await c.req.json()
+  const { businessIds, ...data } = characterSchema.partial().extend({
+    businessIds: z.array(z.string()).optional(),
+  }).parse(body)
+
+  // Если передали businessIds — пересоздать привязки
+  const updateData: any = { ...data }
+  if (businessIds) {
+    for (const bizId of businessIds) {
+      try { await assertBusinessAccess(user, bizId) } catch (e: any) {
+        if (e.message === 'FORBIDDEN') return c.json({ error: `Нет доступа к бизнесу ${bizId}` }, 403); throw e
+      }
+    }
+    // Удалить старые + создать новые в транзакции
+    await db.$transaction([
+      db.characterBusiness.deleteMany({ where: { characterId: id } }),
+      ...businessIds.map(bizId =>
+        db.characterBusiness.create({ data: { characterId: id, businessId: bizId } })
+      ),
+    ])
+  }
+
   const updated = await db.character.update({
     where: { id },
-    data,
-    include: {
-      referenceMedia: { select: { id: true, url: true, thumbUrl: true } },
-    },
+    data: updateData,
+    include: characterInclude,
   })
-  return c.json(updated)
+  return c.json(formatCharacter(updated))
 })
 
-// DELETE /api/characters/:id — удалить персонажа
+// DELETE /api/characters/:id — удалить персонажа глобально
 characters.delete('/characters/:id', async (c) => {
   const { id } = c.req.param()
   const user = c.get('user') as AuthUser
 
-  const existing = await db.character.findUnique({ where: { id } })
+  const existing = await db.character.findUnique({
+    where: { id },
+    include: { businesses: true },
+  })
   if (!existing) return c.json({ error: 'Не найден' }, 404)
 
-  try { await assertBusinessAccess(user, existing.businessId) } catch (e: any) {
-    if (e.message === 'FORBIDDEN') return c.json({ error: 'Нет доступа' }, 403); throw e
+  // ADMIN или доступ хотя бы к одному бизнесу
+  if (user.role !== 'ADMIN') {
+    const bizIds = await getUserBusinessIds(user)
+    const hasAccess = existing.businesses.some(b => bizIds.includes(b.businessId))
+    if (!hasAccess) return c.json({ error: 'Нет доступа' }, 403)
   }
 
   await db.character.delete({ where: { id } })
+  return c.json({ ok: true })
+})
+
+// DELETE /api/businesses/:bizId/characters/:charId — отвязать от бизнеса (не удаляет)
+characters.delete('/businesses/:bizId/characters/:charId', async (c) => {
+  const bizId = c.req.param('bizId')
+  const charId = c.req.param('charId')
+  const user = c.get('user') as AuthUser
+
+  try { await assertBusinessAccess(user, bizId) } catch (e: any) {
+    if (e.message === 'FORBIDDEN') return c.json({ error: 'Нет доступа' }, 403); throw e
+  }
+
+  await db.characterBusiness.deleteMany({
+    where: { characterId: charId, businessId: bizId },
+  })
   return c.json({ ok: true })
 })
 

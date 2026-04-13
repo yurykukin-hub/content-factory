@@ -119,9 +119,9 @@ model Business {
   aiUsageLogs      AiUsageLog[]
   webhookRules     WebhookRule[]
   users            UserBusiness[]
-  storyTemplates   StoryTemplate[]
-  characters       Character[]
-  scenarios        Scenario[]
+  storyTemplates      StoryTemplate[]
+  characterRelations  CharacterBusiness[]
+  scenarios           Scenario[]
 
   @@map("businesses")
 }
@@ -380,10 +380,9 @@ model AppConfig {
   @@map("app_config")
 }
 
-/// AI-персонаж бренда (реальное лицо или маскот/аватар)
+/// AI-персонаж (глобальный, привязывается к бизнесам через CharacterBusiness)
 model Character {
   id               String   @id @default(cuid())
-  businessId       String   @map("business_id")
   name             String                          // "Юрий", "SUP-маскот"
   description      String   @default("")           // описание для AI-промпта
   type             String   @default("person")     // "person" | "mascot" | "avatar"
@@ -393,11 +392,26 @@ model Character {
   createdAt        DateTime @default(now()) @map("created_at")
   updatedAt        DateTime @updatedAt @map("updated_at")
 
-  business       Business   @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  referenceMedia MediaFile? @relation("CharacterReference", fields: [referenceMediaId], references: [id])
+  referenceMedia MediaFile?          @relation("CharacterReference", fields: [referenceMediaId], references: [id])
+  businesses     CharacterBusiness[]
 
-  @@index([businessId])
   @@map("characters")
+}
+
+/// Привязка персонажа к бизнесу (M:N)
+model CharacterBusiness {
+  id          String   @id @default(cuid())
+  characterId String   @map("character_id")
+  businessId  String   @map("business_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  character Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
+  business  Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([characterId, businessId])
+  @@index([businessId])
+  @@index([characterId])
+  @@map("character_businesses")
 }
 
 /// Сценарий для видео/контента (структурированный набор сцен)
