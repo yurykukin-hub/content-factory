@@ -526,6 +526,11 @@ export async function generateVideo(params: GenerateVideoParams): Promise<Genera
   const { prompt: rawPrompt, businessId, postId, duration = 5, aspectRatio = '9:16', generateAudio = true } = params
   const model = 'bytedance/seedance-2'
 
+  // Ценообразование: 41 credits/sec (720p), 1 credit = $0.005, audio ~2x
+  const creditsPerSec = 41
+  const audioMultiplier = generateAudio ? 2.0 : 1.0
+  const videoCostUsd = creditsPerSec * duration * 0.005 * audioMultiplier
+
   const prompt = await translatePrompt(rawPrompt, businessId)
 
   log.info('[KIE] generateVideo', { businessId, model, duration, generateAudio, prompt: prompt.slice(0, 80) })
@@ -575,7 +580,7 @@ export async function generateVideo(params: GenerateVideoParams): Promise<Genera
       durationSec: duration,
       altText: prompt,
       aiModel: model,
-      aiCostUsd: 0.10,
+      aiCostUsd: videoCostUsd,
     },
   })
 
@@ -585,7 +590,7 @@ export async function generateVideo(params: GenerateVideoParams): Promise<Genera
       action: 'generate_video',
       model,
       tokensIn: 0, tokensOut: 0, cachedTokens: 0,
-      costUsd: 0.10,
+      costUsd: videoCostUsd,
     },
   })
 

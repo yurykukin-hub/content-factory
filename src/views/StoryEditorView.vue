@@ -131,6 +131,18 @@ function openVideoModal() {
   showAiVideo.value = true
 }
 
+// Ценообразование Seedance 2 (KIE.ai): 41 credits/sec (720p), 1 credit = $0.005
+const VIDEO_CREDITS_PER_SEC = 41
+const VIDEO_CREDIT_PRICE = 0.005
+const VIDEO_AUDIO_MULTIPLIER = 2.0
+const USD_TO_RUB = 95
+
+const videoCostUsd = computed(() => {
+  const base = VIDEO_CREDITS_PER_SEC * videoDuration.value * VIDEO_CREDIT_PRICE
+  return videoAudio.value ? base * VIDEO_AUDIO_MULTIPLIER : base
+})
+const videoCostRub = computed(() => Math.round(videoCostUsd.value * USD_TO_RUB))
+
 const VIDEO_TEMPLATES = [
   { label: 'SUP рассвет', prompt: 'SUP-борд на спокойной воде на рассвете, плавное отражение солнца, лёгкий туман' },
   { label: 'Динамика', prompt: 'Быстрое движение камеры вдоль набережной, энергичная атмосфера, солнечный день' },
@@ -1367,13 +1379,19 @@ onUnmounted(() => {
             </select>
           </div>
 
-          <div class="flex items-center gap-2 text-[10px] text-gray-400">
-            <span class="px-1.5 py-0.5 bg-emerald-100 dark:bg-emerald-900/50 text-emerald-600 dark:text-emerald-400 rounded font-medium">bytedance/seedance-2</span>
-            <span>~$0.10</span>
-            <span>·</span>
-            <span>~1-3 мин</span>
-            <span>·</span>
-            <span>промпт → EN авто</span>
+          <div class="p-2.5 rounded-lg bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2 text-[10px] text-gray-400">
+                <span class="px-1.5 py-0.5 bg-emerald-100 dark:bg-emerald-900/50 text-emerald-600 dark:text-emerald-400 rounded font-medium">seedance-2</span>
+                <span>720p</span>
+                <span>·</span>
+                <span>~1-3 мин</span>
+              </div>
+              <div class="text-right">
+                <div class="text-sm font-bold text-emerald-600 dark:text-emerald-400">~{{ videoCostRub }} ₽</div>
+                <div class="text-[9px] text-gray-400">${{ videoCostUsd.toFixed(2) }}</div>
+              </div>
+            </div>
           </div>
         </div>
 
