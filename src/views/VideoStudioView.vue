@@ -20,6 +20,7 @@ const selectedBizId = ref<string | null>(businesses.currentBusinessId)
 const promptMode = ref<'constructor' | 'freetext'>('constructor')
 const prompt = ref('')
 const enhancing = ref(false)
+const mergingRefs = ref(false)
 const generating = ref(false)
 const promptHistory = ref<string[]>([])
 const historyIndex = ref(-1)
@@ -158,6 +159,23 @@ async function generate() {
     toast.success(`Видео готово (${duration.value} сек)`)
   } catch (e: any) { toast.error(e.message || 'Ошибка генерации') }
   finally { generating.value = false }
+}
+
+async function mergeReferences() {
+  if (!selectedBizId.value || !refImages.value.length) return
+  mergingRefs.value = true
+  try {
+    const res = await http.post<{ mergedPrompt: string }>('/ai/merge-references', {
+      businessId: selectedBizId.value,
+      prompt: prompt.value || '',
+      imageUrls: refImages.value.map(r => r.url),
+    })
+    prompt.value = res.mergedPrompt
+    promptHistory.value.push(res.mergedPrompt)
+    historyIndex.value = promptHistory.value.length - 1
+    toast.success('AI распознал фото и вставил теги')
+  } catch (e: any) { toast.error(e.message || 'Ошибка') }
+  finally { mergingRefs.value = false }
 }
 
 function historyBack() { if (historyIndex.value > 0) { historyIndex.value--; prompt.value = promptHistory.value[historyIndex.value] } }
@@ -342,8 +360,15 @@ onMounted(() => { loadCharacters(); loadVideos(); loadSavedPrompts() })
                 <input type="file" accept="image/*" class="hidden" @change="addRef" />
               </label>
             </div>
-            <p v-if="refImages.length" class="text-[10px] text-gray-400">Выбери роль — конструктор автоматически добавит <code class="text-emerald-500">@Image1</code>...<code class="text-emerald-500">@Image{{ refImages.length }}</code> в промпт</p>
-            <p v-else class="text-[10px] text-gray-400">Загрузи фото — лицо, фон, объект, стиль. Конструктор сам вставит теги в промпт.</p>
+            <div v-if="refImages.length" class="flex items-center gap-2 mt-1">
+              <button @click="mergeReferences" :disabled="mergingRefs"
+                class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-purple-600 hover:bg-purple-700 text-white disabled:opacity-50 transition-colors">
+                <Loader2 v-if="mergingRefs" :size="12" class="animate-spin" /><Sparkles v-else :size="12" />
+                {{ mergingRefs ? 'Распознаю фото...' : 'Вставить референсы (AI)' }}
+              </button>
+              <span class="text-[9px] text-gray-400">AI посмотрит на фото и вставит @Image теги в промпт</span>
+            </div>
+            <p v-else class="text-[10px] text-gray-400">Загрузи фото — AI распознает содержимое и вставит теги в промпт</p>
           </div>
 
           <div v-if="inputMode === 'text'" class="text-center py-4 text-xs text-gray-400">

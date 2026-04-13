@@ -108,3 +108,80 @@ export async function aiComplete(params: AiCompleteParams): Promise<AiCompleteRe
 
   return result
 }
+
+/**
+ * Vision-вызов OpenRouter: текст + изображения.
+ * Отправляет изображения как image_url в multimodal message.
+ */
+export async function aiVision(params: {
+  systemPrompt: string
+  userPrompt: string
+  imageUrls: string[]
+  model?: string
+  maxTokens?: number
+  businessId?: string
+  action?: string
+}): Promise<AiCompleteResult> {
+  const model = params.model || config.models.haiku
+  const apiKey = await getApiKey()
+
+  // Собрать multimodal content: текст + картинки
+  const userContent: any[] = [
+    { type: 'text', text: params.userPrompt },
+  ]
+  for (const url of params.imageUrls) {
+    userContent.push({ type: 'image_url', image_url: { url } })
+  }
+
+  const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+      'HTTP-Referer': 'https://content.yurykukin.ru',
+      'X-Title': 'Content Factory',
+    },
+    body: JSON.stringify({
+      model,
+      max_tokens: params.maxTokens || 1000,
+      messages: [
+        { role: 'system', content: params.systemPrompt },
+        { role: 'user', content: userContent },
+      ],
+    }),
+  })
+
+  if (!response.ok) {
+    const err = await response.text()
+    throw new Error(`OpenRouter vision error ${response.status}: ${err}`)
+  }
+
+  const data = await response.json() as any
+  const content = data.choices?.[0]?.message?.content || ''
+  const usage = data.usage || {}
+
+  const result: AiCompleteResult = {
+    content,
+    tokensIn: usage.prompt_tokens || 0,
+    tokensOut: usage.completion_tokens || 0,
+    cachedTokens: usage.prompt_tokens_details?.cached_tokens || 0,
+    costUsd: calculateCost(model, usage.prompt_tokens || 0, usage.completion_tokens || 0),
+    model,
+  }
+
+  if (params.businessId && params.action) {
+    await db.aiUsageLog.create({
+      data: {
+        businessId: params.businessId,
+        action: params.action,
+        model,
+        tokensIn: result.tokensIn,
+        tokensOut: result.tokensOut,
+        cachedTokens: result.cachedTokens,
+        costUsd: result.costUsd,
+      },
+    })
+  }
+
+  return result
+}

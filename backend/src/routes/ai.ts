@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import { db } from '../db'
 import { config } from '../config'
-import { aiComplete } from '../services/ai/openrouter'
+import { aiComplete, aiVision } from '../services/ai/openrouter'
 import { buildBrandContext, buildPlanPrompt, buildPostPrompt, buildAdaptPrompt, buildHashtagPrompt, buildImageEnhancerPrompt, buildEditEnhancerPrompt, buildStoryTitlePrompt, buildScenarioPrompt, buildVideoPromptEnhancer } from '../services/ai/prompt-builder'
 import { generateImage, editImage, removeBackground, generateVideo, EDIT_MODELS } from '../services/ai/kie'
 import { emitEvent } from '../eventBus'
@@ -649,6 +649,65 @@ ai.post('/generate-video', async (c) => {
   })
 
   return c.json(result, 201)
+})
+
+// POST /api/ai/merge-references — AI распознаёт фотки и вставляет @ImageN теги в промпт
+const mergeRefsSchema = z.object({
+  businessId: z.string(),
+  prompt: z.string(),
+  imageUrls: z.array(z.string()).min(1).max(9),
+})
+
+ai.post('/merge-references', async (c) => {
+  const data = mergeRefsSchema.parse(await c.req.json())
+  const user = c.get('user') as AuthUser
+  try {
+    await assertBusinessAccess(user, data.businessId)
+  } catch (e: any) {
+    if (e.message === 'FORBIDDEN') return c.json({ error: 'Нет доступа' }, 403)
+    throw e
+  }
+
+  // Resolve URLs to public
+  const publicUrls = data.imageUrls.map(u => {
+    if (u.startsWith('http')) return u
+    const base = config.isProd ? 'https://content.yurykukin.ru' : `http://localhost:${config.PORT}`
+    return `${base}${u}`
+  })
+
+  const imageLabels = data.imageUrls.map((_, i) => `@Image${i + 1}`).join(', ')
+
+  const systemPrompt = `You are an expert AI video prompt engineer for Seedance 2.
+You receive a video generation prompt AND reference images.
+Your task: analyze each image, understand what it contains, then rewrite the prompt to intelligently reference the images using @Image1, @Image2, etc.
+
+Rules:
+- First, briefly identify what each image contains (face, location, object, style, etc.)
+- Then rewrite the prompt to naturally include references like "character from @Image1", "background from @Image2"
+- Keep the original prompt's intent, style, camera work, and mood
+- Write the final prompt in English
+- The prompt should be 100-200 words
+- Include camera movement, lighting, and style details
+- End with quality constraints: "Smooth motion, high detail, maintain consistency with reference images"
+- Do NOT explain your reasoning, return ONLY the final rewritten prompt
+
+Available reference tags: ${imageLabels}`
+
+  const userPrompt = data.prompt
+    ? `Current prompt:\n${data.prompt}\n\nRewrite this prompt to reference the uploaded images.`
+    : `Create a video prompt based on these reference images. Describe a scene that uses all of them.`
+
+  const result = await aiVision({
+    systemPrompt,
+    userPrompt,
+    imageUrls: publicUrls,
+    model: config.models.haiku,
+    maxTokens: 800,
+    businessId: data.businessId,
+    action: 'merge_references',
+  })
+
+  return c.json({ mergedPrompt: result.content.trim() })
 })
 
 export { ai }
