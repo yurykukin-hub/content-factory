@@ -38,12 +38,20 @@ const characterSchema = z.object({
 
 // --- Глобальный CRUD ---
 
-// GET /api/characters — все персонажи (фильтр по доступным бизнесам)
+// GET /api/characters — все персонажи (опциональный ?businessId=X фильтр)
 characters.get('/characters', async (c) => {
   const user = c.get('user') as AuthUser
+  const filterBizId = c.req.query('businessId')
 
   let where: any = {}
-  if (user.role !== 'ADMIN') {
+  if (filterBizId) {
+    // Фильтр по конкретному бизнесу
+    try { await assertBusinessAccess(user, filterBizId) } catch (e: any) {
+      if (e.message === 'FORBIDDEN') return c.json({ error: 'Нет доступа' }, 403); throw e
+    }
+    where = { businesses: { some: { businessId: filterBizId } } }
+  } else if (user.role !== 'ADMIN') {
+    // Все доступные
     const bizIds = await getUserBusinessIds(user)
     where = { businesses: { some: { businessId: { in: bizIds } } } }
   }
