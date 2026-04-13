@@ -114,12 +114,22 @@ const aiLoading = ref(false)
 const aiEnhancing = ref(false)
 const selectedCharacterId = ref<string | null>(null)
 const showAiVideo = ref(false)
+const videoPrompt = ref('')
 const aiVideoLoading = ref(false)
 const videoDuration = ref(5)
 const videoAudio = ref(true)
 const videoEnhancing = ref(false)
 const videoPromptHistory = ref<string[]>([])
 const videoHistoryIndex = ref(-1)
+
+function openVideoModal() {
+  // Восстановить последний промпт из истории
+  if (!videoPrompt.value && videoPromptHistory.value.length) {
+    videoPrompt.value = videoPromptHistory.value[videoPromptHistory.value.length - 1]
+    videoHistoryIndex.value = videoPromptHistory.value.length - 1
+  }
+  showAiVideo.value = true
+}
 
 const VIDEO_TEMPLATES = [
   { label: 'SUP рассвет', prompt: 'SUP-борд на спокойной воде на рассвете, плавное отражение солнца, лёгкий туман' },
@@ -577,28 +587,26 @@ async function generateAiImage() {
 }
 
 async function generateAiVideo() {
-  if (!post.value || !aiPrompt.value.trim()) return
+  if (!post.value || !videoPrompt.value.trim()) return
   aiVideoLoading.value = true
   try {
     if (photo.value) await http.post(`/media/${photo.value.id}/attach`, { postId: null }).catch(() => {})
     const result = await http.post<{ mediaFile: any }>('/ai/generate-video', {
       businessId: post.value.businessId, postId: post.value.id,
-      prompt: aiPrompt.value, duration: videoDuration.value,
+      prompt: videoPrompt.value, duration: videoDuration.value,
       aspectRatio: '9:16', generateAudio: videoAudio.value,
     })
     // Сохранить промпт в историю
-    videoPromptHistory.value.push(aiPrompt.value)
+    videoPromptHistory.value.push(videoPrompt.value)
     videoHistoryIndex.value = videoPromptHistory.value.length - 1
     // Сохранить в БД (fire and forget)
     http.post('/ai/generate-edit-prompt', {
       businessId: post.value.businessId, postId: post.value.id,
-      template: aiPrompt.value, type: 'video',
+      template: videoPrompt.value, type: 'video',
     }).catch(() => {})
 
     post.value.mediaFiles = [result.mediaFile]
     showAiVideo.value = false
-    showAiImage.value = false
-    aiPrompt.value = ''
     toast.success(`Видео сгенерировано (${videoDuration.value} сек)`)
     await loadPost()
   } catch (e: any) { toast.error('Ошибка: ' + e.message) }
@@ -606,15 +614,15 @@ async function generateAiVideo() {
 }
 
 async function enhanceVideoPrompt() {
-  if (!post.value || !aiPrompt.value.trim()) return
+  if (!post.value || !videoPrompt.value.trim()) return
   videoEnhancing.value = true
   try {
     const result = await http.post<{ enhancedPrompt: string }>('/ai/enhance-video-prompt', {
-      prompt: aiPrompt.value,
+      prompt: videoPrompt.value,
       duration: videoDuration.value,
       businessId: post.value.businessId,
     })
-    aiPrompt.value = result.enhancedPrompt
+    videoPrompt.value = result.enhancedPrompt
     videoPromptHistory.value.push(result.enhancedPrompt)
     videoHistoryIndex.value = videoPromptHistory.value.length - 1
     toast.success('Промпт улучшен')
@@ -625,13 +633,13 @@ async function enhanceVideoPrompt() {
 function videoHistoryBack() {
   if (videoHistoryIndex.value <= 0) return
   videoHistoryIndex.value--
-  aiPrompt.value = videoPromptHistory.value[videoHistoryIndex.value]
+  videoPrompt.value = videoPromptHistory.value[videoHistoryIndex.value]
 }
 
 function videoHistoryForward() {
   if (videoHistoryIndex.value >= videoPromptHistory.value.length - 1) return
   videoHistoryIndex.value++
-  aiPrompt.value = videoPromptHistory.value[videoHistoryIndex.value]
+  videoPrompt.value = videoPromptHistory.value[videoHistoryIndex.value]
 }
 
 async function enhanceImagePrompt() {
@@ -949,7 +957,7 @@ onUnmounted(() => {
               class="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300 text-xs font-medium hover:bg-purple-200">
               <Sparkles :size="14" /> AI Фото
             </button>
-            <button @click="showAiVideo = true"
+            <button @click="openVideoModal"
               class="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-100 dark:bg-emerald-900 text-emerald-700 dark:text-emerald-300 text-xs font-medium hover:bg-emerald-200 dark:hover:bg-emerald-800">
               <Video :size="14" /> AI Видео
             </button>
@@ -1272,7 +1280,7 @@ onUnmounted(() => {
           <div>
             <label class="block text-xs font-medium text-gray-500 mb-1.5">Шаблоны</label>
             <div class="flex flex-wrap gap-1.5">
-              <button v-for="t in VIDEO_TEMPLATES" :key="t.label" @click="aiPrompt = t.prompt"
+              <button v-for="t in VIDEO_TEMPLATES" :key="t.label" @click="videoPrompt = t.prompt"
                 class="px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-200 dark:hover:bg-emerald-800 transition-colors">
                 {{ t.label }}
               </button>
@@ -1281,10 +1289,10 @@ onUnmounted(() => {
 
           <!-- Prompt textarea -->
           <div>
-            <textarea v-model="aiPrompt" rows="5" placeholder="Опишите видео: что в кадре, действие, движение камеры, освещение, настроение..."
+            <textarea v-model="videoPrompt" rows="5" placeholder="Опишите видео: что в кадре, действие, движение камеры, освещение, настроение..."
               class="w-full px-3 py-2.5 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 focus:ring-2 focus:ring-emerald-500 text-sm resize-none" />
             <!-- Enhance button -->
-            <button @click="enhanceVideoPrompt" :disabled="videoEnhancing || !aiPrompt.trim()"
+            <button @click="enhanceVideoPrompt" :disabled="videoEnhancing || !videoPrompt.trim()"
               class="mt-1.5 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-emerald-300 dark:border-emerald-700 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950 disabled:opacity-50 transition-colors">
               <Loader2 v-if="videoEnhancing" :size="14" class="animate-spin" /><Wand2 v-else :size="14" />
               {{ videoEnhancing ? 'Улучшаю...' : 'Улучшить промпт (AI)' }}
@@ -1334,7 +1342,7 @@ onUnmounted(() => {
 
         <div class="flex justify-end gap-2 mt-5">
           <button @click="showAiVideo = false" class="px-4 py-2.5 rounded-lg text-sm text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800">Отмена</button>
-          <button @click="generateAiVideo" :disabled="aiVideoLoading || !aiPrompt.trim()"
+          <button @click="generateAiVideo" :disabled="aiVideoLoading || !videoPrompt.trim()"
             class="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium disabled:opacity-50">
             <Loader2 v-if="aiVideoLoading" :size="16" class="animate-spin" /><Video v-else :size="16" />
             {{ aiVideoLoading ? 'Генерация...' : 'Сгенерировать' }}
