@@ -102,8 +102,8 @@ content-factory/
 └── scripts/deploy.sh, backup-db.sh
 ```
 
-## Schema (18 моделей, 8 enums)
-User, UserBusiness, Business, BrandProfile, PlatformAccount, ContentPlan, ContentPlanItem, Post, PostVersion, PublishLog, MediaFile, AiUsageLog, WebhookRule, AppConfig, Idea, StoryTemplate, Character, Scenario
+## Schema (20 моделей, 8 enums)
+User, UserBusiness, Business, BrandProfile, PlatformAccount, ContentPlan, ContentPlanItem, Post, PostVersion, PublishLog, MediaFolder, MediaFile, AiUsageLog, WebhookRule, AppConfig, Idea, StoryTemplate, Character, CharacterBusiness, Scenario
 
 Enums: UserRole, Platform, AccountType, PostType, PostStatus, ContentPlanStatus, PublishStatus
 

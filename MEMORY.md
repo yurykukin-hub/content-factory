@@ -74,7 +74,15 @@ User, UserBusiness, Business, BrandProfile, PlatformAccount, ContentPlan, Conten
 - [2026-04-13] buildScenarioPrompt() в prompt-builder.ts: структурированный JSON сценария с voiceover и imagePrompt
 - [2026-04-13] Навигация: добавлен пункт "Сценарии" (Clapperboard icon) между Идеи и Контент-планы
 - [2026-04-13] Провайдер AI-картинок: KIE.ai (Nano Banana 2 + FLUX Kontext Pro). FAL.ai → KIE.ai (миграция 12.04)
-- [2026-04-13] Планы: AI-видео (KIE.ai Seedance 2 → Kling), TTS (ElevenLabs), Pipeline Wizard — Фазы 2-4
+- [2026-04-13] Characters: глобальные (many-to-many через CharacterBusiness), отдельная страница /characters (CharactersView), убрана из BusinessDetailView
+- [2026-04-13] AI-видео: generateVideo() в kie.ts, модель bytedance/seedance-2 (KIE.ai), POST /api/ai/generate-video
+- [2026-04-13] AI Video modal: шаблоны (6 pills), enhance промпта (buildVideoPromptEnhancer, Haiku), история промптов, slider 4-15 сек, toggle звука (generate_audio)
+- [2026-04-13] videoPrompt — отдельный ref от aiPrompt (фото), сохраняется при закрытии модала
+- [2026-04-13] Scenario→Stories pipeline: POST /api/scenarios/:id/create-stories, создаёт Story-пост на каждую сцену
+- [2026-04-13] Video playback: <video> в StoryEditor phone frame, MediaLibrary, Preview modal (было только <img>)
+- [2026-04-13] AI metadata на MediaFile: aiModel, aiCostUsd — записываются при генерации, видны в UI (бейдж AI + модель + стоимость)
+- [2026-04-13] POST /api/ai/enhance-video-prompt — улучшение видео-промптов (Subject→Action→Camera→Style→Quality)
+- [2026-04-13] MediaFolder модель добавлена (folderId в MediaFile, FolderTree self-relation)
 
 ## Паттерны
 - HTTP client: fetch + httpOnly cookie + X-Tab-ID (из nawode-erp)
