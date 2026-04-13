@@ -701,7 +701,7 @@ Available reference tags: ${imageLabels}`
     systemPrompt,
     userPrompt,
     imageUrls: publicUrls,
-    model: config.models.haiku,
+    model: 'google/gemini-2.0-flash-001', // vision model (Haiku не поддерживает image input)
     maxTokens: 800,
     businessId: data.businessId,
     action: 'merge_references',
