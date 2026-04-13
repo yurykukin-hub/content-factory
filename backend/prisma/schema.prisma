@@ -115,6 +115,7 @@ model Business {
   platformAccounts PlatformAccount[]
   contentPlans     ContentPlan[]
   posts            Post[]
+  mediaFolders     MediaFolder[]
   mediaFiles       MediaFile[]
   aiUsageLogs      AiUsageLog[]
   webhookRules     WebhookRule[]
@@ -296,11 +297,30 @@ model PublishLog {
   @@map("publish_logs")
 }
 
+/// Папки медиатеки
+model MediaFolder {
+  id         String   @id @default(cuid())
+  businessId String   @map("business_id")
+  name       String
+  parentId   String?  @map("parent_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  business Business     @relation(fields: [businessId], references: [id])
+  parent   MediaFolder? @relation("FolderTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children MediaFolder[] @relation("FolderTree")
+  files    MediaFile[]
+
+  @@index([businessId])
+  @@index([parentId])
+  @@map("media_folders")
+}
+
 /// Медиафайлы (изображения, видео)
 model MediaFile {
   id          String   @id @default(cuid())
   postId      String?  @map("post_id")
   businessId  String   @map("business_id")
+  folderId    String?  @map("folder_id")
   filename    String
   url         String
   thumbUrl    String?  @map("thumb_url")
@@ -310,14 +330,18 @@ model MediaFile {
   tags        String[] @default([])
   sortOrder   Int      @default(0) @map("sort_order")
   durationSec Int?     @map("duration_sec") // длительность видео/аудио в секундах
+  aiModel     String?  @map("ai_model")     // модель генерации (nano-banana-2, bytedance/seedance-2, etc.)
+  aiCostUsd   Float?   @map("ai_cost_usd")  // стоимость генерации в USD
   createdAt   DateTime @default(now()) @map("created_at")
 
-  post         Post?       @relation(fields: [postId], references: [id])
-  business     Business    @relation(fields: [businessId], references: [id])
-  characterRef Character[] @relation("CharacterReference")
+  post         Post?        @relation(fields: [postId], references: [id])
+  business     Business     @relation(fields: [businessId], references: [id])
+  folder       MediaFolder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  characterRef Character[]  @relation("CharacterReference")
 
   @@index([businessId])
   @@index([postId])
+  @@index([folderId])
   @@map("media_files")
 }
 

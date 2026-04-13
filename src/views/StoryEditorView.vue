@@ -13,7 +13,7 @@ import {
 import ImageEditModal from '@/components/ai/ImageEditModal.vue'
 import MediaPickerModal from '@/components/MediaPickerModal.vue'
 
-interface MediaFile { id: string; url: string; thumbUrl: string | null; filename: string; mimeType: string; sizeBytes: number }
+interface MediaFile { id: string; url: string; thumbUrl: string | null; filename: string; mimeType: string; sizeBytes: number; durationSec?: number | null; aiModel?: string | null; aiCostUsd?: number | null; altText?: string | null }
 interface PlatformAccount { id: string; platform: string; accountName: string; accountId: string }
 interface PostVersion {
   id: string; status: string; externalUrl: string | null; publishedAt: string | null; scheduledAt: string | null
@@ -951,7 +951,15 @@ onUnmounted(() => {
             <img v-else :src="photo.thumbUrl || photo.url" class="w-12 h-12 rounded-lg object-cover" />
             <div class="flex-1 min-w-0">
               <div class="text-sm truncate">{{ photo.filename }}</div>
-              <div class="text-[10px] text-gray-400">{{ (photo.sizeBytes / 1024).toFixed(0) }} KB</div>
+              <div class="text-[10px] text-gray-400">
+                {{ (photo.sizeBytes / 1024).toFixed(0) }} KB
+                <template v-if="photo.durationSec"> · {{ photo.durationSec }} сек</template>
+              </div>
+              <div v-if="photo.aiModel" class="flex items-center gap-1.5 mt-0.5">
+                <span class="px-1.5 py-0.5 bg-purple-100 dark:bg-purple-900/50 text-purple-600 dark:text-purple-400 rounded text-[9px] font-medium">AI</span>
+                <span class="text-[9px] text-gray-400">{{ photo.aiModel }}</span>
+                <span v-if="photo.aiCostUsd" class="text-[9px] text-gray-400">${{ photo.aiCostUsd.toFixed(2) }}</span>
+              </div>
             </div>
             <button @click="removePhoto" class="p-1.5 rounded text-gray-400 hover:text-red-500"><Trash2 :size="14" /></button>
           </div>

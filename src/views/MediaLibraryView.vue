@@ -21,6 +21,9 @@ interface MediaFile {
   mimeType: string
   sizeBytes: number
   tags: string[]
+  altText: string | null
+  aiModel: string | null
+  aiCostUsd: number | null
   createdAt: string
   post: { id: string; title: string; status: string } | null
 }
@@ -282,6 +285,13 @@ watch([typeFilter, tagFilter, showUnattached], loadFiles)
         <div class="p-2.5">
           <div class="text-xs font-medium truncate text-gray-700 dark:text-gray-300">{{ file.filename }}</div>
           <div class="text-[10px] text-gray-400 mt-0.5">{{ formatSize(file.sizeBytes) }} · {{ formatDate(file.createdAt) }}</div>
+          <!-- AI metadata -->
+          <div v-if="file.aiModel" class="flex items-center gap-1.5 mt-1">
+            <span class="px-1.5 py-0.5 bg-purple-100 dark:bg-purple-900/50 text-purple-600 dark:text-purple-400 rounded text-[9px] font-medium">AI</span>
+            <span class="text-[9px] text-gray-400 truncate" :title="file.altText || ''">{{ file.aiModel }}</span>
+            <span v-if="file.aiCostUsd" class="text-[9px] text-gray-400">${{ file.aiCostUsd.toFixed(2) }}</span>
+          </div>
+          <p v-if="file.altText && file.aiModel" class="text-[9px] text-gray-400 mt-0.5 line-clamp-2 italic" :title="file.altText">{{ file.altText }}</p>
 
           <!-- Tags -->
           <div class="mt-1.5">

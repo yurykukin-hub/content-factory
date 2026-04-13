@@ -150,6 +150,8 @@ export async function generateImage(params: GenerateImageParams): Promise<Genera
       mimeType: 'image/png',
       sizeBytes: pngBuffer.length,
       altText: prompt,
+      aiModel: model,
+      aiCostUsd: calculateCost(model, usage.prompt_tokens || 0, usage.completion_tokens || 0),
     },
   })
 

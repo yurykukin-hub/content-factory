@@ -238,6 +238,8 @@ export async function generateImage(params: GenerateImageParams): Promise<Genera
       mimeType: 'image/png',
       sizeBytes: pngBuffer.length,
       altText: prompt,
+      aiModel: model,
+      aiCostUsd: 0.06,
     },
   })
 
@@ -363,6 +365,8 @@ export async function editImage(params: EditImageParams): Promise<KieImageResult
       mimeType: 'image/png',
       sizeBytes: pngBuffer.length,
       altText: prompt,
+      aiModel: model,
+      aiCostUsd: modelInfo.cost,
     },
   })
 
@@ -446,6 +450,8 @@ export async function removeBackground(params: RemoveBgParams): Promise<KieImage
       thumbUrl: `/uploads/${businessId}/${thumbFilename}`,
       mimeType: 'image/png',
       sizeBytes: pngBuffer.length,
+      aiModel: model,
+      aiCostUsd: 0.01,
     },
   })
 
@@ -568,6 +574,8 @@ export async function generateVideo(params: GenerateVideoParams): Promise<Genera
       sizeBytes: videoBuffer.length,
       durationSec: duration,
       altText: prompt,
+      aiModel: model,
+      aiCostUsd: 0.10,
     },
   })
 
