@@ -518,7 +518,7 @@ async function downloadAndSaveVideo(
 
 export async function generateVideo(params: GenerateVideoParams): Promise<GenerateVideoResult> {
   const { prompt: rawPrompt, businessId, postId, duration = 5, aspectRatio = '9:16', generateAudio = true } = params
-  const model = 'seedance-2'
+  const model = 'bytedance/seedance-2'
 
   const prompt = await translatePrompt(rawPrompt, businessId)
 
