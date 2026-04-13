@@ -474,3 +474,119 @@ export async function removeBackground(params: RemoveBgParams): Promise<KieImage
     },
   }
 }
+
+// =====================
+// Generate Video (Seedance 2 via KIE.ai)
+// =====================
+
+interface GenerateVideoParams {
+  prompt: string
+  businessId: string
+  postId?: string | null
+  duration?: number          // 5 | 10 сек
+  aspectRatio?: '1:1' | '16:9' | '9:16'
+}
+
+interface GenerateVideoResult {
+  mediaFile: {
+    id: string; url: string; thumbUrl: string | null
+    filename: string; mimeType: string; sizeBytes: number; durationSec: number | null
+  }
+  usage: { tokensIn: number; tokensOut: number; model: string }
+}
+
+async function downloadAndSaveVideo(
+  videoUrl: string,
+  businessId: string,
+  prefix: string,
+): Promise<{ filename: string; videoBuffer: Buffer }> {
+  const response = await fetch(videoUrl)
+  if (!response.ok) throw new Error(`Ошибка загрузки видео с KIE CDN: ${response.status}`)
+  const arrayBuffer = await response.arrayBuffer()
+  const videoBuffer = Buffer.from(arrayBuffer)
+
+  const fileId = nanoid(12)
+  const filename = `${prefix}_${fileId}.mp4`
+
+  const bizDir = join(UPLOAD_DIR, businessId)
+  await mkdir(bizDir, { recursive: true })
+  await Bun.write(join(bizDir, filename), videoBuffer)
+
+  return { filename, videoBuffer }
+}
+
+export async function generateVideo(params: GenerateVideoParams): Promise<GenerateVideoResult> {
+  const { prompt: rawPrompt, businessId, postId, duration = 5, aspectRatio = '9:16' } = params
+  const model = 'seedance-2'
+
+  const prompt = await translatePrompt(rawPrompt, businessId)
+
+  log.info('[KIE] generateVideo', { businessId, model, duration, prompt: prompt.slice(0, 80) })
+
+  const response = await kiePost('/api/v1/jobs/createTask', {
+    model,
+    input: {
+      prompt,
+      duration,
+      aspect_ratio: aspectRatio,
+      output_format: 'mp4',
+    },
+  })
+
+  const taskId = response?.data?.taskId || response?.taskId
+  if (!taskId) throw new Error('KIE.ai не вернул taskId для видео')
+
+  log.info('[KIE] generateVideo polling', { taskId })
+
+  // Видео дольше — увеличиваем таймаут (120 попыток × 5с = 10 мин)
+  const result = await pollTask(taskId, 120, 5000)
+
+  let outputUrl: string | undefined
+  if (result?.resultJson) {
+    try {
+      const parsed = typeof result.resultJson === 'string' ? JSON.parse(result.resultJson) : result.resultJson
+      outputUrl = parsed?.resultUrls?.[0] || parsed?.resultVideoUrl || parsed?.resultImageUrl
+    } catch {}
+  }
+  if (!outputUrl) {
+    outputUrl = result?.resultVideoUrl || result?.resultImageUrl || result?.video_url || result?.output?.video_url
+  }
+  if (!outputUrl) throw new Error('KIE.ai не вернул видео')
+
+  const { filename, videoBuffer } = await downloadAndSaveVideo(outputUrl, businessId, 'kie_video')
+
+  const mediaFile = await db.mediaFile.create({
+    data: {
+      businessId,
+      postId: postId || null,
+      filename: `AI Video: ${prompt.slice(0, 50).replace(/[\r\n\t]/g, ' ')}`,
+      url: `/uploads/${businessId}/${filename}`,
+      thumbUrl: null,
+      mimeType: 'video/mp4',
+      sizeBytes: videoBuffer.length,
+      durationSec: duration,
+      altText: prompt,
+    },
+  })
+
+  await db.aiUsageLog.create({
+    data: {
+      businessId,
+      action: 'generate_video',
+      model,
+      tokensIn: 0, tokensOut: 0, cachedTokens: 0,
+      costUsd: 0.10,
+    },
+  })
+
+  log.info('[KIE] generateVideo complete', { businessId, mediaId: mediaFile.id })
+
+  return {
+    mediaFile: {
+      id: mediaFile.id, url: mediaFile.url, thumbUrl: mediaFile.thumbUrl,
+      filename: mediaFile.filename, mimeType: mediaFile.mimeType,
+      sizeBytes: mediaFile.sizeBytes, durationSec: mediaFile.durationSec,
+    },
+    usage: { tokensIn: 0, tokensOut: 0, model },
+  }
+}

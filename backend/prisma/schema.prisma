@@ -298,18 +298,19 @@ model PublishLog {
 
 /// Медиафайлы (изображения, видео)
 model MediaFile {
-  id        String   @id @default(cuid())
-  postId    String?  @map("post_id")
-  businessId String  @map("business_id")
-  filename  String
-  url       String
-  thumbUrl  String?  @map("thumb_url")
-  mimeType  String   @map("mime_type")
-  sizeBytes Int      @map("size_bytes")
-  altText   String?  @map("alt_text")
-  tags      String[] @default([])
-  sortOrder Int      @default(0) @map("sort_order")
-  createdAt DateTime @default(now()) @map("created_at")
+  id          String   @id @default(cuid())
+  postId      String?  @map("post_id")
+  businessId  String   @map("business_id")
+  filename    String
+  url         String
+  thumbUrl    String?  @map("thumb_url")
+  mimeType    String   @map("mime_type")
+  sizeBytes   Int      @map("size_bytes")
+  altText     String?  @map("alt_text")
+  tags        String[] @default([])
+  sortOrder   Int      @default(0) @map("sort_order")
+  durationSec Int?     @map("duration_sec") // длительность видео/аудио в секундах
+  createdAt   DateTime @default(now()) @map("created_at")
 
   post         Post?       @relation(fields: [postId], references: [id])
   business     Business    @relation(fields: [businessId], references: [id])

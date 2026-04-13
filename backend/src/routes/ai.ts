@@ -4,7 +4,7 @@ import { db } from '../db'
 import { config } from '../config'
 import { aiComplete } from '../services/ai/openrouter'
 import { buildBrandContext, buildPlanPrompt, buildPostPrompt, buildAdaptPrompt, buildHashtagPrompt, buildImageEnhancerPrompt, buildEditEnhancerPrompt, buildStoryTitlePrompt, buildScenarioPrompt } from '../services/ai/prompt-builder'
-import { generateImage, editImage, removeBackground, EDIT_MODELS } from '../services/ai/kie'
+import { generateImage, editImage, removeBackground, generateVideo, EDIT_MODELS } from '../services/ai/kie'
 import { emitEvent } from '../eventBus'
 import type { AuthUser } from '../middleware/auth'
 import { verifyPostAccess, assertBusinessAccess } from '../middleware/resource-access'
@@ -577,6 +577,36 @@ ai.post('/generate-scenario', async (c) => {
   const title = data.topic.length > 50 ? data.topic.slice(0, 50) + '...' : data.topic
 
   return c.json({ title, scenes, usage: result.usage })
+})
+
+// POST /api/ai/generate-video — AI-генерация видео (Seedance 2)
+const generateVideoSchema = z.object({
+  businessId: z.string(),
+  postId: z.string().optional(),
+  prompt: z.string().min(1).max(2000),
+  duration: z.number().int().min(3).max(30).default(5),
+  aspectRatio: z.enum(['1:1', '16:9', '9:16']).default('9:16'),
+})
+
+ai.post('/generate-video', async (c) => {
+  const data = generateVideoSchema.parse(await c.req.json())
+  const user = c.get('user') as AuthUser
+  try {
+    await assertBusinessAccess(user, data.businessId)
+  } catch (e: any) {
+    if (e.message === 'FORBIDDEN') return c.json({ error: 'Нет доступа' }, 403)
+    throw e
+  }
+
+  const result = await generateVideo({
+    prompt: data.prompt,
+    businessId: data.businessId,
+    postId: data.postId || null,
+    duration: data.duration,
+    aspectRatio: data.aspectRatio,
+  })
+
+  return c.json(result, 201)
 })
 
 export { ai }

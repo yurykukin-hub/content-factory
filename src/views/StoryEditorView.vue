@@ -8,7 +8,7 @@ import { formatDate } from '@/composables/useFormatters'
 import {
   ArrowLeft, Upload, Sparkles, Loader2, Send, CheckCircle,
   ExternalLink, AlertCircle, Image, Images, Link, Trash2, ZoomIn, ZoomOut, Eye, Wand2, Eraser,
-  ChevronLeft, ChevronRight, Calendar, Clock
+  ChevronLeft, ChevronRight, Calendar, Clock, Video
 } from 'lucide-vue-next'
 import ImageEditModal from '@/components/ai/ImageEditModal.vue'
 import MediaPickerModal from '@/components/MediaPickerModal.vue'
@@ -113,6 +113,9 @@ const aiPrompt = ref('')
 const aiLoading = ref(false)
 const aiEnhancing = ref(false)
 const selectedCharacterId = ref<string | null>(null)
+const showAiVideo = ref(false)
+const aiVideoLoading = ref(false)
+const videoDuration = ref(5)
 
 // Characters for AI image generation
 interface CharacterRef {
@@ -560,6 +563,27 @@ async function generateAiImage() {
   finally { aiLoading.value = false }
 }
 
+async function generateAiVideo() {
+  if (!post.value || !aiPrompt.value.trim()) return
+  aiVideoLoading.value = true
+  try {
+    if (photo.value) await http.post(`/media/${photo.value.id}/attach`, { postId: null }).catch(() => {})
+    const result = await http.post<{ mediaFile: any }>('/ai/generate-video', {
+      businessId: post.value.businessId, postId: post.value.id,
+      prompt: aiPrompt.value, duration: videoDuration.value,
+      aspectRatio: '9:16',
+    })
+    post.value.mediaFiles = [result.mediaFile]
+    // Для видео — не loadImage, а просто обновить state
+    showAiVideo.value = false
+    showAiImage.value = false
+    aiPrompt.value = ''
+    toast.success(`Видео сгенерировано (${videoDuration.value} сек)`)
+    await loadPost() // перезагрузить пост чтобы обновить mediaFiles
+  } catch (e: any) { toast.error('Ошибка: ' + e.message) }
+  finally { aiVideoLoading.value = false }
+}
+
 async function enhanceImagePrompt() {
   if (!post.value || !aiPrompt.value.trim()) return
   aiEnhancing.value = true
@@ -873,7 +897,11 @@ onUnmounted(() => {
             </button>
             <button @click="showAiImage = true"
               class="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300 text-xs font-medium hover:bg-purple-200">
-              <Sparkles :size="14" /> AI
+              <Sparkles :size="14" /> AI Фото
+            </button>
+            <button @click="showAiVideo = true"
+              class="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-100 dark:bg-emerald-900 text-emerald-700 dark:text-emerald-300 text-xs font-medium hover:bg-emerald-200 dark:hover:bg-emerald-800">
+              <Video :size="14" /> AI Видео
             </button>
             <button v-if="photo" @click="showEditModal = true" title="Редактировать AI"
               class="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300 text-xs font-medium hover:bg-purple-200">
@@ -1163,6 +1191,51 @@ onUnmounted(() => {
             class="flex items-center gap-2 px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-700 text-white text-sm font-medium disabled:opacity-50">
             <Loader2 v-if="aiLoading" :size="16" class="animate-spin" /><Sparkles v-else :size="16" />
             {{ aiLoading ? 'Генерация...' : 'Сгенерировать' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- AI Video Modal -->
+    <div v-if="showAiVideo" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50" @click.self="showAiVideo = false">
+      <div class="bg-white dark:bg-gray-900 rounded-2xl p-6 w-full max-w-md shadow-xl">
+        <h2 class="text-lg font-bold mb-4 flex items-center gap-2"><Video :size="20" class="text-emerald-500" /> AI Видео (9:16)</h2>
+        <div class="space-y-3">
+          <!-- Duration selector -->
+          <div>
+            <label class="block text-sm font-medium mb-1.5">Длительность</label>
+            <div class="flex gap-2">
+              <button v-for="d in [5, 10]" :key="d" @click="videoDuration = d"
+                :class="['px-4 py-2 rounded-lg text-sm font-medium border transition-colors',
+                  videoDuration === d
+                    ? 'bg-emerald-100 dark:bg-emerald-900 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700'
+                    : 'bg-gray-100 dark:bg-gray-800 text-gray-600 border-gray-200 dark:border-gray-700 hover:border-emerald-300']">
+                {{ d }} сек
+              </button>
+            </div>
+          </div>
+          <!-- Character selector -->
+          <div v-if="characters.length">
+            <label class="block text-sm font-medium mb-1.5">Персонаж</label>
+            <select v-model="selectedCharacterId"
+              class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm">
+              <option :value="null">Без персонажа</option>
+              <option v-for="char in characters" :key="char.id" :value="char.id">
+                {{ char.name }} ({{ char.type === 'person' ? 'человек' : char.type === 'mascot' ? 'маскот' : 'аватар' }})
+              </option>
+            </select>
+          </div>
+          <!-- Prompt -->
+          <textarea v-model="aiPrompt" rows="3" placeholder="SUP на рассвете, плавное движение камеры по воде..."
+            class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 focus:ring-2 focus:ring-emerald-500 text-sm" />
+          <p class="text-[10px] text-gray-400">Seedance 2 · генерация ~1-3 мин · KIE.ai</p>
+        </div>
+        <div class="flex justify-end gap-2 mt-4">
+          <button @click="showAiVideo = false" class="px-4 py-2 rounded-lg text-sm text-gray-500">Отмена</button>
+          <button @click="generateAiVideo" :disabled="aiVideoLoading || !aiPrompt.trim()"
+            class="flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium disabled:opacity-50">
+            <Loader2 v-if="aiVideoLoading" :size="16" class="animate-spin" /><Video v-else :size="16" />
+            {{ aiVideoLoading ? 'Генерация видео...' : 'Сгенерировать' }}
           </button>
         </div>
       </div>

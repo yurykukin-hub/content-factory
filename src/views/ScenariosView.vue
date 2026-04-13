@@ -5,9 +5,10 @@ import { useToast } from '@/composables/useToast'
 import { useBusinessesStore } from '@/stores/businesses'
 import { formatDate } from '@/composables/useFormatters'
 import BusinessFilter from '@/components/BusinessFilter.vue'
+import { useRouter } from 'vue-router'
 import {
   Clapperboard, Plus, Trash2, Sparkles, Loader2, ChevronDown, ChevronUp,
-  GripVertical, Edit3, Check, X,
+  GripVertical, Edit3, Check, X, Film,
 } from 'lucide-vue-next'
 
 interface Scene {
@@ -33,6 +34,7 @@ interface Scenario {
 }
 
 const toast = useToast()
+const router = useRouter()
 const businesses = useBusinessesStore()
 
 const scenarios = ref<Scenario[]>([])
@@ -238,6 +240,27 @@ async function deleteScenario(id: string) {
   }
 }
 
+const creatingStories = ref<string | null>(null)
+
+async function createStoriesFromScenario(scenarioId: string) {
+  creatingStories.value = scenarioId
+  try {
+    const result = await http.post<{ ok: boolean; postsCreated: number; posts: { id: string; title: string }[]; message: string }>(
+      `/scenarios/${scenarioId}/create-stories`, {}
+    )
+    toast.success(`${result.postsCreated} Stories создано!`)
+    await loadScenarios()
+    // Перейти к первой Story
+    if (result.posts.length) {
+      router.push(`/stories/${result.posts[0].id}`)
+    }
+  } catch (e: any) {
+    toast.error(e.message || 'Ошибка создания Stories')
+  } finally {
+    creatingStories.value = null
+  }
+}
+
 async function updateScenarioStatus(scenarioId: string, status: string) {
   try {
     const updated = await http.put<Scenario>(`/scenarios/${scenarioId}`, { status })
@@ -435,13 +458,22 @@ onMounted(loadScenarios)
             </div>
           </div>
 
-          <!-- Add scene button -->
-          <div class="p-3 border-t border-gray-100 dark:border-gray-800">
+          <!-- Add scene + Create Stories buttons -->
+          <div class="p-3 border-t border-gray-100 dark:border-gray-800 flex gap-2">
             <button
               @click="addScene(scenario.id)"
-              class="w-full py-2 rounded-lg border-2 border-dashed border-gray-300 dark:border-gray-700 text-xs text-gray-500 hover:border-brand-400 hover:text-brand-500 transition-colors flex items-center justify-center gap-1"
+              class="flex-1 py-2 rounded-lg border-2 border-dashed border-gray-300 dark:border-gray-700 text-xs text-gray-500 hover:border-brand-400 hover:text-brand-500 transition-colors flex items-center justify-center gap-1"
             >
               <Plus :size="12" /> Добавить сцену
+            </button>
+            <button
+              @click="createStoriesFromScenario(scenario.id)"
+              :disabled="creatingStories === scenario.id || scenario.scenes.length === 0"
+              class="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-xs font-medium disabled:opacity-50 transition-colors shrink-0"
+            >
+              <Loader2 v-if="creatingStories === scenario.id" :size="12" class="animate-spin" />
+              <Film v-else :size="12" />
+              {{ creatingStories === scenario.id ? 'Создаю...' : 'Создать Stories' }}
             </button>
           </div>
         </div>

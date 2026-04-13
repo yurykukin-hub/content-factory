@@ -140,4 +140,61 @@ scenarios.delete('/:id', async (c) => {
   return c.json({ ok: true })
 })
 
+// POST /api/scenarios/:id/create-stories — создать Stories из сценария
+// Для каждой сцены создаёт отдельный пост типа STORIES с imagePrompt и voiceover
+scenarios.post('/:id/create-stories', async (c) => {
+  const { id } = c.req.param()
+  const user = c.get('user') as AuthUser
+
+  const scenario = await db.scenario.findUnique({ where: { id } })
+  if (!scenario) return c.json({ error: 'Не найден' }, 404)
+
+  try { await assertBusinessAccess(user, scenario.businessId) } catch (e: any) {
+    if (e.message === 'FORBIDDEN') return c.json({ error: 'Нет доступа' }, 403); throw e
+  }
+
+  const scenes = Array.isArray(scenario.scenes) ? scenario.scenes as any[] : []
+  if (!scenes.length) return c.json({ error: 'Сценарий пуст — добавьте сцены' }, 400)
+
+  // Создать Story-пост для каждой сцены
+  const posts = []
+  for (const scene of scenes) {
+    const post = await db.post.create({
+      data: {
+        businessId: scenario.businessId,
+        title: `${scenario.title} — сцена ${scene.sceneNumber}`,
+        body: scene.voiceover || scene.description || '',
+        postType: 'STORIES',
+        status: 'DRAFT',
+        createdBy: 'scenario',
+        aiPromptUsed: scene.imagePrompt || null,
+        aiPromptHistory: [{
+          type: 'scenario',
+          scenarioId: scenario.id,
+          sceneNumber: scene.sceneNumber,
+          description: scene.description,
+          voiceover: scene.voiceover,
+          imagePrompt: scene.imagePrompt,
+          durationSec: scene.durationSec,
+          createdAt: new Date().toISOString(),
+        }],
+      },
+    })
+    posts.push(post)
+  }
+
+  // Обновить статус сценария
+  await db.scenario.update({
+    where: { id },
+    data: { status: 'IN_PRODUCTION' },
+  })
+
+  return c.json({
+    ok: true,
+    postsCreated: posts.length,
+    posts: posts.map(p => ({ id: p.id, title: p.title })),
+    message: `Создано ${posts.length} Stories из сценария. Откройте каждую чтобы добавить фото/видео и опубликовать.`,
+  }, 201)
+})
+
 export { scenarios }
