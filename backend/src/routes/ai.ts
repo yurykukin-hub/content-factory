@@ -623,6 +623,7 @@ const generateVideoSchema = z.object({
   generateAudio: z.boolean().default(true),
   firstFrameUrl: z.string().optional().nullable(),
   lastFrameUrl: z.string().optional().nullable(),
+  referenceImageUrls: z.array(z.string()).max(9).optional(),
 })
 
 ai.post('/generate-video', async (c) => {
@@ -644,6 +645,7 @@ ai.post('/generate-video', async (c) => {
     generateAudio: data.generateAudio,
     firstFrameUrl: data.firstFrameUrl || null,
     lastFrameUrl: data.lastFrameUrl || null,
+    referenceImageUrls: data.referenceImageUrls || undefined,
   })
 
   return c.json(result, 201)

@@ -139,9 +139,12 @@ const USD_TO_RUB = 95
 
 const videoFirstFrame = ref<{ url: string; thumbUrl?: string | null; filename: string } | null>(null)
 const videoLastFrame = ref<{ url: string; thumbUrl?: string | null; filename: string } | null>(null)
+const videoRefImages = ref<{ url: string; thumbUrl?: string | null; filename: string }[]>([])
+const videoInputMode = ref<'text' | 'frames' | 'references'>('text')
 
 const videoCostUsd = computed(() => {
-  const creditsPerSec = videoFirstFrame.value ? 25 : VIDEO_CREDITS_PER_SEC // image-to-video дешевле
+  const hasImages = videoInputMode.value !== 'text' && (videoFirstFrame.value || videoRefImages.value.length > 0)
+  const creditsPerSec = hasImages ? 25 : VIDEO_CREDITS_PER_SEC // image-to-video дешевле
   const base = creditsPerSec * videoDuration.value * VIDEO_CREDIT_PRICE
   return videoAudio.value ? base * VIDEO_AUDIO_MULTIPLIER : base
 })
@@ -608,13 +611,18 @@ async function generateAiVideo() {
   aiVideoLoading.value = true
   try {
     if (photo.value) await http.post(`/media/${photo.value.id}/attach`, { postId: null }).catch(() => {})
-    const result = await http.post<{ mediaFile: any }>('/ai/generate-video', {
+    const payload: any = {
       businessId: post.value.businessId, postId: post.value.id,
       prompt: videoPrompt.value, duration: videoDuration.value,
       aspectRatio: '9:16', generateAudio: videoAudio.value,
-      firstFrameUrl: videoFirstFrame.value?.url || null,
-      lastFrameUrl: videoLastFrame.value?.url || null,
-    })
+    }
+    if (videoInputMode.value === 'frames') {
+      payload.firstFrameUrl = videoFirstFrame.value?.url || null
+      payload.lastFrameUrl = videoLastFrame.value?.url || null
+    } else if (videoInputMode.value === 'references' && videoRefImages.value.length) {
+      payload.referenceImageUrls = videoRefImages.value.map(r => r.url)
+    }
+    const result = await http.post<{ mediaFile: any }>('/ai/generate-video', payload)
     // Сохранить промпт в историю
     videoPromptHistory.value.push(videoPrompt.value)
     videoHistoryIndex.value = videoPromptHistory.value.length - 1
@@ -647,6 +655,27 @@ async function enhanceVideoPrompt() {
     toast.success('Промпт улучшен')
   } catch (e: any) { toast.error('Ошибка: ' + e.message) }
   finally { videoEnhancing.value = false }
+}
+
+async function addRefImage(event: Event) {
+  const input = event.target as HTMLInputElement
+  if (!input.files?.length || !post.value || videoRefImages.value.length >= 9) return
+  const formData = new FormData()
+  formData.append('file', input.files[0])
+  formData.append('businessId', post.value.businessId)
+  formData.append('tags', JSON.stringify(['video-reference']))
+  try {
+    const res = await fetch('/api/media/upload', { method: 'POST', credentials: 'include', body: formData })
+    if (!res.ok) throw new Error('Upload failed')
+    const media = await res.json()
+    videoRefImages.value.push({ url: media.url, thumbUrl: media.thumbUrl, filename: media.filename })
+    toast.success(`Референс @Image${videoRefImages.value.length} загружен`)
+  } catch { toast.error('Ошибка загрузки') }
+  input.value = ''
+}
+
+function removeRefImage(index: number) {
+  videoRefImages.value.splice(index, 1)
 }
 
 async function pickFrame(event: Event, which: 'first' | 'last') {
@@ -1354,54 +1383,72 @@ onUnmounted(() => {
             </div>
           </div>
 
-          <!-- Image-to-Video: первый и последний кадр -->
+          <!-- Входные изображения -->
           <div>
-            <label class="block text-xs font-medium text-gray-500 mb-1.5">
-              Исходные кадры
-              <span class="font-normal text-gray-400">(опционально — image-to-video, дешевле)</span>
-            </label>
-            <div class="grid grid-cols-2 gap-2">
-              <!-- First frame -->
-              <div class="relative">
-                <div v-if="videoFirstFrame"
-                  class="flex items-center gap-2 p-2 rounded-lg bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-200 dark:border-emerald-800">
+            <label class="block text-xs font-medium text-gray-500 mb-1.5">Исходные изображения <span class="font-normal text-gray-400">(дешевле на 40%)</span></label>
+            <!-- Mode selector -->
+            <div class="flex gap-1 mb-2">
+              <button v-for="m in [{ id: 'text', label: 'Без фото' }, { id: 'frames', label: 'Кадры (1-2)' }, { id: 'references', label: 'Референсы (до 9)' }]" :key="m.id"
+                @click="videoInputMode = m.id as any"
+                :class="['px-2.5 py-1 rounded-lg text-[10px] font-medium border transition-colors',
+                  videoInputMode === m.id
+                    ? 'bg-emerald-100 dark:bg-emerald-900 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700'
+                    : 'bg-gray-100 dark:bg-gray-800 text-gray-500 border-gray-200 dark:border-gray-700 hover:border-emerald-300']">
+                {{ m.label }}
+              </button>
+            </div>
+
+            <!-- Frames mode: first + last -->
+            <div v-if="videoInputMode === 'frames'" class="grid grid-cols-2 gap-2">
+              <div>
+                <div v-if="videoFirstFrame" class="flex items-center gap-2 p-2 rounded-lg bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-200 dark:border-emerald-800">
                   <img :src="videoFirstFrame.thumbUrl || videoFirstFrame.url" class="w-10 h-10 rounded object-cover" />
-                  <div class="flex-1 min-w-0">
-                    <div class="text-[10px] font-medium truncate">Первый кадр</div>
-                    <div class="text-[9px] text-gray-400 truncate">{{ videoFirstFrame.filename }}</div>
-                  </div>
+                  <div class="flex-1 min-w-0"><div class="text-[10px] font-medium">Первый кадр</div></div>
                   <button @click="videoFirstFrame = null" class="p-0.5 text-gray-400 hover:text-red-500"><Trash2 :size="12" /></button>
                 </div>
-                <label v-else class="flex flex-col items-center gap-1 p-3 rounded-lg border-2 border-dashed border-gray-300 dark:border-gray-700 cursor-pointer hover:border-emerald-400 transition-colors">
-                  <Image :size="16" class="text-gray-400" />
-                  <span class="text-[10px] text-gray-500">Первый кадр</span>
+                <label v-else class="flex flex-col items-center gap-1 p-3 rounded-lg border-2 border-dashed border-gray-300 dark:border-gray-700 cursor-pointer hover:border-emerald-400">
+                  <Image :size="16" class="text-gray-400" /><span class="text-[10px] text-gray-500">Первый кадр</span>
                   <input type="file" accept="image/*" class="hidden" @change="(e: Event) => pickFrame(e, 'first')" />
                 </label>
               </div>
-              <!-- Last frame -->
-              <div class="relative">
-                <div v-if="videoLastFrame"
-                  class="flex items-center gap-2 p-2 rounded-lg bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-200 dark:border-emerald-800">
+              <div>
+                <div v-if="videoLastFrame" class="flex items-center gap-2 p-2 rounded-lg bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-200 dark:border-emerald-800">
                   <img :src="videoLastFrame.thumbUrl || videoLastFrame.url" class="w-10 h-10 rounded object-cover" />
-                  <div class="flex-1 min-w-0">
-                    <div class="text-[10px] font-medium truncate">Последний кадр</div>
-                    <div class="text-[9px] text-gray-400 truncate">{{ videoLastFrame.filename }}</div>
-                  </div>
+                  <div class="flex-1 min-w-0"><div class="text-[10px] font-medium">Последний кадр</div></div>
                   <button @click="videoLastFrame = null" class="p-0.5 text-gray-400 hover:text-red-500"><Trash2 :size="12" /></button>
                 </div>
-                <label v-else class="flex flex-col items-center gap-1 p-3 rounded-lg border-2 border-dashed border-gray-300 dark:border-gray-700 cursor-pointer hover:border-emerald-400 transition-colors">
-                  <Image :size="16" class="text-gray-400" />
-                  <span class="text-[10px] text-gray-500">Последний кадр</span>
+                <label v-else class="flex flex-col items-center gap-1 p-3 rounded-lg border-2 border-dashed border-gray-300 dark:border-gray-700 cursor-pointer hover:border-emerald-400">
+                  <Image :size="16" class="text-gray-400" /><span class="text-[10px] text-gray-500">Последний кадр</span>
                   <input type="file" accept="image/*" class="hidden" @change="(e: Event) => pickFrame(e, 'last')" />
                 </label>
               </div>
+              <button v-if="photo && !isVideoMedia && !videoFirstFrame"
+                @click="videoFirstFrame = { url: photo!.url, thumbUrl: photo!.thumbUrl, filename: photo!.filename }"
+                class="col-span-2 text-[10px] text-emerald-600 dark:text-emerald-400 hover:underline text-left">
+                Использовать текущее фото как первый кадр
+              </button>
             </div>
-            <!-- Existing photo as first frame -->
-            <button v-if="photo && !isVideoMedia && !videoFirstFrame"
-              @click="videoFirstFrame = { url: photo!.url, thumbUrl: photo!.thumbUrl, filename: photo!.filename }"
-              class="mt-1.5 text-[10px] text-emerald-600 dark:text-emerald-400 hover:underline">
-              Использовать текущее фото как первый кадр
-            </button>
+
+            <!-- References mode: до 9 изображений -->
+            <div v-if="videoInputMode === 'references'">
+              <div class="flex flex-wrap gap-2 mb-2">
+                <div v-for="(ref, idx) in videoRefImages" :key="idx"
+                  class="relative group w-16 h-16 rounded-lg overflow-hidden border border-emerald-200 dark:border-emerald-800">
+                  <img :src="ref.thumbUrl || ref.url" class="w-full h-full object-cover" />
+                  <div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                    <button @click="removeRefImage(idx)" class="p-1 bg-red-500/80 rounded-full"><Trash2 :size="10" class="text-white" /></button>
+                  </div>
+                  <span class="absolute bottom-0.5 left-0.5 px-1 py-0.5 bg-black/60 text-white text-[8px] rounded font-mono">@Image{{ idx + 1 }}</span>
+                </div>
+                <label v-if="videoRefImages.length < 9"
+                  class="w-16 h-16 rounded-lg border-2 border-dashed border-gray-300 dark:border-gray-700 flex flex-col items-center justify-center cursor-pointer hover:border-emerald-400 transition-colors">
+                  <Plus :size="14" class="text-gray-400" />
+                  <span class="text-[8px] text-gray-400">{{ videoRefImages.length }}/9</span>
+                  <input type="file" accept="image/*" class="hidden" @change="addRefImage" />
+                </label>
+              </div>
+              <p class="text-[9px] text-gray-400">В промпте ссылайтесь: <code class="text-emerald-500">@Image1</code>, <code class="text-emerald-500">@Image2</code> и т.д.</p>
+            </div>
           </div>
 
           <!-- Prompt textarea -->

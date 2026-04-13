@@ -494,6 +494,7 @@ interface GenerateVideoParams {
   generateAudio?: boolean      // генерировать звук (Seedance 2 native audio)
   firstFrameUrl?: string | null  // URL первого кадра (image-to-video)
   lastFrameUrl?: string | null   // URL последнего кадра (interpolation)
+  referenceImageUrls?: string[] // До 9 reference-изображений (multimodal)
 }
 
 interface GenerateVideoResult {
@@ -525,10 +526,10 @@ async function downloadAndSaveVideo(
 }
 
 export async function generateVideo(params: GenerateVideoParams): Promise<GenerateVideoResult> {
-  const { prompt: rawPrompt, businessId, postId, duration = 5, aspectRatio = '9:16', generateAudio = true, firstFrameUrl, lastFrameUrl } = params
+  const { prompt: rawPrompt, businessId, postId, duration = 5, aspectRatio = '9:16', generateAudio = true, firstFrameUrl, lastFrameUrl, referenceImageUrls } = params
   const model = 'bytedance/seedance-2'
 
-  const hasImageInput = !!firstFrameUrl
+  const hasImageInput = !!firstFrameUrl || (referenceImageUrls && referenceImageUrls.length > 0)
   // Ценообразование: text-to-video 41 cr/s, image-to-video 25 cr/s (720p), audio ~2x
   const creditsPerSec = hasImageInput ? 25 : 41
   const audioMultiplier = generateAudio ? 2.0 : 1.0
@@ -550,8 +551,12 @@ export async function generateVideo(params: GenerateVideoParams): Promise<Genera
     generate_audio: generateAudio,
   }
 
-  // Image-to-video: first frame (+ optional last frame)
-  if (resolvedFirstFrame) {
+  // Multimodal references (до 9 изображений, @Image1 @Image2 в промпте)
+  if (referenceImageUrls && referenceImageUrls.length > 0) {
+    input.reference_image_urls = referenceImageUrls.map(u => resolvePublicUrl(u))
+  }
+  // Image-to-video: first frame (+ optional last frame) — взаимоисключающе с references
+  else if (resolvedFirstFrame) {
     input.first_frame_url = resolvedFirstFrame
     if (resolvedLastFrame) {
       input.last_frame_url = resolvedLastFrame
