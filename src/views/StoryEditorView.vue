@@ -257,6 +257,7 @@ const vkChannels = ref<PlatformAccount[]>([])
 const selectedChannel = ref('')
 
 const photo = computed(() => post.value?.mediaFiles?.[0] || null)
+const isVideoMedia = computed(() => photo.value?.mimeType?.startsWith('video/') || false)
 const version = computed(() => post.value?.versions?.[0] || null)
 const isPublished = computed(() => version.value?.status === 'PUBLISHED' || version.value?.status === 'SCHEDULED')
 
@@ -885,7 +886,18 @@ onUnmounted(() => {
         <div class="relative bg-black rounded-[2rem] p-2 shadow-2xl w-full max-w-[376px]">
           <div class="absolute top-0 left-1/2 -translate-x-1/2 w-24 h-5 bg-black rounded-b-xl z-10"></div>
 
+          <!-- Video preview (вместо canvas для видео) -->
+          <video
+            v-if="isVideoMedia"
+            :src="photo!.url"
+            class="rounded-[1.5rem] w-full"
+            style="aspect-ratio: 9/16; object-fit: cover; background: #000;"
+            controls loop muted autoplay playsinline
+          />
+
+          <!-- Image canvas (для фото) -->
           <canvas
+            v-else
             ref="canvasRef"
             :width="canvasWidth"
             :height="canvasHeight"
@@ -897,11 +909,11 @@ onUnmounted(() => {
             @mousedown="!isPublished && onMouseDown($event)"
             @wheel.prevent="!isPublished && onWheel($event)"
           />
-          <!-- Overlay: image generation in progress -->
-          <div v-if="editingImage" class="absolute inset-2 rounded-[1.5rem] bg-black/50 flex items-center justify-center">
+          <!-- Overlay: generation in progress -->
+          <div v-if="editingImage || aiVideoLoading" class="absolute inset-2 rounded-[1.5rem] bg-black/50 flex items-center justify-center">
             <div class="flex flex-col items-center gap-2 text-white">
-              <Loader2 :size="28" class="animate-spin text-purple-400" />
-              <span class="text-xs font-medium">Генерация изображения...</span>
+              <Loader2 :size="28" class="animate-spin" :class="aiVideoLoading ? 'text-emerald-400' : 'text-purple-400'" />
+              <span class="text-xs font-medium">{{ aiVideoLoading ? 'Генерация видео...' : 'Генерация изображения...' }}</span>
             </div>
           </div>
         </div>
@@ -933,9 +945,10 @@ onUnmounted(() => {
 
         <!-- Photo -->
         <div :class="['bg-white dark:bg-gray-900 rounded-xl p-5 border border-gray-200 dark:border-gray-800', isPublished && 'opacity-60 pointer-events-none select-none']">
-          <h3 class="font-semibold text-sm mb-3 flex items-center gap-2"><Image :size="16" /> Фото</h3>
+          <h3 class="font-semibold text-sm mb-3 flex items-center gap-2"><Image :size="16" /> Медиа</h3>
           <div v-if="photo" class="flex items-center gap-3 mb-3">
-            <img :src="photo.thumbUrl || photo.url" class="w-12 h-12 rounded-lg object-cover" />
+            <video v-if="photo.mimeType?.startsWith('video/')" :src="photo.url" class="w-12 h-12 rounded-lg object-cover" muted preload="metadata" />
+            <img v-else :src="photo.thumbUrl || photo.url" class="w-12 h-12 rounded-lg object-cover" />
             <div class="flex-1 min-w-0">
               <div class="text-sm truncate">{{ photo.filename }}</div>
               <div class="text-[10px] text-gray-400">{{ (photo.sizeBytes / 1024).toFixed(0) }} KB</div>
@@ -1141,10 +1154,11 @@ onUnmounted(() => {
       <div class="bg-white dark:bg-gray-900 rounded-2xl p-6 w-full max-w-lg shadow-xl">
         <h2 class="text-lg font-bold mb-4 text-center">Предпросмотр публикации</h2>
 
-        <!-- Rendered image in phone frame + link button -->
+        <!-- Rendered media in phone frame + link button -->
         <div class="flex justify-center mb-4">
           <div class="relative bg-black rounded-[1.5rem] p-1.5 shadow-xl" style="width: 240px;">
-            <img :src="previewBlobUrl" class="rounded-[1.2rem] w-full" style="aspect-ratio: 9/16; object-fit: cover;" />
+            <video v-if="isVideoMedia" :src="photo!.url" class="rounded-[1.2rem] w-full" style="aspect-ratio: 9/16; object-fit: cover;" controls loop muted autoplay playsinline />
+            <img v-else :src="previewBlobUrl" class="rounded-[1.2rem] w-full" style="aspect-ratio: 9/16; object-fit: cover;" />
             <!-- Кнопка будет добавлена ВК нативно -->
             <div v-if="linkType" class="absolute bottom-5 left-1/2 -translate-x-1/2 px-5 py-1.5 bg-white/90 rounded-full text-[10px] font-bold text-gray-700 shadow whitespace-nowrap">
               {{ LINK_TYPES.find(l => l.value === linkType)?.label }}

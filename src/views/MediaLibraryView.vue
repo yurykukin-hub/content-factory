@@ -147,6 +147,7 @@ function formatSize(bytes: number) {
 }
 
 const isImage = (mime: string) => mime.startsWith('image/')
+const isVideo = (mime: string) => mime.startsWith('video/')
 const stats = computed(() => ({
   total: files.value.length,
   images: files.value.filter(f => isImage(f.mimeType)).length,
@@ -237,6 +238,10 @@ watch([typeFilter, tagFilter, showUnattached], loadFiles)
             :src="file.thumbUrl || file.url"
             :alt="file.filename"
             class="w-full h-full object-cover" />
+          <video v-else-if="isVideo(file.mimeType)"
+            :src="file.url"
+            class="w-full h-full object-cover"
+            muted preload="metadata" />
           <div v-else class="w-full h-full flex items-center justify-center">
             <Video :size="32" class="text-gray-400" />
           </div>
