@@ -62,16 +62,19 @@ const routes: RouteRecordRaw[] = [
     path: '/scenarios',
     name: 'scenarios',
     component: () => import('@/views/ScenariosView.vue'),
+    meta: { adminOnly: true },
   },
   {
     path: '/characters',
     name: 'characters',
     component: () => import('@/views/CharactersView.vue'),
+    meta: { adminOnly: true },
   },
   {
     path: '/video-studio',
     name: 'video-studio',
     component: () => import('@/views/VideoStudioView.vue'),
+    meta: { adminOnly: true },
   },
   {
     path: '/settings',
@@ -98,6 +101,10 @@ router.beforeEach(async (to) => {
   }
 
   if (to.name === 'login' && auth.user) {
+    return { name: 'dashboard' }
+  }
+
+  if (to.meta.adminOnly && auth.user?.role !== 'ADMIN') {
     return { name: 'dashboard' }
   }
 })
