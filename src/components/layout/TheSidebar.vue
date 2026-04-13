@@ -25,6 +25,7 @@ const allNavItems = [
   { name: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, path: '/', adminOnly: false },
   { name: 'posts', label: 'Stories', icon: Film, path: '/posts', adminOnly: false },
   { name: 'ideas', label: 'Идеи', icon: Lightbulb, path: '/ideas', adminOnly: false },
+  { name: 'video-studio', label: 'Видео-студия', icon: Film, path: '/video-studio', adminOnly: false },
   { name: 'scenarios', label: 'Сценарии', icon: Clapperboard, path: '/scenarios', adminOnly: false },
   { name: 'characters', label: 'Персонажи', icon: UserCircle, path: '/characters', adminOnly: false },
   { name: 'plans', label: 'Контент-планы', icon: ClipboardList, path: '/plans', adminOnly: false },
