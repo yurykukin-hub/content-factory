@@ -42,21 +42,38 @@ docker run --rm -v "$DEPLOY_DIR":/app -w /app node:20-alpine sh -c "npm install 
 echo "Rebuilding backend container..."
 docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build 2>&1
 
-# 6. Wait for backend to start
-echo "Waiting for backend..."
+# 6. Wait for postgres to be healthy
+echo "Waiting for postgres..."
 sleep 3
 
-# 7. Run migrations
-echo "Running migrations..."
-docker compose -f docker-compose.prod.yml exec -T backend bunx prisma migrate deploy 2>&1
+# 7. Sync DB password (POSTGRES_PASSWORD only applies on first initdb)
+echo "Syncing DB password..."
+docker compose -f docker-compose.prod.yml --env-file .env.prod exec -T postgres \
+  psql -U contentfactory -d contentfactory \
+  -c "ALTER USER contentfactory WITH PASSWORD '$DB_PASSWORD';" 2>&1 \
+  && echo "DB password synced" \
+  || echo "WARNING: Failed to sync DB password"
 
-# 8. Health check
+# 8. Run migrations
+echo "Running migrations..."
+docker compose -f docker-compose.prod.yml --env-file .env.prod exec -T backend \
+  bunx prisma migrate deploy 2>&1
+
+# 9. Health check (full — includes DB connectivity)
 echo "Health check..."
-if curl -sf http://localhost:3800/api/health > /dev/null; then
+sleep 2
+HEALTH=$(curl -sf http://localhost:3800/api/health?full=true 2>/dev/null || echo '{"status":"error"}')
+echo "$HEALTH"
+
+if echo "$HEALTH" | grep -q '"status":"ok"'; then
   echo "Backend healthy!"
+elif echo "$HEALTH" | grep -q 'Authentication failed'; then
+  echo "ERROR: DB auth still failing after password sync. Check .env.prod and postgres volume."
+  docker compose -f docker-compose.prod.yml --env-file .env.prod logs --tail=10 backend
+  exit 1
 else
-  echo "WARNING: Health check failed, check logs:"
-  docker compose -f docker-compose.prod.yml logs --tail=20 backend
+  echo "WARNING: Health check issue, check logs:"
+  docker compose -f docker-compose.prod.yml --env-file .env.prod logs --tail=20 backend
 fi
 
 echo ""
