@@ -191,7 +191,7 @@ async function loadBusiness() {
     business.value = await http.get<BusinessDetail>(`/businesses/${bizId.value}`)
     initProfileForm()
   } catch (e: any) {
-    toast.error(e.message || 'Не удалось загрузить бизнес')
+    toast.error(e.message || 'Не удалось загрузить проект')
     router.push('/businesses')
   } finally {
     loading.value = false
@@ -405,7 +405,7 @@ onMounted(() => {
       <!-- ========== Brand Profile Tab ========== -->
       <div v-if="activeTab === 'brand'" class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-6">
         <p class="text-sm text-gray-500 mb-5">
-          Бренд-профиль определяет тон и стиль AI-генерации для этого бизнеса.
+          Бренд-профиль определяет тон и стиль AI-генерации для этого проекта.
         </p>
 
         <div class="space-y-4">
@@ -748,7 +748,7 @@ onMounted(() => {
         <!-- Access / Users -->
         <div v-if="isAdmin" class="mt-5 pt-5 border-t border-gray-200 dark:border-gray-800">
           <div class="flex items-center justify-between mb-3">
-            <div class="text-xs text-gray-400">Доступ к бизнесу</div>
+            <div class="text-xs text-gray-400">Доступ к проекту</div>
           </div>
 
           <!-- Users with access -->
@@ -775,7 +775,7 @@ onMounted(() => {
               >
                 Отозвать
               </button>
-              <span v-else class="text-[10px] text-gray-400">все бизнесы</span>
+              <span v-else class="text-[10px] text-gray-400">все проекты</span>
             </div>
           </div>
 

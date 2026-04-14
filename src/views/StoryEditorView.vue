@@ -175,12 +175,10 @@ async function loadCharacters(businessId: string) {
   } catch { characters.value = [] }
 }
 
-const IMAGE_TEMPLATES = [
-  { label: 'Продукт крупно', prompt: 'Крупный план продукта на чистом нейтральном фоне, студийное освещение' },
-  { label: 'Атмосфера', prompt: 'Атмосферный пейзаж, закат над водой, отражения, тёплый свет' },
-  { label: 'Lifestyle', prompt: 'Люди на активном отдыхе, естественные эмоции, динамичная композиция' },
-  { label: 'Акция/Скидка', prompt: 'Яркий минималистичный фон, место для текста, промо-стиль' },
-]
+// Image prompt templates — loaded from DB (per-business) + AI suggestions
+const imageTemplates = ref<{ id: string; name: string; emoji: string; prompt: string }[]>([])
+const aiSuggestions = ref<{ name: string; emoji: string; prompt: string }[]>([])
+const suggestingTemplates = ref(false)
 
 const removingBg = ref(false)
 const showEditModal = ref(false)
@@ -485,6 +483,10 @@ async function loadPost() {
     try {
       storyTemplates.value = await http.get<DbStoryTemplate[]>(`/businesses/${post.value.businessId}/story-templates`)
     } catch {}
+    // Load image prompt templates from DB (global + per-business)
+    try {
+      imageTemplates.value = await http.get<any[]>(`/prompt-templates?type=image&businessId=${post.value.businessId}`)
+    } catch { imageTemplates.value = [] }
     loadCharacters(post.value.businessId)
     try {
       const bp = await http.get<{ links?: { label: string; url: string }[] }>(`/businesses/${post.value.businessId}/brand-profile`)
@@ -588,6 +590,20 @@ async function pickFromLibrary(file: MediaFile) {
   } finally {
     uploading.value = false
   }
+}
+
+async function suggestTemplates() {
+  if (!post.value) return
+  suggestingTemplates.value = true
+  try {
+    const res = await http.post<{ suggestions: { name: string; emoji: string; prompt: string }[] }>('/ai/suggest-image-templates', {
+      businessId: post.value.businessId,
+      storyTitle: storyTitle.value || '',
+      storyText: overlayText.value || '',
+    })
+    aiSuggestions.value = res.suggestions || []
+  } catch (e: any) { toast.error('Ошибка: ' + (e.message || e)) }
+  finally { suggestingTemplates.value = false }
 }
 
 async function generateAiImage() {
@@ -1308,13 +1324,27 @@ onUnmounted(() => {
       <div class="bg-white dark:bg-gray-900 rounded-2xl p-6 w-full max-w-md shadow-xl">
         <h2 class="text-lg font-bold mb-4 flex items-center gap-2"><Sparkles :size="20" class="text-purple-500" /> AI Картинка (9:16)</h2>
         <div class="space-y-3">
-          <!-- Template pills -->
-          <div>
+          <!-- Template pills (from DB) -->
+          <div v-if="imageTemplates.length">
             <label class="block text-sm font-medium mb-1.5">Шаблоны</label>
             <div class="flex flex-wrap gap-1.5">
-              <button v-for="t in IMAGE_TEMPLATES" :key="t.label" @click="aiPrompt = t.prompt"
+              <button v-for="t in imageTemplates" :key="t.id" @click="aiPrompt = t.prompt"
                 class="px-2.5 py-1 rounded-full text-xs font-medium bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300 hover:bg-purple-200 dark:hover:bg-purple-800 transition-colors">
-                {{ t.label }}
+                {{ t.emoji }} {{ t.name }}
+              </button>
+            </div>
+          </div>
+          <!-- AI suggest button + results -->
+          <div>
+            <button @click="suggestTemplates" :disabled="suggestingTemplates"
+              class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-purple-300 dark:border-purple-700 text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-950 disabled:opacity-50 transition-colors">
+              <Loader2 v-if="suggestingTemplates" :size="14" class="animate-spin" /><Wand2 v-else :size="14" />
+              {{ suggestingTemplates ? 'Подбираю...' : '✨ Подобрать по контексту' }}
+            </button>
+            <div v-if="aiSuggestions.length" class="flex flex-wrap gap-1.5 mt-2">
+              <button v-for="s in aiSuggestions" :key="s.name" @click="aiPrompt = s.prompt"
+                class="px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-200 dark:hover:bg-emerald-800 transition-colors">
+                {{ s.emoji }} {{ s.name }}
               </button>
             </div>
           </div>
@@ -1330,7 +1360,7 @@ onUnmounted(() => {
             </select>
           </div>
           <!-- Prompt textarea -->
-          <textarea v-model="aiPrompt" rows="3" placeholder="SUP на закате, вертикальное фото..."
+          <textarea v-model="aiPrompt" rows="3" placeholder="Опишите изображение или выберите шаблон..."
             class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 focus:ring-2 focus:ring-purple-500 text-sm" />
           <!-- Enhance button -->
           <button @click="enhanceImagePrompt" :disabled="aiEnhancing || !aiPrompt.trim()"

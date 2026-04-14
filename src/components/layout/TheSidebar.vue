@@ -29,7 +29,7 @@ const allNavItems: { name: string; label: string; icon: any; path: string; secti
   { name: 'characters', label: 'Персонажи', icon: UserCircle, path: '/characters', section: 'characters' },
   { name: 'plans', label: 'Контент-планы', icon: ClipboardList, path: '/plans', section: 'plans' },
   { name: 'media', label: 'Медиа', icon: Image, path: '/media', section: 'media' },
-  { name: 'businesses', label: 'Бизнесы', icon: Building2, path: '/businesses', section: 'businesses' },
+  { name: 'businesses', label: 'Проекты', icon: Building2, path: '/businesses', section: 'businesses' },
   { name: 'settings', label: 'Настройки', icon: Settings, path: '/settings', section: 'settings' },
 ]
 

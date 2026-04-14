@@ -254,6 +254,57 @@ ai.post('/enhance-image-prompt', async (c) => {
   return c.json({ enhancedPrompt: result.content.trim() })
 })
 
+// POST /api/ai/suggest-image-templates — AI генерирует шаблоны промптов для картинок
+const suggestTemplatesSchema = z.object({
+  businessId: z.string(),
+  storyTitle: z.string().default(''),
+  storyText: z.string().default(''),
+})
+
+ai.post('/suggest-image-templates', async (c) => {
+  const data = suggestTemplatesSchema.parse(await c.req.json())
+  const user = c.get('user') as AuthUser
+  try {
+    await assertBusinessAccess(user, data.businessId)
+  } catch (e: any) {
+    if (e.message === 'FORBIDDEN') return c.json({ error: 'Нет доступа' }, 403)
+    throw e
+  }
+
+  const brandContext = await buildBrandContext(data.businessId)
+  const storyContext = data.storyTitle || data.storyText
+    ? `\nТекущая история: "${data.storyTitle}" / "${data.storyText}"`
+    : ''
+
+  const result = await aiComplete({
+    systemPrompt: `Ты — AI-помощник для генерации изображений.
+${brandContext}
+${storyContext}
+
+Сгенерируй 5 шаблонов промптов для AI-генерации картинок в формате Stories (9:16).
+Каждый шаблон — это краткий промпт для генерации фотореалистичного изображения.
+Учитывай бренд, тематику и целевую аудиторию.
+
+Верни JSON-массив:
+[{"emoji": "📸", "name": "Краткое название (2-3 слова)", "prompt": "Детальное описание сцены для генерации изображения, 1-2 предложения"}]
+
+ТОЛЬКО JSON-массив, без пояснений и markdown.`,
+    userPrompt: 'Сгенерируй 5 шаблонов промптов для картинок',
+    model: config.models.haiku,
+    maxTokens: 800,
+    businessId: data.businessId,
+    action: 'suggest_image_templates',
+  })
+
+  try {
+    const jsonMatch = result.content.match(/\[[\s\S]*\]/)
+    const suggestions = jsonMatch ? JSON.parse(jsonMatch[0]) : []
+    return c.json({ suggestions })
+  } catch {
+    return c.json({ suggestions: [] })
+  }
+})
+
 // POST /api/ai/adapt — адаптация мастер-текста под платформы
 const adaptSchema = z.object({
   postId: z.string(),

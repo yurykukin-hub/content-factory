@@ -104,7 +104,7 @@ onMounted(async () => {
         </router-link>
         <router-link to="/businesses" class="flex items-center gap-2 p-3 rounded-lg bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 transition-colors">
           <Settings :size="18" />
-          <span class="text-sm font-medium">Настроить бизнесы</span>
+          <span class="text-sm font-medium">Настроить проекты</span>
         </router-link>
       </div>
     </div>

@@ -213,7 +213,7 @@ onMounted(loadUsers)
               {{ ub.business.name }}
             </span>
           </div>
-          <div v-else-if="user.role !== 'ADMIN'" class="mt-1 text-xs text-gray-400">Нет привязанных бизнесов</div>
+          <div v-else-if="user.role !== 'ADMIN'" class="mt-1 text-xs text-gray-400">Нет привязанных проектов</div>
         </div>
         <button @click="startEdit(user)" class="p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 shrink-0">
           <Pencil class="w-4 h-4" />
@@ -254,15 +254,15 @@ onMounted(loadUsers)
           <div>
             <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Роль</label>
             <select v-model="form.role" class="w-full px-3 py-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white">
-              <option value="ADMIN">Админ (все бизнесы)</option>
+              <option value="ADMIN">Админ (все проекты)</option>
               <option value="EDITOR">Редактор (только выбранные)</option>
               <option value="VIEWER">Просмотр (только чтение)</option>
             </select>
           </div>
 
-          <!-- Доступ к бизнесам (только для не-админов) -->
+          <!-- Доступ к проектам (только для не-админов) -->
           <div v-if="form.role !== 'ADMIN'">
-            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Доступ к бизнесам</label>
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Доступ к проектам</label>
             <div class="space-y-2">
               <label v-for="biz in businesses.businesses" :key="biz.id" class="flex items-center gap-2 cursor-pointer">
                 <input type="checkbox"

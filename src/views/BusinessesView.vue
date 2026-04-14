@@ -47,7 +47,7 @@ async function toggleActive(biz: FullBusiness) {
   try {
     await http.put(`/businesses/${biz.id}`, { isActive: !biz.isActive })
     await businesses.load()
-    toast.success(biz.isActive ? 'Бизнес выключен' : 'Бизнес включён')
+    toast.success(biz.isActive ? 'Проект выключен' : 'Проект включён')
   } catch (e: any) {
     toast.error(e.message || 'Ошибка')
   } finally {
@@ -63,14 +63,14 @@ onMounted(() => {
 <template>
   <div>
     <div class="flex items-center justify-between mb-6">
-      <h1 class="text-xl md:text-2xl font-bold">Бизнесы</h1>
+      <h1 class="text-xl md:text-2xl font-bold">Проекты</h1>
       <button
         v-if="isAdmin"
         @click="showCreateForm = true"
         class="flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium"
       >
         <Plus :size="16" />
-        Создать бизнес
+        Создать проект
       </button>
     </div>
 
@@ -146,7 +146,7 @@ onMounted(() => {
     <Teleport to="body">
       <div v-if="showCreateForm" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" @click.self="showCreateForm = false">
         <div class="bg-white dark:bg-gray-900 rounded-2xl p-6 w-full max-w-md shadow-xl">
-          <h2 class="text-lg font-bold mb-4">Создать бизнес</h2>
+          <h2 class="text-lg font-bold mb-4">Создать проект</h2>
           <div class="space-y-3">
             <div>
               <label class="block text-sm font-medium mb-1">Название</label>

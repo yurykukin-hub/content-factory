@@ -117,7 +117,7 @@ async function uploadPhoto(event: Event) {
   if (!input.files?.length) return
 
   const bizId = form.value.businessIds[0] || businesses.businesses[0]?.id
-  if (!bizId) { toast.error('Выберите бизнес'); return }
+  if (!bizId) { toast.error('Выберите проект'); return }
 
   const formData = new FormData()
   formData.append('file', input.files[0])
@@ -274,9 +274,9 @@ onMounted(loadCharacters)
               <p class="text-[10px] text-gray-400 mt-0.5">Опишите внешность — AI использует это при генерации</p>
             </div>
 
-            <!-- Бизнесы (мультивыбор) -->
+            <!-- Проекты (мультивыбор) -->
             <div>
-              <label class="block text-xs font-medium mb-1.5">Бизнесы *</label>
+              <label class="block text-xs font-medium mb-1.5">Проекты *</label>
               <div class="flex flex-wrap gap-1.5">
                 <label
                   v-for="biz in businesses.businesses" :key="biz.id"
@@ -291,7 +291,7 @@ onMounted(loadCharacters)
                   {{ biz.name }}
                 </label>
               </div>
-              <p class="text-[10px] text-gray-400 mt-1">Персонаж будет доступен для AI-генерации в выбранных бизнесах</p>
+              <p class="text-[10px] text-gray-400 mt-1">Персонаж будет доступен для AI-генерации в выбранных проектах</p>
             </div>
 
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -341,7 +341,7 @@ onMounted(loadCharacters)
       >
         <div class="bg-white dark:bg-gray-900 rounded-2xl p-5 w-full max-w-sm shadow-xl">
           <h3 class="text-base font-bold mb-2">Удалить персонажа?</h3>
-          <p class="text-sm text-gray-500 mb-4">Персонаж будет удалён из всех бизнесов. Это нельзя отменить.</p>
+          <p class="text-sm text-gray-500 mb-4">Персонаж будет удалён из всех проектов. Это нельзя отменить.</p>
           <div class="flex gap-2">
             <button @click="deleteConfirmId = null" class="flex-1 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800">
               Отмена
