@@ -84,6 +84,24 @@ User, UserBusiness, Business, BrandProfile, PlatformAccount, ContentPlan, Conten
 - [2026-04-13] POST /api/ai/enhance-video-prompt — улучшение видео-промптов (Subject→Action→Camera→Style→Quality)
 - [2026-04-13] MediaFolder модель добавлена (folderId в MediaFile, FolderTree self-relation)
 
+## Content Factory v2 продолжение (2026-04-14)
+- [2026-04-14] Видео-студия: отдельная страница /video-studio (VideoStudioView), 2/3 генератор + 1/3 превью
+- [2026-04-14] 3 режима входа: Референсы (до 9, @Image1..@Image9) / Кадры (first+last frame) / Только текст
+- [2026-04-14] Prompt Constructor: PromptConstructor.vue — 6 секций (Subject/Action/Camera/Lighting/Style/Audio), auto-assembly на EN
+- [2026-04-14] Prompt Library: PromptEntry модель, auto-save при генерации, 5-star рейтинг, click-to-reuse
+- [2026-04-14] PromptTemplate модель: редактируемые шаблоны в БД (per-business + глобальные, isSystem)
+- [2026-04-14] AI Vision merge: POST /api/ai/merge-references — Gemini Flash (vision) распознаёт фото и вставляет @Image теги в промпт
+- [2026-04-14] aiVision() в openrouter.ts — multimodal messages с image_url для vision-моделей
+- [2026-04-14] Динамическая стоимость видео: 41 кр/с (text) / 25 кр/с (image), audio ×2, computed в ₽ (курс 95)
+- [2026-04-14] Image-to-video: firstFrameUrl + lastFrameUrl + referenceImageUrls параметры в generateVideo
+- [2026-04-14] Референсы с ролями: dropdown (Лицо/Фон/Объект/Стиль/Одежда/Поза), конструктор вставляет "Using ... from @Image1"
+- [2026-04-14] Стоимость и модель видны ДО генерации во всех модалах (фото, видео, edit)
+- [2026-04-14] ADMIN-only: Video Studio, Scenarios, Characters, AI Video кнопка в StoryEditor
+- [2026-04-14] Layout перестроен: Режим → Входные изображения → Промпт → Шаблоны → Настройки рендеринга
+- [2026-04-14] Schema: +PromptEntry, +PromptTemplate (22 модели, 8 enums)
+- [2026-04-14] Routes: +prompt-library.ts, +prompt-templates.ts (20 route-файлов)
+- [2026-04-14] Haiku 3.5 НЕ поддерживает vision — для merge-references используется google/gemini-2.0-flash-001
+
 ## Паттерны
 - HTTP client: fetch + httpOnly cookie + X-Tab-ID (из nawode-erp)
 - Auth: JWT в httpOnly cookie, requireAuth middleware
