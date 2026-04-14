@@ -305,6 +305,50 @@ ${storyContext}
   }
 })
 
+// POST /api/ai/suggest-video-templates — AI генерирует шаблоны промптов для видео
+ai.post('/suggest-video-templates', async (c) => {
+  const data = suggestTemplatesSchema.parse(await c.req.json())
+  const user = c.get('user') as AuthUser
+  try {
+    await assertBusinessAccess(user, data.businessId)
+  } catch (e: any) {
+    if (e.message === 'FORBIDDEN') return c.json({ error: 'Нет доступа' }, 403)
+    throw e
+  }
+
+  const brandContext = await buildBrandContext(data.businessId)
+  const storyContext = data.storyTitle || data.storyText
+    ? `\nТекущая история: "${data.storyTitle}" / "${data.storyText}"`
+    : ''
+
+  const result = await aiComplete({
+    systemPrompt: `Ты — AI-помощник для генерации видео.
+${brandContext}
+${storyContext}
+
+Сгенерируй 5 шаблонов промптов для AI-генерации коротких видео (5-10 сек, Stories 9:16).
+Описывай движение камеры, динамику, атмосферу. Учитывай бренд и ЦА.
+
+Верни JSON-массив:
+[{"emoji": "🎬", "name": "Краткое название (2-3 слова)", "prompt": "Описание сцены с движением камеры, 1-2 предложения"}]
+
+ТОЛЬКО JSON-массив, без пояснений и markdown.`,
+    userPrompt: 'Сгенерируй 5 шаблонов промптов для видео',
+    model: config.models.haiku,
+    maxTokens: 800,
+    businessId: data.businessId,
+    action: 'suggest_video_templates',
+  })
+
+  try {
+    const jsonMatch = result.content.match(/\[[\s\S]*\]/)
+    const suggestions = jsonMatch ? JSON.parse(jsonMatch[0]) : []
+    return c.json({ suggestions })
+  } catch {
+    return c.json({ suggestions: [] })
+  }
+})
+
 // POST /api/ai/adapt — адаптация мастер-текста под платформы
 const adaptSchema = z.object({
   postId: z.string(),

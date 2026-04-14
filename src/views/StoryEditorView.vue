@@ -153,14 +153,10 @@ const videoCostUsd = computed(() => {
 })
 const videoCostRub = computed(() => Math.round(videoCostUsd.value * USD_TO_RUB))
 
-const VIDEO_TEMPLATES = [
-  { label: 'SUP рассвет', prompt: 'SUP-борд на спокойной воде на рассвете, плавное отражение солнца, лёгкий туман' },
-  { label: 'Динамика', prompt: 'Быстрое движение камеры вдоль набережной, энергичная атмосфера, солнечный день' },
-  { label: 'Природа', prompt: 'Спокойный лесной пейзаж с озером, птицы, плавное панорамирование' },
-  { label: 'Продукт', prompt: 'Крупный план продукта, медленное вращение на 360°, студийный свет' },
-  { label: 'Ивент', prompt: 'Концертная площадка с цветным освещением, энергичная толпа, динамичные переходы' },
-  { label: 'Атмосфера', prompt: 'Закат над городом, тёплые тона, медленный дрон-пролёт, кинематографично' },
-]
+// Video prompt templates — loaded from DB (per-business) + AI suggestions
+const videoTemplates = ref<{ id: string; name: string; emoji: string; prompt: string }[]>([])
+const aiVideoSuggestions = ref<{ name: string; emoji: string; prompt: string }[]>([])
+const suggestingVideoTemplates = ref(false)
 
 // Characters for AI image generation
 interface CharacterRef {
@@ -483,10 +479,13 @@ async function loadPost() {
     try {
       storyTemplates.value = await http.get<DbStoryTemplate[]>(`/businesses/${post.value.businessId}/story-templates`)
     } catch {}
-    // Load image prompt templates from DB (global + per-business)
+    // Load prompt templates from DB (global + per-business)
     try {
       imageTemplates.value = await http.get<any[]>(`/prompt-templates?type=image&businessId=${post.value.businessId}`)
     } catch { imageTemplates.value = [] }
+    try {
+      videoTemplates.value = await http.get<any[]>(`/prompt-templates?type=video&businessId=${post.value.businessId}`)
+    } catch { videoTemplates.value = [] }
     loadCharacters(post.value.businessId)
     try {
       const bp = await http.get<{ links?: { label: string; url: string }[] }>(`/businesses/${post.value.businessId}/brand-profile`)
@@ -604,6 +603,20 @@ async function suggestTemplates() {
     aiSuggestions.value = res.suggestions || []
   } catch (e: any) { toast.error('Ошибка: ' + (e.message || e)) }
   finally { suggestingTemplates.value = false }
+}
+
+async function suggestVideoTemplates() {
+  if (!post.value) return
+  suggestingVideoTemplates.value = true
+  try {
+    const res = await http.post<{ suggestions: any[] }>('/ai/suggest-video-templates', {
+      businessId: post.value.businessId,
+      storyTitle: storyTitle.value || '',
+      storyText: overlayText.value || '',
+    })
+    aiVideoSuggestions.value = res.suggestions || []
+  } catch (e: any) { toast.error('Ошибка: ' + (e.message || e)) }
+  finally { suggestingVideoTemplates.value = false }
 }
 
 async function generateAiImage() {
@@ -1410,13 +1423,27 @@ onUnmounted(() => {
         </h2>
 
         <div class="space-y-4">
-          <!-- Template pills -->
-          <div>
+          <!-- Template pills (from DB) -->
+          <div v-if="videoTemplates.length">
             <label class="block text-xs font-medium text-gray-500 mb-1.5">Шаблоны</label>
             <div class="flex flex-wrap gap-1.5">
-              <button v-for="t in VIDEO_TEMPLATES" :key="t.label" @click="videoPrompt = t.prompt"
+              <button v-for="t in videoTemplates" :key="t.id" @click="videoPrompt = t.prompt"
                 class="px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-200 dark:hover:bg-emerald-800 transition-colors">
-                {{ t.label }}
+                {{ t.emoji }} {{ t.name }}
+              </button>
+            </div>
+          </div>
+          <!-- AI suggest -->
+          <div>
+            <button @click="suggestVideoTemplates" :disabled="suggestingVideoTemplates"
+              class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-emerald-300 dark:border-emerald-700 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950 disabled:opacity-50 transition-colors">
+              <Loader2 v-if="suggestingVideoTemplates" :size="14" class="animate-spin" /><Wand2 v-else :size="14" />
+              {{ suggestingVideoTemplates ? 'Подбираю...' : '✨ Подобрать по контексту' }}
+            </button>
+            <div v-if="aiVideoSuggestions.length" class="flex flex-wrap gap-1.5 mt-2">
+              <button v-for="s in aiVideoSuggestions" :key="s.name" @click="videoPrompt = s.prompt"
+                class="px-2.5 py-1 rounded-full text-xs font-medium bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300 hover:bg-amber-200 dark:hover:bg-amber-800 transition-colors">
+                {{ s.emoji }} {{ s.name }}
               </button>
             </div>
           </div>
