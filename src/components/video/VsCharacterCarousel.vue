@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { UserCircle } from 'lucide-vue-next'
+import { UserCircle, Plus } from 'lucide-vue-next'
 
 interface CharacterRef {
   id: string
@@ -18,6 +18,7 @@ defineProps<{
 
 const emit = defineEmits<{
   'update:modelValue': [value: string | null]
+  'createNew': []
 }>()
 
 const hoveredId = ref<string | null>(null)
@@ -53,6 +54,15 @@ const TYPE_LABELS: Record<string, string> = {
           <UserCircle :size="18" :class="modelValue === null ? 'text-emerald-500' : 'text-gray-400'" />
         </div>
         <span class="text-[9px] text-gray-400 truncate max-w-[48px]">Без</span>
+      </button>
+
+      <!-- Create new -->
+      <button @click="emit('createNew')"
+        class="flex flex-col items-center gap-1 shrink-0 group">
+        <div class="w-11 h-11 rounded-full border-2 border-dashed border-gray-300 dark:border-gray-700 flex items-center justify-center group-hover:border-emerald-400 transition-all">
+          <Plus :size="16" class="text-gray-400 group-hover:text-emerald-500 transition-colors" />
+        </div>
+        <span class="text-[9px] text-gray-400">Создать</span>
       </button>
 
       <!-- Characters -->

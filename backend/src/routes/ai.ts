@@ -807,4 +807,37 @@ Available reference tags: ${imageLabels}`
   return c.json({ mergedPrompt: result.content.trim() })
 })
 
+// POST /api/ai/describe-image — AI Vision описывает фото для референса
+const describeImageSchema = z.object({
+  imageUrl: z.string(),
+  type: z.enum(['person', 'mascot', 'avatar', 'object', 'location']).default('person'),
+})
+
+ai.post('/describe-image', async (c) => {
+  const data = describeImageSchema.parse(await c.req.json())
+
+  const typeHints: Record<string, string> = {
+    person: 'Describe this person: appearance, hair, clothing, distinguishing features. Be specific and concise.',
+    mascot: 'Describe this mascot/character: visual style, colors, key features, expression.',
+    avatar: 'Describe this avatar: visual style, colors, key features.',
+    object: 'Describe this object: shape, material, color, size, distinguishing details.',
+    location: 'Describe this location/place: setting, atmosphere, key visual elements, lighting.',
+  }
+
+  const publicUrl = data.imageUrl.startsWith('/uploads/')
+    ? `${config.isProd ? 'https://content.yurykukin.ru' : `http://localhost:${config.port}`}${data.imageUrl}`
+    : data.imageUrl
+
+  const result = await aiVision({
+    systemPrompt: 'You are a visual description expert for AI video generation. Write descriptions in English, under 100 characters. Focus on visual features only.',
+    userPrompt: typeHints[data.type] || typeHints.person,
+    imageUrls: [publicUrl],
+    model: config.models.vision,
+    businessId: null,
+    action: 'describe_reference',
+  })
+
+  return c.json({ description: result.content.trim() })
+})
+
 export { ai }

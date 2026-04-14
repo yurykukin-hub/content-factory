@@ -35,9 +35,12 @@ function formatCharacter(char: any) {
 const characterSchema = z.object({
   name: z.string().min(1).max(100),
   description: z.string().max(1000).default(''),
-  type: z.enum(['person', 'mascot', 'avatar']).default('person'),
+  type: z.enum(['person', 'mascot', 'avatar', 'object', 'location']).default('person'),
   style: z.string().max(50).default(''),
   referenceMediaId: z.string().optional().nullable(),
+  additionalAngles: z.array(z.object({
+    url: z.string(), thumbUrl: z.string().nullable(), filename: z.string(),
+  })).max(3).optional().nullable(),
   isActive: z.boolean().default(true),
   businessIds: z.array(z.string()).min(1, 'Выберите хотя бы 1 бизнес'),
 })

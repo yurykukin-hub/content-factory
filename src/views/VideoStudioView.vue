@@ -11,6 +11,7 @@ import VsSettingsPanel from '@/components/video/VsSettingsPanel.vue'
 import VsGallery from '@/components/video/VsGallery.vue'
 import VsConstructorDrawer from '@/components/video/VsConstructorDrawer.vue'
 import MediaPickerModal from '@/components/MediaPickerModal.vue'
+import VsCreateRefModal from '@/components/video/VsCreateRefModal.vue'
 import { Video, ChevronDown } from 'lucide-vue-next'
 
 const toast = useToast()
@@ -50,6 +51,7 @@ const lastFrame = ref<{ url: string; thumbUrl?: string | null; filename: string 
 const refImages = ref<{ url: string; thumbUrl?: string | null; filename: string; altText?: string | null }[]>([])
 const showMediaPicker = ref(false)
 const showCharacterPicker = ref(false)
+const showCreateRef = ref(false)
 
 // Characters
 interface CharacterRef { id: string; name: string; type: string; description?: string | null; style?: string | null; referenceMedia?: { url: string; thumbUrl: string | null } | null }
@@ -323,10 +325,11 @@ onMounted(() => { loadCharacters(); loadVideos(); loadSavedPrompts() })
       <!-- LEFT PANEL: Generator -->
       <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 overflow-hidden flex flex-col lg:max-h-[calc(100vh-140px)]">
         <VsModeTabs v-model="inputMode" />
-        <VsCharacterCarousel v-if="characters.length"
+        <VsCharacterCarousel
           :characters="characters"
           :model-value="selectedCharacterId"
-          @update:model-value="onCharacterSelect" />
+          @update:model-value="onCharacterSelect"
+          @create-new="showCreateRef = true" />
         <div class="flex-1 overflow-y-auto">
           <VsPromptArea
             ref="vsPromptAreaRef"
@@ -381,6 +384,13 @@ onMounted(() => { loadCharacters(); loadVideos(); loadSavedPrompts() })
       v-model:visible="showConstructor"
       v-model="prompt"
       :reference-images="inputMode === 'references' ? refImages : []" />
+
+    <!-- Create Reference Modal -->
+    <VsCreateRefModal
+      :visible="showCreateRef"
+      :business-id="selectedBizId || ''"
+      @close="showCreateRef = false"
+      @created="loadCharacters()" />
 
     <!-- Media Picker Modal -->
     <MediaPickerModal
