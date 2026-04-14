@@ -71,7 +71,58 @@ defineExpose({ insertBadge })
 <template>
   <div class="px-4 py-3 space-y-3">
 
-    <!-- 1. RICH PROMPT (contenteditable with badges) -->
+    <!-- 1. INPUT IMAGES (above prompt, Kling-style) -->
+
+    <!-- Frames mode -->
+    <div v-if="inputMode === 'frames'" class="flex gap-2">
+      <div v-for="which in (['first', 'last'] as const)" :key="which">
+        <div v-if="(which === 'first' ? firstFrame : lastFrame)"
+          class="relative group w-16 h-16 rounded-xl overflow-hidden border-2 border-emerald-200 dark:border-emerald-800">
+          <img :src="(which === 'first' ? firstFrame : lastFrame)!.thumbUrl || (which === 'first' ? firstFrame : lastFrame)!.url"
+            class="w-full h-full object-cover" />
+          <div class="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+            <button @click="emit('removeFrame', which)" class="p-1.5 bg-red-500/80 rounded-full">
+              <Trash2 :size="10" class="text-white" />
+            </button>
+          </div>
+          <span class="absolute bottom-0.5 left-0.5 px-1 py-0.5 bg-black/70 text-white text-[7px] rounded font-mono">
+            {{ which === 'first' ? '1st' : 'last' }}
+          </span>
+        </div>
+        <label v-else
+          class="w-16 h-16 rounded-xl border-2 border-dashed border-gray-300 dark:border-gray-700 flex flex-col items-center justify-center cursor-pointer hover:border-emerald-400 transition-colors">
+          <Image :size="16" class="text-gray-400" />
+          <span class="text-[7px] text-gray-400 mt-0.5">{{ which === 'first' ? '1-й' : 'Посл.' }}</span>
+          <input type="file" accept="image/*" class="hidden"
+            @change="(e: Event) => emit('uploadFrame', e, which)" />
+        </label>
+      </div>
+    </div>
+
+    <!-- References mode (compact row above prompt) -->
+    <div v-if="inputMode === 'references'" class="flex items-center gap-2">
+      <label class="w-14 h-14 rounded-xl border-2 border-dashed border-gray-300 dark:border-gray-700 flex flex-col items-center justify-center cursor-pointer hover:border-emerald-400 transition-colors shrink-0"
+        v-if="refImages.length < 9">
+        <Plus :size="16" class="text-gray-400" />
+        <span class="text-[7px] text-gray-400 mt-0.5">Image</span>
+        <input type="file" accept="image/*" class="hidden" @change="(e: Event) => emit('addRef', e)" />
+      </label>
+      <div v-for="(r, idx) in refImages" :key="idx" class="relative group shrink-0">
+        <div class="w-14 h-14 rounded-xl overflow-hidden border-2 border-emerald-200 dark:border-emerald-800">
+          <img :src="r.thumbUrl || r.url" class="w-full h-full object-cover" />
+          <div class="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+            <button @click="emit('removeRef', idx)" class="p-1.5 bg-red-500/80 rounded-full">
+              <Trash2 :size="10" class="text-white" />
+            </button>
+          </div>
+          <span class="absolute bottom-0.5 left-0.5 px-1 py-0.5 bg-black/70 text-white text-[7px] rounded font-mono">
+            @{{ idx + 1 }}
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 2. RICH PROMPT (contenteditable with badges) -->
     <VsRichPrompt
       ref="richPromptRef"
       :model-value="modelValue"
@@ -135,60 +186,6 @@ defineExpose({ insertBadge })
         </button>
       </div>
       <p v-else class="text-[10px] text-gray-400">Выберите проект для генерации шаблонов</p>
-    </div>
-
-    <!-- 4. INPUT IMAGES (conditional) -->
-
-    <!-- Frames mode -->
-    <div v-if="inputMode === 'frames'" class="grid grid-cols-2 gap-3">
-      <div v-for="which in (['first', 'last'] as const)" :key="which">
-        <div v-if="(which === 'first' ? firstFrame : lastFrame)"
-          class="flex items-center gap-2 p-2.5 rounded-lg bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-200 dark:border-emerald-800">
-          <img :src="(which === 'first' ? firstFrame : lastFrame)!.thumbUrl || (which === 'first' ? firstFrame : lastFrame)!.url"
-            class="w-12 h-12 rounded-lg object-cover" />
-          <div class="flex-1 min-w-0">
-            <div class="text-xs font-medium">{{ which === 'first' ? 'Первый' : 'Последний' }} кадр</div>
-            <div class="text-[10px] text-gray-400 truncate">{{ (which === 'first' ? firstFrame : lastFrame)!.filename }}</div>
-          </div>
-          <button @click="emit('removeFrame', which)" class="p-1 text-gray-400 hover:text-red-500 transition-colors">
-            <Trash2 :size="14" />
-          </button>
-        </div>
-        <label v-else
-          class="flex flex-col items-center gap-1.5 p-4 rounded-lg border-2 border-dashed border-gray-300 dark:border-gray-700 cursor-pointer hover:border-emerald-400 transition-colors">
-          <Image :size="20" class="text-gray-400" />
-          <span class="text-xs text-gray-500">{{ which === 'first' ? 'Первый' : 'Последний' }} кадр</span>
-          <input type="file" accept="image/*" class="hidden"
-            @change="(e: Event) => emit('uploadFrame', e, which)" />
-        </label>
-      </div>
-    </div>
-
-    <!-- References mode (simplified — no roles, no merge) -->
-    <div v-if="inputMode === 'references'">
-      <div class="flex flex-wrap gap-3">
-        <div v-for="(r, idx) in refImages" :key="idx" class="relative group">
-          <div class="w-16 h-16 rounded-xl overflow-hidden border-2 border-emerald-200 dark:border-emerald-800">
-            <img :src="r.thumbUrl || r.url" class="w-full h-full object-cover" />
-            <div class="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
-              <button @click="emit('removeRef', idx)" class="p-1.5 bg-red-500/80 rounded-full">
-                <Trash2 :size="10" class="text-white" />
-              </button>
-            </div>
-            <span class="absolute bottom-0.5 left-0.5 px-1 py-0.5 bg-black/70 text-white text-[7px] rounded font-mono">
-              @Image{{ idx + 1 }}
-            </span>
-          </div>
-        </div>
-
-        <!-- Add button -->
-        <label v-if="refImages.length < 9"
-          class="w-16 h-16 rounded-xl border-2 border-dashed border-gray-300 dark:border-gray-700 flex flex-col items-center justify-center cursor-pointer hover:border-emerald-400 transition-colors">
-          <Plus :size="16" class="text-gray-400" />
-          <span class="text-[8px] text-gray-400 mt-0.5">{{ refImages.length }}/9</span>
-          <input type="file" accept="image/*" class="hidden" @change="(e: Event) => emit('addRef', e)" />
-        </label>
-      </div>
     </div>
 
   </div>

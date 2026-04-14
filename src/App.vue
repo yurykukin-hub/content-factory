@@ -46,7 +46,11 @@ function handleUnauthorized() {
     <div class="flex-1 flex flex-col min-w-0">
       <TheHeader />
       <main class="flex-1 p-3 md:p-6 overflow-auto">
-        <router-view />
+        <router-view v-slot="{ Component }">
+          <KeepAlive include="VideoStudioView">
+            <component :is="Component" />
+          </KeepAlive>
+        </router-view>
       </main>
     </div>
   </div>

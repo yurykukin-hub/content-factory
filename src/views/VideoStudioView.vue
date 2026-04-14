@@ -1,4 +1,5 @@
 <script setup lang="ts">
+defineOptions({ name: 'VideoStudioView' })
 import { ref, computed, onMounted } from 'vue'
 import { http } from '@/api/client'
 import { useToast } from '@/composables/useToast'
@@ -48,7 +49,7 @@ const lastFrame = ref<{ url: string; thumbUrl?: string | null; filename: string 
 const refImages = ref<{ url: string; thumbUrl?: string | null; filename: string }[]>([])
 
 // Characters
-interface CharacterRef { id: string; name: string; type: string; referenceMedia?: { url: string; thumbUrl: string | null } | null }
+interface CharacterRef { id: string; name: string; type: string; description?: string | null; style?: string | null; referenceMedia?: { url: string; thumbUrl: string | null } | null }
 const characters = ref<CharacterRef[]>([])
 const selectedCharacterId = ref<string | null>(null)
 
