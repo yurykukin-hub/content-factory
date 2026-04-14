@@ -3,23 +3,31 @@ import { ref, computed, onMounted } from 'vue'
 import { http } from '@/api/client'
 import { useToast } from '@/composables/useToast'
 import { useBusinessesStore } from '@/stores/businesses'
-import BusinessFilter from '@/components/BusinessFilter.vue'
 import VsModeTabs from '@/components/video/VsModeTabs.vue'
 import VsCharacterCarousel from '@/components/video/VsCharacterCarousel.vue'
 import VsPromptArea from '@/components/video/VsPromptArea.vue'
-import VsBottomBar from '@/components/video/VsBottomBar.vue'
+import VsSettingsPanel from '@/components/video/VsSettingsPanel.vue'
 import VsGallery from '@/components/video/VsGallery.vue'
 import VsConstructorDrawer from '@/components/video/VsConstructorDrawer.vue'
-import { Video } from 'lucide-vue-next'
+import { Video, ChevronDown } from 'lucide-vue-next'
 
 const toast = useToast()
 const businesses = useBusinessesStore()
 const selectedBizId = ref<string | null>(businesses.currentBusinessId)
 
+// --- Business dropdown ---
+const showBizDropdown = ref(false)
+const currentBizName = computed(() => businesses.businesses.find(b => b.id === selectedBizId.value)?.name || 'Выберите проект')
+function selectBiz(id: string) {
+  selectedBizId.value = id
+  businesses.setCurrent(id)
+  showBizDropdown.value = false
+  onBusinessChange()
+}
+
 // --- State ---
 const prompt = ref('')
 const enhancing = ref(false)
-const mergingRefs = ref(false)
 const generating = ref(false)
 const promptHistory = ref<string[]>([])
 const historyIndex = ref(-1)
@@ -28,14 +36,16 @@ const showConstructor = ref(false)
 // Settings
 const duration = ref(5)
 const audio = ref(true)
+const resolution = ref<'480p' | '720p'>('720p')
+const aspectRatio = ref<'9:16' | '1:1' | '16:9'>('9:16')
 const inputMode = ref<'text' | 'frames' | 'references'>('text')
 
 // Frames
 const firstFrame = ref<{ url: string; thumbUrl?: string | null; filename: string } | null>(null)
 const lastFrame = ref<{ url: string; thumbUrl?: string | null; filename: string } | null>(null)
 
-// References
-const refImages = ref<{ url: string; thumbUrl?: string | null; filename: string; role: string }[]>([])
+// References (simplified — no roles)
+const refImages = ref<{ url: string; thumbUrl?: string | null; filename: string }[]>([])
 
 // Characters
 interface CharacterRef { id: string; name: string; type: string; referenceMedia?: { url: string; thumbUrl: string | null } | null }
@@ -53,32 +63,32 @@ interface GeneratedVideo {
 }
 const generatedVideos = ref<GeneratedVideo[]>([])
 
-// --- Pricing ---
-const CREDITS_PER_SEC = 41
-const CREDITS_PER_SEC_IMG = 25
+// AI templates
+interface AiTemplate { emoji: string; name: string; prompt: string }
+const aiTemplates = ref<AiTemplate[]>([])
+const loadingTemplates = ref(false)
+const templatesLoaded = ref(false)
+
+// Prompt area ref (for badge insertion)
+const vsPromptAreaRef = ref<InstanceType<typeof VsPromptArea> | null>(null)
+
+// --- Pricing (480p/720p) ---
+const PRICING = {
+  '480p': { withImage: 11.5, textOnly: 19 },
+  '720p': { withImage: 25, textOnly: 41 },
+} as const
 const CREDIT_PRICE = 0.005
 const AUDIO_MULT = 2.0
 const USD_RUB = 95
 
-const costUsd = computed(() => {
+const costRub = computed(() => {
   const hasImg = inputMode.value !== 'text' && (firstFrame.value || refImages.value.length > 0)
-  const cps = hasImg ? CREDITS_PER_SEC_IMG : CREDITS_PER_SEC
+  const tier = PRICING[resolution.value]
+  const cps = hasImg ? tier.withImage : tier.textOnly
   const base = cps * duration.value * CREDIT_PRICE
-  return audio.value ? base * AUDIO_MULT : base
+  const usd = audio.value ? base * AUDIO_MULT : base
+  return Math.round(usd * USD_RUB)
 })
-const costRub = computed(() => Math.round(costUsd.value * USD_RUB))
-
-// --- Templates ---
-const TEMPLATES = [
-  { label: 'SUP рассвет', prompt: 'SUP-борд на спокойной воде на рассвете, плавное отражение солнца, лёгкий туман' },
-  { label: 'Динамика', prompt: 'Быстрое движение камеры вдоль набережной, энергичная атмосфера, солнечный день' },
-  { label: 'Природа', prompt: 'Спокойный лесной пейзаж с озером, птицы, плавное панорамирование' },
-  { label: 'Продукт 360°', prompt: 'Крупный план продукта, медленное вращение на 360°, студийный свет' },
-  { label: 'Ивент', prompt: 'Концертная площадка с цветным освещением, энергичная толпа, динамичные переходы' },
-  { label: 'Кинематограф', prompt: 'Кинематографичный закат над городом, тёплые тона, медленный дрон-пролёт' },
-  { label: 'Портрет', prompt: 'Портрет человека крупным планом, мягкое боке, естественный свет, лёгкая улыбка' },
-  { label: 'Еда', prompt: 'Аппетитное блюдо крупным планом, пар поднимается, тёплое освещение, shallow depth of field' },
-]
 
 // --- API functions ---
 
@@ -102,6 +112,19 @@ async function loadSavedPrompts() {
   try { savedPrompts.value = await http.get<PromptEntry[]>(`/prompt-library?businessId=${selectedBizId.value}&type=video`) } catch { savedPrompts.value = [] }
 }
 
+async function loadAiTemplates() {
+  if (templatesLoaded.value || !selectedBizId.value) return
+  loadingTemplates.value = true
+  try {
+    const res = await http.post<{ suggestions: AiTemplate[] }>('/ai/suggest-video-templates', {
+      businessId: selectedBizId.value,
+    })
+    aiTemplates.value = res.suggestions
+    templatesLoaded.value = true
+  } catch { /* silent */ }
+  finally { loadingTemplates.value = false }
+}
+
 async function enhance() {
   if (!prompt.value.trim() || !selectedBizId.value) return
   enhancing.value = true
@@ -123,7 +146,8 @@ async function generate() {
   try {
     const payload: any = {
       businessId: selectedBizId.value, prompt: prompt.value,
-      duration: duration.value, aspectRatio: '9:16', generateAudio: audio.value,
+      duration: duration.value, aspectRatio: aspectRatio.value,
+      resolution: resolution.value, generateAudio: audio.value,
     }
     if (inputMode.value === 'frames' && firstFrame.value) {
       payload.firstFrameUrl = firstFrame.value.url
@@ -137,31 +161,21 @@ async function generate() {
     historyIndex.value = promptHistory.value.length - 1
     generatedVideos.value.unshift(result.mediaFile)
     // Auto-save to library
+    const costUsd = (() => {
+      const hasImg = inputMode.value !== 'text' && (firstFrame.value || refImages.value.length > 0)
+      const tier = PRICING[resolution.value]
+      const cps = hasImg ? tier.withImage : tier.textOnly
+      const base = cps * duration.value * CREDIT_PRICE
+      return audio.value ? base * AUDIO_MULT : base
+    })()
     http.post('/prompt-library', {
       businessId: selectedBizId.value, type: 'video', prompt: prompt.value,
       resultUrl: result.mediaFile.url,
-      metadata: { duration: duration.value, model: 'bytedance/seedance-2', cost: costUsd.value, audio: audio.value, inputMode: inputMode.value },
+      metadata: { duration: duration.value, model: 'bytedance/seedance-2', resolution: resolution.value, cost: costUsd, audio: audio.value, inputMode: inputMode.value },
     }).catch(() => {})
     toast.success(`Видео готово (${duration.value} сек)`)
   } catch (e: any) { toast.error(e.message || 'Ошибка генерации') }
   finally { generating.value = false }
-}
-
-async function mergeReferences() {
-  if (!selectedBizId.value || !refImages.value.length) return
-  mergingRefs.value = true
-  try {
-    const res = await http.post<{ mergedPrompt: string }>('/ai/merge-references', {
-      businessId: selectedBizId.value,
-      prompt: prompt.value || '',
-      imageUrls: refImages.value.map(r => r.url),
-    })
-    prompt.value = res.mergedPrompt
-    promptHistory.value.push(res.mergedPrompt)
-    historyIndex.value = promptHistory.value.length - 1
-    toast.success('AI распознал фото и вставил теги')
-  } catch (e: any) { toast.error(e.message || 'Ошибка') }
-  finally { mergingRefs.value = false }
 }
 
 function historyBack() { if (historyIndex.value > 0) { historyIndex.value--; prompt.value = promptHistory.value[historyIndex.value] } }
@@ -195,7 +209,13 @@ async function addRef(event: Event) {
     const res = await fetch('/api/media/upload', { method: 'POST', credentials: 'include', body: fd })
     if (!res.ok) throw new Error()
     const m = await res.json()
-    refImages.value.push({ url: m.url, thumbUrl: m.thumbUrl, filename: m.filename, role: '' })
+    const img = { url: m.url, thumbUrl: m.thumbUrl, filename: m.filename }
+    refImages.value.push(img)
+    // Auto-insert badge into prompt
+    const idx = refImages.value.length
+    vsPromptAreaRef.value?.insertBadge({
+      badgeType: 'image', id: `img_${idx}`, name: `Image${idx}`, thumbUrl: img.thumbUrl || null,
+    })
   } catch { toast.error('Ошибка загрузки') }
   input.value = ''
 }
@@ -213,10 +233,27 @@ function usePrompt(entry: PromptEntry) {
   toast.success('Промпт загружен')
 }
 
+function onCharacterSelect(id: string | null) {
+  selectedCharacterId.value = id
+  if (id) {
+    const char = characters.value.find(c => c.id === id)
+    if (char) {
+      vsPromptAreaRef.value?.insertBadge({
+        badgeType: 'character',
+        id: char.id,
+        name: char.name,
+        thumbUrl: char.referenceMedia?.thumbUrl || char.referenceMedia?.url || null,
+      })
+    }
+  }
+}
+
 function onBusinessChange() {
   loadCharacters()
   loadVideos()
   loadSavedPrompts()
+  templatesLoaded.value = false
+  aiTemplates.value = []
 }
 
 onMounted(() => { loadCharacters(); loadVideos(); loadSavedPrompts() })
@@ -224,37 +261,63 @@ onMounted(() => { loadCharacters(); loadVideos(); loadSavedPrompts() })
 
 <template>
   <div>
-    <!-- Header -->
+    <!-- Header with inline business dropdown -->
     <div class="flex items-center justify-between mb-4">
-      <h1 class="text-xl md:text-2xl font-bold flex items-center gap-2">
-        <Video :size="24" class="text-emerald-500" />
-        Видео-студия
-      </h1>
+      <div class="flex items-center gap-3">
+        <h1 class="text-xl md:text-2xl font-bold flex items-center gap-2">
+          <Video :size="24" class="text-emerald-500" />
+          Видео-студия
+        </h1>
+
+        <!-- Business dropdown -->
+        <div v-if="businesses.businesses.length > 1" class="relative">
+          <button @click="showBizDropdown = !showBizDropdown"
+            class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-sm hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+            <span class="truncate max-w-[160px]">{{ currentBizName }}</span>
+            <ChevronDown :size="14" :class="['transition-transform', showBizDropdown ? 'rotate-180' : '']" />
+          </button>
+          <!-- Backdrop -->
+          <div v-if="showBizDropdown" class="fixed inset-0 z-10" @click="showBizDropdown = false" />
+          <!-- Menu -->
+          <div v-if="showBizDropdown"
+            class="absolute top-full left-0 mt-1 min-w-[200px] bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl shadow-lg z-20 py-1 overflow-hidden">
+            <button v-for="biz in businesses.businesses" :key="biz.id"
+              @click="selectBiz(biz.id)"
+              :class="[
+                'w-full text-left px-3 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors',
+                selectedBizId === biz.id ? 'text-emerald-600 dark:text-emerald-400 font-medium bg-emerald-50 dark:bg-emerald-900/20' : 'text-gray-700 dark:text-gray-300'
+              ]">
+              {{ biz.name }}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
-    <BusinessFilter v-model="selectedBizId" @update:model-value="onBusinessChange" />
 
     <!-- Main 50/50 grid -->
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
       <!-- LEFT PANEL: Generator -->
-      <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 overflow-hidden flex flex-col lg:max-h-[calc(100vh-160px)]">
+      <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 overflow-hidden flex flex-col lg:max-h-[calc(100vh-140px)]">
         <VsModeTabs v-model="inputMode" />
         <VsCharacterCarousel v-if="characters.length"
-          :characters="characters" v-model="selectedCharacterId" />
+          :characters="characters"
+          :model-value="selectedCharacterId"
+          @update:model-value="onCharacterSelect" />
         <div class="flex-1 overflow-y-auto">
           <VsPromptArea
+            ref="vsPromptAreaRef"
             v-model="prompt"
             :input-mode="inputMode"
             :ref-images="refImages"
             :first-frame="firstFrame"
             :last-frame="lastFrame"
             :enhancing="enhancing"
-            :merging-refs="mergingRefs"
             :prompt-history="promptHistory"
             :history-index="historyIndex"
-            :templates="TEMPLATES"
+            :templates="aiTemplates"
+            :loading-templates="loadingTemplates"
             @enhance="enhance"
-            @merge-references="mergeReferences"
             @history-back="historyBack"
             @history-forward="historyForward"
             @upload-frame="uploadFrame"
@@ -262,19 +325,21 @@ onMounted(() => { loadCharacters(); loadVideos(); loadSavedPrompts() })
             @remove-ref="(idx) => refImages.splice(idx, 1)"
             @remove-frame="(w) => w === 'first' ? firstFrame = null : lastFrame = null"
             @open-constructor="showConstructor = true"
-            @update-ref-role="(idx, role) => refImages[idx].role = role"
-            @apply-template="(t) => prompt = t" />
+            @apply-template="(t) => prompt = t"
+            @load-templates="loadAiTemplates" />
         </div>
-        <VsBottomBar
+        <VsSettingsPanel
           :duration="duration"
           :audio="audio"
+          :resolution="resolution"
+          :aspect-ratio="aspectRatio"
           :cost-rub="costRub"
-          :cost-usd="costUsd"
           :generating="generating"
           :can-generate="!!prompt.trim() && !!selectedBizId"
-          :input-mode="inputMode"
           @update:duration="duration = $event"
           @update:audio="audio = $event"
+          @update:resolution="resolution = $event"
+          @update:aspect-ratio="aspectRatio = $event"
           @generate="generate" />
       </div>
 

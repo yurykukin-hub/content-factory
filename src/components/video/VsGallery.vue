@@ -127,7 +127,7 @@ const showVideos = computed(() => activeFilter.value !== 'prompts' && activeFilt
             </p>
             <div class="flex items-center justify-between">
               <div class="flex items-center gap-2 text-[10px] text-gray-400">
-                <span v-if="v.aiCostUsd">${{ v.aiCostUsd.toFixed(2) }}</span>
+                <span v-if="v.aiCostUsd">{{ Math.round(v.aiCostUsd * 95) }} &#8381;</span>
                 <span>{{ formatDate(v.createdAt) }}</span>
               </div>
               <div class="flex items-center gap-0.5">
@@ -159,7 +159,7 @@ const showVideos = computed(() => activeFilter.value !== 'prompts' && activeFilt
             </div>
             <div class="flex items-center gap-1.5 text-[9px] text-gray-400">
               <span v-if="entry.metadata?.duration">{{ entry.metadata.duration }}с</span>
-              <span v-if="entry.metadata?.cost">${{ entry.metadata.cost.toFixed(2) }}</span>
+              <span v-if="entry.metadata?.cost">{{ Math.round(entry.metadata.cost * 95) }} &#8381;</span>
             </div>
           </div>
         </div>

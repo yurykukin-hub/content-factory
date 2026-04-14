@@ -3,7 +3,9 @@ import {
   Wand2, Loader2, PenTool, ChevronLeft, ChevronRight, ChevronDown, ChevronUp,
   Image, Trash2, Plus, Sparkles,
 } from 'lucide-vue-next'
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
+import VsRichPrompt from './VsRichPrompt.vue'
+import type { BadgeData } from './VsRichPrompt.vue'
 
 interface FrameRef {
   url: string
@@ -15,31 +17,30 @@ interface RefImage {
   url: string
   thumbUrl?: string | null
   filename: string
-  role: string
 }
 
-interface Template {
-  label: string
+interface AiTemplate {
+  emoji: string
+  name: string
   prompt: string
 }
 
-defineProps<{
+const props = defineProps<{
   modelValue: string
   inputMode: 'text' | 'frames' | 'references'
   refImages: RefImage[]
   firstFrame: FrameRef | null
   lastFrame: FrameRef | null
   enhancing: boolean
-  mergingRefs: boolean
   promptHistory: string[]
   historyIndex: number
-  templates: Template[]
+  templates: AiTemplate[]
+  loadingTemplates: boolean
 }>()
 
 const emit = defineEmits<{
   'update:modelValue': [value: string]
   enhance: []
-  mergeReferences: []
   historyBack: []
   historyForward: []
   uploadFrame: [event: Event, which: 'first' | 'last']
@@ -47,25 +48,34 @@ const emit = defineEmits<{
   removeRef: [index: number]
   removeFrame: [which: 'first' | 'last']
   openConstructor: []
-  updateRefRole: [index: number, role: string]
   applyTemplate: [prompt: string]
+  loadTemplates: []
 }>()
 
 const showTemplates = ref(false)
+const richPromptRef = ref<InstanceType<typeof VsRichPrompt> | null>(null)
+
+watch(showTemplates, (val) => {
+  if (val && !props.templates.length && !props.loadingTemplates) {
+    emit('loadTemplates')
+  }
+})
+
+function insertBadge(badge: BadgeData) {
+  richPromptRef.value?.insertBadge(badge)
+}
+
+defineExpose({ insertBadge })
 </script>
 
 <template>
   <div class="px-4 py-3 space-y-3">
 
-    <!-- 1. TEXTAREA -->
-    <div>
-      <textarea
-        :value="modelValue"
-        @input="emit('update:modelValue', ($event.target as HTMLTextAreaElement).value)"
-        rows="5"
-        placeholder="Опишите видео: объект, действие, камера, освещение, настроение..."
-        class="w-full px-4 py-3 rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 text-sm resize-none outline-none transition-colors" />
-    </div>
+    <!-- 1. RICH PROMPT (contenteditable with badges) -->
+    <VsRichPrompt
+      ref="richPromptRef"
+      :model-value="modelValue"
+      @update:model-value="emit('update:modelValue', $event)" />
 
     <!-- 2. ACTION ROW -->
     <div class="flex items-center gap-2 flex-wrap">
@@ -87,11 +97,11 @@ const showTemplates = ref(false)
       <!-- Templates toggle -->
       <button @click="showTemplates = !showTemplates"
         class="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
+        <Sparkles :size="12" class="text-purple-400" />
         <component :is="showTemplates ? ChevronUp : ChevronDown" :size="12" />
         Шаблоны
       </button>
 
-      <!-- Spacer -->
       <div class="flex-1" />
 
       <!-- History nav -->
@@ -108,13 +118,23 @@ const showTemplates = ref(false)
       </div>
     </div>
 
-    <!-- 3. TEMPLATES (collapsible) -->
-    <div v-if="showTemplates" class="flex flex-wrap gap-1.5">
-      <button v-for="t in templates" :key="t.label"
-        @click="emit('applyTemplate', t.prompt)"
-        class="px-2.5 py-1.5 rounded-full text-xs font-medium bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-200 dark:hover:bg-emerald-800 transition-colors">
-        {{ t.label }}
-      </button>
+    <!-- 3. TEMPLATES (collapsible, AI-generated) -->
+    <div v-if="showTemplates">
+      <!-- Loading skeleton -->
+      <div v-if="loadingTemplates" class="flex flex-wrap gap-1.5">
+        <div v-for="i in 5" :key="i"
+          class="h-7 rounded-full bg-gray-200 dark:bg-gray-700 animate-pulse"
+          :style="{ width: (60 + Math.random() * 40) + 'px' }" />
+      </div>
+      <!-- Template pills -->
+      <div v-else-if="templates.length" class="flex flex-wrap gap-1.5">
+        <button v-for="t in templates" :key="t.name"
+          @click="emit('applyTemplate', t.prompt)"
+          class="px-2.5 py-1.5 rounded-full text-xs font-medium bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-200 dark:hover:bg-emerald-800 transition-colors">
+          {{ t.emoji }} {{ t.name }}
+        </button>
+      </div>
+      <p v-else class="text-[10px] text-gray-400">Выберите проект для генерации шаблонов</p>
     </div>
 
     <!-- 4. INPUT IMAGES (conditional) -->
@@ -144,11 +164,11 @@ const showTemplates = ref(false)
       </div>
     </div>
 
-    <!-- References mode -->
+    <!-- References mode (simplified — no roles, no merge) -->
     <div v-if="inputMode === 'references'">
-      <div class="flex flex-wrap gap-3 mb-2">
-        <div v-for="(r, idx) in refImages" :key="idx" class="flex flex-col items-center gap-1">
-          <div class="relative group w-16 h-16 rounded-xl overflow-hidden border-2 border-emerald-200 dark:border-emerald-800">
+      <div class="flex flex-wrap gap-3">
+        <div v-for="(r, idx) in refImages" :key="idx" class="relative group">
+          <div class="w-16 h-16 rounded-xl overflow-hidden border-2 border-emerald-200 dark:border-emerald-800">
             <img :src="r.thumbUrl || r.url" class="w-full h-full object-cover" />
             <div class="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
               <button @click="emit('removeRef', idx)" class="p-1.5 bg-red-500/80 rounded-full">
@@ -159,17 +179,6 @@ const showTemplates = ref(false)
               @Image{{ idx + 1 }}
             </span>
           </div>
-          <select :value="r.role"
-            @change="emit('updateRefRole', idx, ($event.target as HTMLSelectElement).value)"
-            class="w-16 px-0.5 py-0.5 rounded text-[8px] bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-center">
-            <option value="">Роль...</option>
-            <option value="face">Лицо</option>
-            <option value="background">Фон</option>
-            <option value="object">Объект</option>
-            <option value="style">Стиль</option>
-            <option value="outfit">Одежда</option>
-            <option value="pose">Поза</option>
-          </select>
         </div>
 
         <!-- Add button -->
@@ -180,18 +189,6 @@ const showTemplates = ref(false)
           <input type="file" accept="image/*" class="hidden" @change="(e: Event) => emit('addRef', e)" />
         </label>
       </div>
-
-      <!-- Merge button -->
-      <div v-if="refImages.length" class="flex items-center gap-2">
-        <button @click="emit('mergeReferences')" :disabled="mergingRefs"
-          class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-purple-600 hover:bg-purple-700 text-white disabled:opacity-50 transition-colors">
-          <Loader2 v-if="mergingRefs" :size="12" class="animate-spin" />
-          <Sparkles v-else :size="12" />
-          {{ mergingRefs ? 'Распознаю...' : 'Вставить референсы (AI)' }}
-        </button>
-        <span class="text-[9px] text-gray-400">AI вставит @Image теги в промпт</span>
-      </div>
-      <p v-else class="text-[10px] text-gray-400">Загрузи фото &mdash; AI распознает и вставит теги</p>
     </div>
 
   </div>

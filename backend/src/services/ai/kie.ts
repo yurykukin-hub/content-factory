@@ -491,6 +491,7 @@ interface GenerateVideoParams {
   postId?: string | null
   duration?: number            // 4-15 сек
   aspectRatio?: '1:1' | '16:9' | '9:16'
+  resolution?: '480p' | '720p' // Разрешение (влияет на стоимость)
   generateAudio?: boolean      // генерировать звук (Seedance 2 native audio)
   firstFrameUrl?: string | null  // URL первого кадра (image-to-video)
   lastFrameUrl?: string | null   // URL последнего кадра (interpolation)
@@ -526,12 +527,17 @@ async function downloadAndSaveVideo(
 }
 
 export async function generateVideo(params: GenerateVideoParams): Promise<GenerateVideoResult> {
-  const { prompt: rawPrompt, businessId, postId, duration = 5, aspectRatio = '9:16', generateAudio = true, firstFrameUrl, lastFrameUrl, referenceImageUrls } = params
+  const { prompt: rawPrompt, businessId, postId, duration = 5, aspectRatio = '9:16', resolution = '720p', generateAudio = true, firstFrameUrl, lastFrameUrl, referenceImageUrls } = params
   const model = 'bytedance/seedance-2'
 
   const hasImageInput = !!firstFrameUrl || (referenceImageUrls && referenceImageUrls.length > 0)
-  // Ценообразование: text-to-video 41 cr/s, image-to-video 25 cr/s (720p), audio ~2x
-  const creditsPerSec = hasImageInput ? 25 : 41
+  // Ценообразование per resolution: 480p cheaper, 720p standard
+  const PRICING: Record<string, { withImage: number; textOnly: number }> = {
+    '480p': { withImage: 11.5, textOnly: 19 },
+    '720p': { withImage: 25,   textOnly: 41 },
+  }
+  const tier = PRICING[resolution] || PRICING['720p']
+  const creditsPerSec = hasImageInput ? tier.withImage : tier.textOnly
   const audioMultiplier = generateAudio ? 2.0 : 1.0
   const videoCostUsd = creditsPerSec * duration * 0.005 * audioMultiplier
 
@@ -547,6 +553,7 @@ export async function generateVideo(params: GenerateVideoParams): Promise<Genera
     prompt,
     duration,
     aspect_ratio: aspectRatio,
+    resolution: resolution || '720p',
     output_format: 'mp4',
     generate_audio: generateAudio,
   }
