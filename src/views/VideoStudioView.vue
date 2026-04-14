@@ -10,6 +10,7 @@ import VsPromptArea from '@/components/video/VsPromptArea.vue'
 import VsSettingsPanel from '@/components/video/VsSettingsPanel.vue'
 import VsGallery from '@/components/video/VsGallery.vue'
 import VsConstructorDrawer from '@/components/video/VsConstructorDrawer.vue'
+import MediaPickerModal from '@/components/MediaPickerModal.vue'
 import { Video, ChevronDown } from 'lucide-vue-next'
 
 const toast = useToast()
@@ -45,8 +46,10 @@ const inputMode = ref<'text' | 'frames' | 'references'>('text')
 const firstFrame = ref<{ url: string; thumbUrl?: string | null; filename: string } | null>(null)
 const lastFrame = ref<{ url: string; thumbUrl?: string | null; filename: string } | null>(null)
 
-// References (simplified — no roles)
-const refImages = ref<{ url: string; thumbUrl?: string | null; filename: string }[]>([])
+// References (simplified — no roles, with altText for preview)
+const refImages = ref<{ url: string; thumbUrl?: string | null; filename: string; altText?: string | null }[]>([])
+const showMediaPicker = ref(false)
+const showCharacterPicker = ref(false)
 
 // Characters
 interface CharacterRef { id: string; name: string; type: string; description?: string | null; style?: string | null; referenceMedia?: { url: string; thumbUrl: string | null } | null }
@@ -210,15 +213,34 @@ async function addRef(event: Event) {
     const res = await fetch('/api/media/upload', { method: 'POST', credentials: 'include', body: fd })
     if (!res.ok) throw new Error()
     const m = await res.json()
-    const img = { url: m.url, thumbUrl: m.thumbUrl, filename: m.filename }
-    refImages.value.push(img)
-    // Auto-insert badge into prompt
-    const idx = refImages.value.length
-    vsPromptAreaRef.value?.insertBadge({
-      badgeType: 'image', id: `img_${idx}`, name: `Image${idx}`, thumbUrl: img.thumbUrl || null,
-    })
+    addRefImage({ url: m.url, thumbUrl: m.thumbUrl, filename: m.filename, altText: m.altText || null })
   } catch { toast.error('Ошибка загрузки') }
   input.value = ''
+}
+
+function addRefFromLibrary(file: { url: string; thumbUrl: string | null; filename: string; altText?: string | null }) {
+  if (refImages.value.length >= 9) return
+  addRefImage({ url: file.url, thumbUrl: file.thumbUrl, filename: file.filename, altText: file.altText || null })
+  showMediaPicker.value = false
+}
+
+function addRefFromCharacter(char: CharacterRef) {
+  if (refImages.value.length >= 9 || !char.referenceMedia) return
+  addRefImage({
+    url: char.referenceMedia.url,
+    thumbUrl: char.referenceMedia.thumbUrl,
+    filename: char.name,
+    altText: char.description || null,
+  })
+  showCharacterPicker.value = false
+}
+
+function addRefImage(img: { url: string; thumbUrl?: string | null; filename: string; altText?: string | null }) {
+  refImages.value.push(img)
+  const idx = refImages.value.length
+  vsPromptAreaRef.value?.insertBadge({
+    badgeType: 'image', id: `img_${idx}`, name: `Image${idx}`, thumbUrl: img.thumbUrl || null,
+  })
 }
 
 async function ratePrompt(id: string, rating: number) {
@@ -323,6 +345,8 @@ onMounted(() => { loadCharacters(); loadVideos(); loadSavedPrompts() })
             @history-forward="historyForward"
             @upload-frame="uploadFrame"
             @add-ref="addRef"
+            @add-ref-from-library="showMediaPicker = true"
+            @add-ref-from-characters="showCharacterPicker = true"
             @remove-ref="(idx) => refImages.splice(idx, 1)"
             @remove-frame="(w) => w === 'first' ? firstFrame = null : lastFrame = null"
             @open-constructor="showConstructor = true"
@@ -357,5 +381,36 @@ onMounted(() => { loadCharacters(); loadVideos(); loadSavedPrompts() })
       v-model:visible="showConstructor"
       v-model="prompt"
       :reference-images="inputMode === 'references' ? refImages : []" />
+
+    <!-- Media Picker Modal -->
+    <MediaPickerModal
+      :visible="showMediaPicker"
+      :business-id="selectedBizId || ''"
+      @close="showMediaPicker = false"
+      @selected="(f: any) => addRefFromLibrary(f)" />
+
+    <!-- Character Picker Modal -->
+    <Teleport to="body">
+      <div v-if="showCharacterPicker" class="fixed inset-0 z-50 flex items-center justify-center bg-black/60" @click.self="showCharacterPicker = false">
+        <div class="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl max-w-md w-full mx-4 overflow-hidden">
+          <div class="px-4 py-3 border-b border-gray-200 dark:border-gray-800 flex items-center justify-between">
+            <h3 class="text-sm font-bold">Выбрать из референсов</h3>
+            <button @click="showCharacterPicker = false" class="p-1 text-gray-400 hover:text-gray-600">&#10005;</button>
+          </div>
+          <div class="p-4 max-h-80 overflow-y-auto">
+            <div v-if="!characters.length" class="text-center text-sm text-gray-400 py-8">Нет референсов</div>
+            <div v-else class="grid grid-cols-3 gap-3">
+              <button v-for="c in characters.filter(ch => ch.referenceMedia)" :key="c.id"
+                @click="addRefFromCharacter(c)"
+                class="flex flex-col items-center gap-1.5 p-2 rounded-xl border border-gray-200 dark:border-gray-700 hover:border-emerald-400 dark:hover:border-emerald-600 transition-colors">
+                <img :src="c.referenceMedia!.thumbUrl || c.referenceMedia!.url"
+                  class="w-16 h-16 rounded-lg object-cover" />
+                <span class="text-[10px] font-medium truncate max-w-full">{{ c.name }}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>

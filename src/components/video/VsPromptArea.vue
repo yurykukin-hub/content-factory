@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {
   Wand2, Loader2, PenTool, ChevronLeft, ChevronRight, ChevronDown, ChevronUp,
-  Image, Trash2, Plus, Sparkles,
+  Image, Trash2, Plus, Sparkles, Upload, FolderOpen, Users, X,
 } from 'lucide-vue-next'
 import { ref, watch } from 'vue'
 import VsRichPrompt from './VsRichPrompt.vue'
@@ -17,6 +17,7 @@ interface RefImage {
   url: string
   thumbUrl?: string | null
   filename: string
+  altText?: string | null
 }
 
 interface AiTemplate {
@@ -45,6 +46,8 @@ const emit = defineEmits<{
   historyForward: []
   uploadFrame: [event: Event, which: 'first' | 'last']
   addRef: [event: Event]
+  addRefFromLibrary: []
+  addRefFromCharacters: []
   removeRef: [index: number]
   removeFrame: [which: 'first' | 'last']
   openConstructor: []
@@ -54,6 +57,9 @@ const emit = defineEmits<{
 
 const showTemplates = ref(false)
 const richPromptRef = ref<InstanceType<typeof VsRichPrompt> | null>(null)
+const showAddMenu = ref(false)
+const previewRef = ref<RefImage | null>(null)
+const fileInputRef = ref<HTMLInputElement | null>(null)
 
 watch(showTemplates, (val) => {
   if (val && !props.templates.length && !props.loadingTemplates) {
@@ -63,6 +69,21 @@ watch(showTemplates, (val) => {
 
 function insertBadge(badge: BadgeData) {
   richPromptRef.value?.insertBadge(badge)
+}
+
+function onUploadClick() {
+  showAddMenu.value = false
+  fileInputRef.value?.click()
+}
+
+function onLibraryClick() {
+  showAddMenu.value = false
+  emit('addRefFromLibrary')
+}
+
+function onCharactersClick() {
+  showAddMenu.value = false
+  emit('addRefFromCharacters')
 }
 
 defineExpose({ insertBadge })
@@ -101,26 +122,76 @@ defineExpose({ insertBadge })
 
     <!-- References mode (compact row above prompt) -->
     <div v-if="inputMode === 'references'" class="flex items-center gap-2">
-      <label class="w-14 h-14 rounded-xl border-2 border-dashed border-gray-300 dark:border-gray-700 flex flex-col items-center justify-center cursor-pointer hover:border-emerald-400 transition-colors shrink-0"
-        v-if="refImages.length < 9">
-        <Plus :size="16" class="text-gray-400" />
-        <span class="text-[7px] text-gray-400 mt-0.5">Image</span>
-        <input type="file" accept="image/*" class="hidden" @change="(e: Event) => emit('addRef', e)" />
-      </label>
+      <!-- Add button with dropdown -->
+      <div v-if="refImages.length < 9" class="relative shrink-0">
+        <button @click="showAddMenu = !showAddMenu"
+          class="w-14 h-14 rounded-xl border-2 border-dashed border-gray-300 dark:border-gray-700 flex flex-col items-center justify-center hover:border-emerald-400 transition-colors">
+          <Plus :size="16" class="text-gray-400" />
+          <span class="text-[7px] text-gray-400 mt-0.5">Image</span>
+        </button>
+        <!-- Hidden file input -->
+        <input ref="fileInputRef" type="file" accept="image/*" class="hidden"
+          @change="(e: Event) => emit('addRef', e)" />
+        <!-- Dropdown menu -->
+        <div v-if="showAddMenu" class="fixed inset-0 z-10" @click="showAddMenu = false" />
+        <div v-if="showAddMenu"
+          class="absolute top-full left-0 mt-1 w-48 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl z-20 py-1 overflow-hidden">
+          <button @click="onUploadClick"
+            class="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+            <Upload :size="14" class="text-gray-400" />
+            Загрузить
+          </button>
+          <button @click="onLibraryClick"
+            class="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+            <FolderOpen :size="14" class="text-gray-400" />
+            Из медиатеки
+          </button>
+          <button @click="onCharactersClick"
+            class="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+            <Users :size="14" class="text-gray-400" />
+            Из референсов
+          </button>
+        </div>
+      </div>
+
+      <!-- Ref image thumbnails (clickable → preview popup) -->
       <div v-for="(r, idx) in refImages" :key="idx" class="relative group shrink-0">
-        <div class="w-14 h-14 rounded-xl overflow-hidden border-2 border-emerald-200 dark:border-emerald-800">
+        <button @click="previewRef = r"
+          class="w-14 h-14 rounded-xl overflow-hidden border-2 border-emerald-200 dark:border-emerald-800 cursor-pointer">
           <img :src="r.thumbUrl || r.url" class="w-full h-full object-cover" />
-          <div class="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
-            <button @click="emit('removeRef', idx)" class="p-1.5 bg-red-500/80 rounded-full">
-              <Trash2 :size="10" class="text-white" />
-            </button>
-          </div>
           <span class="absolute bottom-0.5 left-0.5 px-1 py-0.5 bg-black/70 text-white text-[7px] rounded font-mono">
             @{{ idx + 1 }}
           </span>
-        </div>
+        </button>
+        <button @click="emit('removeRef', idx)"
+          class="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity z-10">
+          <X :size="8" class="text-white" />
+        </button>
       </div>
     </div>
+
+    <!-- Reference preview popup -->
+    <Teleport to="body">
+      <div v-if="previewRef" class="fixed inset-0 z-50 flex items-center justify-center bg-black/60" @click.self="previewRef = null">
+        <div class="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl max-w-sm w-full mx-4 overflow-hidden">
+          <img :src="previewRef.url" :alt="previewRef.altText || previewRef.filename"
+            class="w-full max-h-[360px] object-contain bg-black" />
+          <div class="p-4">
+            <div class="text-sm font-medium mb-1 truncate">{{ previewRef.filename }}</div>
+            <p v-if="previewRef.altText" class="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
+              {{ previewRef.altText }}
+            </p>
+            <p v-else class="text-xs text-gray-400 italic">Нет описания</p>
+          </div>
+          <div class="px-4 pb-4">
+            <button @click="previewRef = null"
+              class="w-full py-2 rounded-lg bg-gray-100 dark:bg-gray-800 text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">
+              Закрыть
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
 
     <!-- 2. RICH PROMPT (contenteditable with badges) -->
     <VsRichPrompt
@@ -128,7 +199,7 @@ defineExpose({ insertBadge })
       :model-value="modelValue"
       @update:model-value="emit('update:modelValue', $event)" />
 
-    <!-- 2. ACTION ROW -->
+    <!-- 3. ACTION ROW -->
     <div class="flex items-center gap-2 flex-wrap">
       <!-- Open constructor -->
       <button @click="emit('openConstructor')"
@@ -169,15 +240,13 @@ defineExpose({ insertBadge })
       </div>
     </div>
 
-    <!-- 3. TEMPLATES (collapsible, AI-generated) -->
+    <!-- 4. TEMPLATES (collapsible, AI-generated) -->
     <div v-if="showTemplates">
-      <!-- Loading skeleton -->
       <div v-if="loadingTemplates" class="flex flex-wrap gap-1.5">
         <div v-for="i in 5" :key="i"
           class="h-7 rounded-full bg-gray-200 dark:bg-gray-700 animate-pulse"
           :style="{ width: (60 + Math.random() * 40) + 'px' }" />
       </div>
-      <!-- Template pills -->
       <div v-else-if="templates.length" class="flex flex-wrap gap-1.5">
         <button v-for="t in templates" :key="t.name"
           @click="emit('applyTemplate', t.prompt)"
