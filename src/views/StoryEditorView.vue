@@ -525,7 +525,7 @@ function loadImage(url: string, isOriginal = true) {
       }
       originalPhotoUrl.value = url
     }
-    render()
+    nextTick(render)
   }
   img.src = url
 }
@@ -925,6 +925,11 @@ const LINK_TYPES = [
 
 // Re-render on settings change
 watch([overlayText, textPosition, textColor, fontSize, bgStyle, bgRadius, textAlign, linkType, linkUrl], () => nextTick(render))
+
+// Re-render when canvas appears in DOM (fixes race: image loaded while canvas was hidden by v-if="loading")
+watch(canvasRef, (canvas) => {
+  if (canvas && imgEl.value) nextTick(render)
+})
 
 onMounted(() => {
   loadPost()
