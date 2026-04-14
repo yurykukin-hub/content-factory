@@ -10,6 +10,9 @@ import {
   Pencil, Wand2, ExternalLink, X, ChevronLeft, ChevronRight, Trash2
 } from 'lucide-vue-next'
 import BusinessFilter from '@/components/BusinessFilter.vue'
+import { useSectionAccess } from '@/composables/useSectionAccess'
+
+const { canEdit: canEditSection } = useSectionAccess()
 
 interface ContentPlanItem {
   id: string
@@ -244,7 +247,7 @@ watch(() => businesses.currentBusiness?.id, loadPlans)
 
     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
       <h1 class="text-xl md:text-2xl font-bold">Контент-планы</h1>
-      <button @click="showAiModal = true"
+      <button v-if="canEditSection('plans')" @click="showAiModal = true"
         class="flex items-center gap-2 px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-700 text-white text-sm font-medium">
         <Sparkles :size="16" /> AI Сгенерировать
       </button>

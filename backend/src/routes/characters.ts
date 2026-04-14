@@ -4,8 +4,14 @@ import { db } from '../db'
 import type { AuthUser } from '../middleware/auth'
 import { assertBusinessAccess } from '../middleware/resource-access'
 import { getUserBusinessIds } from '../middleware/business-access'
+import { requireSection } from '../middleware/section-access'
 
 const characters = new Hono()
+
+// Section-level access: все character-маршруты требуют доступ к разделу "characters"
+characters.use('/characters/*', requireSection('characters'))
+characters.use('/businesses/*/characters', requireSection('characters'))
+characters.use('/businesses/*/characters/*', requireSection('characters'))
 
 const characterInclude = {
   referenceMedia: { select: { id: true, url: true, thumbUrl: true } },

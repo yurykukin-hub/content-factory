@@ -2,12 +2,14 @@
 import { ref, computed } from 'vue'
 import { User, Sparkles, Link, Users } from 'lucide-vue-next'
 import { useAuthStore } from '@/stores/auth'
+import { useSectionAccess } from '@/composables/useSectionAccess'
 import VkOAuthTab from '@/components/settings/VkOAuthTab.vue'
 import ProfileTab from '@/components/settings/ProfileTab.vue'
 import AiTab from '@/components/settings/AiTab.vue'
 import UsersTab from '@/components/settings/UsersTab.vue'
 
 const auth = useAuthStore()
+const { canEdit } = useSectionAccess()
 const isAdmin = computed(() => auth.user?.role === 'ADMIN')
 
 const allTabs = [
@@ -20,7 +22,10 @@ const allTabs = [
 type TabKey = typeof allTabs[number]['key']
 const activeTab = ref<TabKey>('profile')
 
-const tabs = computed(() => allTabs.filter(t => !t.adminOnly || isAdmin.value))
+// Админские табы: видны только при full доступе к settings; профиль — всем
+const tabs = computed(() => allTabs.filter(t =>
+  !t.adminOnly || (isAdmin.value || canEdit('settings')),
+))
 </script>
 
 <template>

@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { http } from '@/api/client'
 import { useToast } from '@/composables/useToast'
 import { useBusinessesStore } from '@/stores/businesses'
-import { Plus, Save, UserPlus, Shield, Eye, Pencil, X } from 'lucide-vue-next'
+import { SECTIONS, SECTION_LABELS, getDefault, type Section, type AccessLevel } from '@/composables/useSectionAccess'
+import { Save, UserPlus, Pencil, X, RotateCcw } from 'lucide-vue-next'
 
 const toast = useToast()
 const businesses = useBusinessesStore()
@@ -14,6 +15,7 @@ interface UserItem {
   name: string
   role: 'ADMIN' | 'EDITOR' | 'VIEWER'
   isActive: boolean
+  sectionAccess: Record<string, AccessLevel> | null
   businesses: { businessId: string; role: string; business: { id: string; name: string } }[]
 }
 
@@ -28,7 +30,51 @@ const form = ref({
   name: '',
   role: 'EDITOR' as 'ADMIN' | 'EDITOR' | 'VIEWER',
   businessIds: [] as string[],
+  sectionAccess: {} as Record<string, AccessLevel>,
 })
+
+/** Количество кастомных ограничений у пользователя */
+function countCustomAccess(user: UserItem): number {
+  if (!user.sectionAccess) return 0
+  return Object.entries(user.sectionAccess).filter(
+    ([section, level]) => level !== getDefault(user.role, section as Section),
+  ).length
+}
+
+/** Есть ли у секции кастомное значение (не дефолт) */
+function isCustom(section: Section): boolean {
+  const level = form.value.sectionAccess[section]
+  if (level === undefined) return false
+  return level !== getDefault(form.value.role, section)
+}
+
+/** Сбросить секцию к дефолту */
+function resetSection(section: Section) {
+  delete form.value.sectionAccess[section]
+}
+
+/** Сбросить все секции к дефолтам */
+function resetAllSections() {
+  form.value.sectionAccess = {}
+}
+
+/** Получить текущий уровень (явный или дефолт) */
+function currentLevel(section: Section): AccessLevel {
+  return form.value.sectionAccess[section] ?? getDefault(form.value.role, section)
+}
+
+/** Установить уровень */
+function setLevel(section: Section, level: AccessLevel) {
+  const def = getDefault(form.value.role, section)
+  if (level === def) {
+    // Значение совпадает с дефолтом — не сохраняем (чище)
+    delete form.value.sectionAccess[section]
+  } else {
+    form.value.sectionAccess[section] = level
+  }
+}
+
+const hasCustomAccess = computed(() => Object.keys(form.value.sectionAccess).length > 0)
 
 async function loadUsers() {
   try {
@@ -42,7 +88,7 @@ async function loadUsers() {
 
 function startCreate() {
   editingId.value = null
-  form.value = { login: '', password: '', name: '', role: 'EDITOR', businessIds: [] }
+  form.value = { login: '', password: '', name: '', role: 'EDITOR', businessIds: [], sectionAccess: {} }
   showForm.value = true
 }
 
@@ -54,17 +100,28 @@ function startEdit(user: UserItem) {
     name: user.name,
     role: user.role,
     businessIds: user.businesses.map(b => b.businessId),
+    sectionAccess: user.sectionAccess ? { ...user.sectionAccess } : {},
   }
   showForm.value = true
 }
 
 async function saveUser() {
   try {
+    // Очищаем sectionAccess от дефолтных значений перед отправкой
+    const cleanedAccess: Record<string, AccessLevel> = {}
+    for (const [section, level] of Object.entries(form.value.sectionAccess)) {
+      if (level !== getDefault(form.value.role, section as Section)) {
+        cleanedAccess[section] = level
+      }
+    }
+    const sectionAccess = Object.keys(cleanedAccess).length > 0 ? cleanedAccess : null
+
     if (editingId.value) {
       const data: Record<string, unknown> = {
         name: form.value.name,
         role: form.value.role,
         businessIds: form.value.businessIds,
+        sectionAccess,
       }
       if (form.value.password) data.password = form.value.password
       await http.put(`/users/${editingId.value}`, data)
@@ -74,7 +131,7 @@ async function saveUser() {
         toast.error('Заполните все обязательные поля')
         return
       }
-      await http.post('/users', form.value)
+      await http.post('/users', { ...form.value, sectionAccess })
       toast.success('Пользователь создан')
     }
     showForm.value = false
@@ -105,6 +162,18 @@ function roleLabel(role: string) {
   return { ADMIN: 'Админ', EDITOR: 'Редактор', VIEWER: 'Просмотр' }[role] || role
 }
 
+function levelLabel(level: AccessLevel) {
+  return { full: 'Полный', view: 'Просмотр', none: 'Скрыт' }[level]
+}
+
+function levelColor(level: AccessLevel) {
+  return {
+    full: 'text-green-600 dark:text-green-400',
+    view: 'text-blue-600 dark:text-blue-400',
+    none: 'text-gray-400 dark:text-gray-600',
+  }[level]
+}
+
 onMounted(loadUsers)
 </script>
 
@@ -123,8 +192,8 @@ onMounted(loadUsers)
     <div v-else class="space-y-3">
       <div v-for="user in users" :key="user.id"
         class="flex items-center justify-between p-3 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
-        <div>
-          <div class="flex items-center gap-2">
+        <div class="min-w-0">
+          <div class="flex items-center gap-2 flex-wrap">
             <span class="font-medium text-gray-900 dark:text-white">{{ user.name }}</span>
             <span class="text-sm text-gray-500">@{{ user.login }}</span>
             <span :class="[roleColor(user.role), 'px-2 py-0.5 rounded text-xs font-medium']">
@@ -133,6 +202,10 @@ onMounted(loadUsers)
             <span v-if="!user.isActive" class="px-2 py-0.5 bg-gray-200 dark:bg-gray-700 rounded text-xs text-gray-500">
               Неактивен
             </span>
+            <span v-if="countCustomAccess(user) > 0"
+              class="px-2 py-0.5 bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 rounded text-xs font-medium">
+              {{ countCustomAccess(user) }} настр.
+            </span>
           </div>
           <div v-if="user.businesses.length" class="mt-1 flex gap-1 flex-wrap">
             <span v-for="ub in user.businesses" :key="ub.businessId"
@@ -140,9 +213,9 @@ onMounted(loadUsers)
               {{ ub.business.name }}
             </span>
           </div>
-          <div v-else class="mt-1 text-xs text-gray-400">Нет привязанных бизнесов</div>
+          <div v-else-if="user.role !== 'ADMIN'" class="mt-1 text-xs text-gray-400">Нет привязанных бизнесов</div>
         </div>
-        <button @click="startEdit(user)" class="p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+        <button @click="startEdit(user)" class="p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 shrink-0">
           <Pencil class="w-4 h-4" />
         </button>
       </div>
@@ -150,7 +223,7 @@ onMounted(loadUsers)
 
     <!-- Create/Edit form -->
     <div v-if="showForm" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div class="bg-white dark:bg-gray-800 rounded-xl shadow-xl max-w-md w-full p-6">
+      <div class="bg-white dark:bg-gray-800 rounded-xl shadow-xl max-w-lg w-full p-6 max-h-[90vh] overflow-y-auto">
         <div class="flex items-center justify-between mb-4">
           <h3 class="text-lg font-semibold text-gray-900 dark:text-white">
             {{ editingId ? 'Редактирование' : 'Новый пользователь' }}
@@ -187,6 +260,7 @@ onMounted(loadUsers)
             </select>
           </div>
 
+          <!-- Доступ к бизнесам (только для не-админов) -->
           <div v-if="form.role !== 'ADMIN'">
             <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Доступ к бизнесам</label>
             <div class="space-y-2">
@@ -198,6 +272,72 @@ onMounted(loadUsers)
                 <span class="text-sm text-gray-700 dark:text-gray-300">{{ biz.name }}</span>
               </label>
             </div>
+          </div>
+
+          <!-- Доступ к разделам (только для не-админов) -->
+          <div v-if="form.role !== 'ADMIN'">
+            <div class="flex items-center justify-between mb-2">
+              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Доступ к разделам</label>
+              <button v-if="hasCustomAccess" @click="resetAllSections"
+                class="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">
+                <RotateCcw class="w-3 h-3" />
+                Сбросить все
+              </button>
+            </div>
+            <div class="border rounded-lg dark:border-gray-600 overflow-hidden">
+              <table class="w-full text-sm">
+                <thead>
+                  <tr class="bg-gray-50 dark:bg-gray-700/50">
+                    <th class="text-left px-3 py-2 font-medium text-gray-600 dark:text-gray-300">Раздел</th>
+                    <th class="px-2 py-2 font-medium text-gray-600 dark:text-gray-300 text-center w-16">Полный</th>
+                    <th class="px-2 py-2 font-medium text-gray-600 dark:text-gray-300 text-center w-20">Просмотр</th>
+                    <th class="px-2 py-2 font-medium text-gray-600 dark:text-gray-300 text-center w-16">Скрыт</th>
+                    <th class="w-8"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="section in SECTIONS" :key="section"
+                    :class="[
+                      'border-t dark:border-gray-700 transition-colors',
+                      isCustom(section) ? 'bg-amber-50/50 dark:bg-amber-900/10' : '',
+                    ]">
+                    <td class="px-3 py-2 text-gray-700 dark:text-gray-300">
+                      {{ SECTION_LABELS[section] }}
+                      <span v-if="!isCustom(section)" class="text-xs text-gray-400 ml-1">({{ levelLabel(getDefault(form.role, section)) }})</span>
+                    </td>
+                    <td class="px-2 py-2 text-center">
+                      <input type="radio" :name="`section-${section}`"
+                        :checked="currentLevel(section) === 'full'"
+                        @change="setLevel(section, 'full')"
+                        class="text-green-600 focus:ring-green-500" />
+                    </td>
+                    <td class="px-2 py-2 text-center">
+                      <input type="radio" :name="`section-${section}`"
+                        :checked="currentLevel(section) === 'view'"
+                        @change="setLevel(section, 'view')"
+                        class="text-blue-600 focus:ring-blue-500" />
+                    </td>
+                    <td class="px-2 py-2 text-center">
+                      <input type="radio" :name="`section-${section}`"
+                        :checked="currentLevel(section) === 'none'"
+                        @change="setLevel(section, 'none')"
+                        class="text-gray-400 focus:ring-gray-400" />
+                    </td>
+                    <td class="px-1 py-2">
+                      <button v-if="isCustom(section)" @click="resetSection(section)"
+                        class="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                        title="Сбросить к дефолту">
+                        <RotateCcw class="w-3 h-3" />
+                      </button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <p class="mt-1 text-xs text-gray-400">
+              По умолчанию: {{ form.role === 'VIEWER' ? 'просмотр основных разделов' : 'полный доступ к основным разделам' }}.
+              Настройте индивидуально при необходимости.
+            </p>
           </div>
         </div>
 

@@ -5,10 +5,13 @@ import { useToast } from '@/composables/useToast'
 import { useBusinessesStore } from '@/stores/businesses'
 import { formatDate } from '@/composables/useFormatters'
 import BusinessFilter from '@/components/BusinessFilter.vue'
+import { useSectionAccess } from '@/composables/useSectionAccess'
 import {
   UserCircle, Plus, Trash2, Pencil, Loader2, Save,
   Image as ImageIcon, X,
 } from 'lucide-vue-next'
+
+const { canEdit: canEditSection } = useSectionAccess()
 
 interface Character {
   id: string; name: string; description: string; type: string; style: string
@@ -146,7 +149,7 @@ onMounted(loadCharacters)
         <UserCircle :size="24" class="text-brand-500" />
         Персонажи
       </h1>
-      <button
+      <button v-if="canEditSection('characters')"
         @click="openForm()"
         class="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium transition-colors"
       >

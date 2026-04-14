@@ -2,11 +2,13 @@ import { Context, Next } from 'hono'
 import { getCookie } from 'hono/cookie'
 import * as jose from 'jose'
 import { config } from '../config'
+import type { SectionAccess } from '../shared/section-access'
 
 export interface AuthUser {
   userId: string
   name: string
   role: 'ADMIN' | 'EDITOR' | 'VIEWER'
+  sectionAccess?: SectionAccess | null
 }
 
 /**
@@ -27,6 +29,7 @@ export async function requireAuth(c: Context, next: Next) {
       userId: payload.userId as string,
       name: payload.name as string,
       role: payload.role as AuthUser['role'],
+      sectionAccess: (payload.sectionAccess as SectionAccess) ?? null,
     }
 
     c.set('user', user)

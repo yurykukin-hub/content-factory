@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { useAuthStore } from '@/stores/auth'
 import { useSidebarStore } from '@/stores/sidebar'
+import { useSectionAccess, type Section } from '@/composables/useSectionAccess'
 import {
   LayoutDashboard,
   Film,
@@ -17,24 +17,23 @@ import {
 } from 'lucide-vue-next'
 
 const route = useRoute()
-const auth = useAuthStore()
 const sidebar = useSidebarStore()
-const isAdmin = computed(() => auth.user?.role === 'ADMIN')
+const { canView } = useSectionAccess()
 
-const allNavItems = [
-  { name: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, path: '/', adminOnly: false },
-  { name: 'posts', label: 'Stories', icon: Film, path: '/posts', adminOnly: false },
-  { name: 'ideas', label: 'Идеи', icon: Lightbulb, path: '/ideas', adminOnly: false },
-  { name: 'video-studio', label: 'Видео-студия', icon: Film, path: '/video-studio', adminOnly: true },
-  { name: 'scenarios', label: 'Сценарии', icon: Clapperboard, path: '/scenarios', adminOnly: true },
-  { name: 'characters', label: 'Персонажи', icon: UserCircle, path: '/characters', adminOnly: true },
-  { name: 'plans', label: 'Контент-планы', icon: ClipboardList, path: '/plans', adminOnly: false },
-  { name: 'media', label: 'Медиа', icon: Image, path: '/media', adminOnly: false },
-  { name: 'businesses', label: 'Бизнесы', icon: Building2, path: '/businesses', adminOnly: false },
-  { name: 'settings', label: 'Настройки', icon: Settings, path: '/settings', adminOnly: false },
+const allNavItems: { name: string; label: string; icon: any; path: string; section: Section }[] = [
+  { name: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, path: '/', section: 'dashboard' },
+  { name: 'posts', label: 'Stories', icon: Film, path: '/posts', section: 'posts' },
+  { name: 'ideas', label: 'Идеи', icon: Lightbulb, path: '/ideas', section: 'ideas' },
+  { name: 'video-studio', label: 'Видео-студия', icon: Film, path: '/video-studio', section: 'videoStudio' },
+  { name: 'scenarios', label: 'Сценарии', icon: Clapperboard, path: '/scenarios', section: 'scenarios' },
+  { name: 'characters', label: 'Персонажи', icon: UserCircle, path: '/characters', section: 'characters' },
+  { name: 'plans', label: 'Контент-планы', icon: ClipboardList, path: '/plans', section: 'plans' },
+  { name: 'media', label: 'Медиа', icon: Image, path: '/media', section: 'media' },
+  { name: 'businesses', label: 'Бизнесы', icon: Building2, path: '/businesses', section: 'businesses' },
+  { name: 'settings', label: 'Настройки', icon: Settings, path: '/settings', section: 'settings' },
 ]
 
-const navItems = computed(() => allNavItems.filter(i => !i.adminOnly || isAdmin.value))
+const navItems = computed(() => allNavItems.filter(i => canView(i.section)))
 
 function isActive(name: string): boolean {
   return route.name === name

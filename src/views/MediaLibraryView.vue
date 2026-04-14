@@ -12,6 +12,9 @@ import {
 } from 'lucide-vue-next'
 import BusinessFilter from '@/components/BusinessFilter.vue'
 import ImageEditModal from '@/components/ai/ImageEditModal.vue'
+import { useSectionAccess } from '@/composables/useSectionAccess'
+
+const { canEdit: canEditSection } = useSectionAccess()
 
 interface MediaFile {
   id: string
@@ -418,7 +421,7 @@ watch([typeFilter, tagFilter, showUnattached], loadFiles)
         </button>
 
         <!-- Upload -->
-        <label :class="['flex items-center gap-2 px-4 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium cursor-pointer transition-colors', uploading && 'opacity-50']">
+        <label v-if="canEditSection('media')" :class="['flex items-center gap-2 px-4 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium cursor-pointer transition-colors', uploading && 'opacity-50']">
           <Loader2 v-if="uploading" :size="16" class="animate-spin" />
           <Upload v-else :size="16" />
           <span class="hidden sm:inline">Загрузить</span>

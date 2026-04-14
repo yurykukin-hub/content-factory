@@ -6,10 +6,13 @@ import { useBusinessesStore } from '@/stores/businesses'
 import { formatDate } from '@/composables/useFormatters'
 import BusinessFilter from '@/components/BusinessFilter.vue'
 import { useRouter } from 'vue-router'
+import { useSectionAccess } from '@/composables/useSectionAccess'
 import {
   Clapperboard, Plus, Trash2, Sparkles, Loader2, ChevronDown, ChevronUp,
   GripVertical, Edit3, Check, X, Film,
 } from 'lucide-vue-next'
+
+const { canEdit: canEditSection } = useSectionAccess()
 
 interface Scene {
   sceneNumber: number
@@ -283,7 +286,7 @@ onMounted(loadScenarios)
         <Clapperboard :size="24" class="text-brand-500" />
         Сценарии
       </h1>
-      <div class="flex items-center gap-2">
+      <div v-if="canEditSection('scenarios')" class="flex items-center gap-2">
         <button
           @click="showAiModal = true"
           class="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-gradient-to-r from-purple-600 to-brand-600 hover:from-purple-700 hover:to-brand-700 text-white text-sm font-medium transition-all"

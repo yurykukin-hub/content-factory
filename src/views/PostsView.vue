@@ -9,6 +9,9 @@ import { formatDate } from '@/composables/useFormatters'
 import { platformColor } from '@/composables/usePlatform'
 import { Film, Plus, Send, Trash2, Loader2, ChevronDown } from 'lucide-vue-next'
 import BusinessFilter from '@/components/BusinessFilter.vue'
+import { useSectionAccess } from '@/composables/useSectionAccess'
+
+const { canEdit: canEditPosts } = useSectionAccess()
 
 interface PostVersion {
   id: string
@@ -119,7 +122,7 @@ watch(statusFilter, loadPosts)
     <!-- Header -->
     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
       <h1 class="text-xl md:text-2xl font-bold">Stories</h1>
-      <button
+      <button v-if="canEditPosts('posts')"
         @click="createStories"
         :disabled="createLoading"
         class="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium transition-colors disabled:opacity-50 shrink-0"

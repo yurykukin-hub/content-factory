@@ -8,6 +8,7 @@ import { config } from './config'
 import { getModuleDir } from './utils/paths'
 import { db } from './db'
 import { requireAuth, requireRole } from './middleware/auth'
+import { requireSection } from './middleware/section-access'
 import { auth } from './routes/auth'
 import { users } from './routes/users'
 import { businesses } from './routes/businesses'
@@ -81,6 +82,10 @@ app.use('/api/*', requireAuth)
 // --- Admin-only routes ---
 app.use('/api/users/*', requireRole('ADMIN'))
 app.route('/api/users', users)
+
+// --- Section-level access guards ---
+app.use('/api/scenarios/*', requireSection('scenarios'))
+app.use('/api/settings/*', requireSection('settings'))
 
 app.route('/api/businesses', businesses)
 app.route('/api/businesses', platformsByBiz) // GET/POST /api/businesses/:bizId/platforms

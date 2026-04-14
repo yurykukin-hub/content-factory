@@ -7,6 +7,7 @@ export interface User {
   name: string
   login: string
   role: 'ADMIN' | 'EDITOR' | 'VIEWER'
+  sectionAccess?: Record<string, 'full' | 'view' | 'none'> | null
 }
 
 export const useAuthStore = defineStore('auth', () => {

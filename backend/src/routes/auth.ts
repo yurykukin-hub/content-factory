@@ -12,11 +12,12 @@ const REFRESH_TOKEN_TTL = '30d'   // Long-lived refresh token
 const ACCESS_COOKIE_MAX_AGE = 60 * 60          // 1 hour
 const REFRESH_COOKIE_MAX_AGE = 30 * 24 * 60 * 60 // 30 days
 
-async function issueTokens(c: any, user: { id: string; name: string; login: string; role: string }) {
+async function issueTokens(c: any, user: { id: string; name: string; login: string; role: string; sectionAccess?: unknown }) {
   const secret = new TextEncoder().encode(config.JWT_SECRET)
 
   const accessToken = await new jose.SignJWT({
     userId: user.id, name: user.name, role: user.role, type: 'access',
+    ...(user.sectionAccess ? { sectionAccess: user.sectionAccess } : {}),
   })
     .setProtectedHeader({ alg: 'HS256' })
     .setExpirationTime(ACCESS_TOKEN_TTL)
@@ -60,7 +61,10 @@ auth.post('/login', async (c) => {
 
   return c.json({
     success: true,
-    user: { id: user.id, name: user.name, login: user.login, role: user.role },
+    user: {
+      id: user.id, name: user.name, login: user.login, role: user.role,
+      sectionAccess: user.sectionAccess,
+    },
   })
 })
 
@@ -81,7 +85,7 @@ auth.post('/refresh', async (c) => {
 
     const user = await db.user.findUnique({
       where: { id: payload.userId as string },
-      select: { id: true, name: true, login: true, role: true, isActive: true },
+      select: { id: true, name: true, login: true, role: true, isActive: true, sectionAccess: true },
     })
 
     if (!user || !user.isActive) {
@@ -92,7 +96,10 @@ auth.post('/refresh', async (c) => {
 
     return c.json({
       success: true,
-      user: { id: user.id, name: user.name, login: user.login, role: user.role },
+      user: {
+        id: user.id, name: user.name, login: user.login, role: user.role,
+        sectionAccess: user.sectionAccess,
+      },
     })
   } catch {
     return c.json({ error: 'Invalid refresh token' }, 401)
@@ -117,7 +124,7 @@ auth.get('/me', async (c) => {
 
     const dbUser = await db.user.findUnique({
       where: { id: payload.userId as string },
-      select: { id: true, name: true, login: true, role: true },
+      select: { id: true, name: true, login: true, role: true, sectionAccess: true },
     })
 
     return c.json(dbUser)
@@ -133,13 +140,16 @@ auth.get('/me', async (c) => {
 
       const user = await db.user.findUnique({
         where: { id: payload.userId as string },
-        select: { id: true, name: true, login: true, role: true, isActive: true },
+        select: { id: true, name: true, login: true, role: true, isActive: true, sectionAccess: true },
       })
       if (!user || !user.isActive) return c.json(null)
 
       // Re-issue tokens transparently
       await issueTokens(c, user)
-      return c.json({ id: user.id, name: user.name, login: user.login, role: user.role })
+      return c.json({
+        id: user.id, name: user.name, login: user.login, role: user.role,
+        sectionAccess: user.sectionAccess,
+      })
     } catch {
       return c.json(null)
     }

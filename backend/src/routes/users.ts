@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import { db } from '../db'
 import type { AuthUser } from '../middleware/auth'
+import { SECTIONS } from '../shared/section-access'
 
 const users = new Hono()
 
@@ -17,6 +18,7 @@ users.get('/', async (c) => {
       name: true,
       role: true,
       isActive: true,
+      sectionAccess: true,
       createdAt: true,
       businesses: {
         select: {
@@ -31,12 +33,18 @@ users.get('/', async (c) => {
 })
 
 // POST /api/users — create a new user
+const sectionAccessSchema = z.record(
+  z.enum(SECTIONS as unknown as [string, ...string[]]),
+  z.enum(['full', 'view', 'none']),
+).nullable().optional()
+
 const createUserSchema = z.object({
   login: z.string().min(2).max(50),
   password: z.string().min(4).max(100),
   name: z.string().min(1).max(100),
   role: z.enum(['ADMIN', 'EDITOR', 'VIEWER']).default('EDITOR'),
   businessIds: z.array(z.string()).default([]),
+  sectionAccess: sectionAccessSchema,
 })
 
 users.post('/', async (c) => {
@@ -56,6 +64,7 @@ users.post('/', async (c) => {
       passwordHash,
       name: body.name,
       role: body.role,
+      sectionAccess: body.sectionAccess ?? undefined,
       businesses: {
         create: body.businessIds.map((bizId) => ({
           businessId: bizId,
@@ -69,6 +78,7 @@ users.post('/', async (c) => {
       name: true,
       role: true,
       isActive: true,
+      sectionAccess: true,
       businesses: {
         select: {
           businessId: true,
@@ -89,6 +99,7 @@ const updateUserSchema = z.object({
   isActive: z.boolean().optional(),
   password: z.string().min(4).max(100).optional(),
   businessIds: z.array(z.string()).optional(),
+  sectionAccess: sectionAccessSchema,
 })
 
 users.put('/:id', async (c) => {
@@ -106,6 +117,7 @@ users.put('/:id', async (c) => {
   if (body.role !== undefined) data.role = body.role
   if (body.isActive !== undefined) data.isActive = body.isActive
   if (body.password) data.passwordHash = await Bun.password.hash(body.password)
+  if (body.sectionAccess !== undefined) data.sectionAccess = body.sectionAccess
 
   const user = await db.user.update({
     where: { id },
