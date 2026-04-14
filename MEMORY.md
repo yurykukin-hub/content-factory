@@ -102,6 +102,14 @@ User, UserBusiness, Business, BrandProfile, PlatformAccount, ContentPlan, Conten
 - [2026-04-14] Routes: +prompt-library.ts, +prompt-templates.ts (20 route-файлов)
 - [2026-04-14] Haiku 3.5 НЕ поддерживает vision — для merge-references используется google/gemini-2.0-flash-001
 
+## Session 14.04 (вечер): Section Access + UI Rename + Hybrid Templates
+- [2026-04-14] Section Access: User.sectionAccess (Json?), 11 секций × 3 уровня (full/view/none). requireSection middleware. UsersTab UI с radio-таблицей. ADMIN bypass. Закрыта security gap (scenarios/characters не проверялись на бэкенде)
+- [2026-04-14] Canvas preview fix: race condition — img.onload вызывал render() пока canvas скрыт v-if="loading". Fix: watch(canvasRef) + nextTick(render) в onload
+- [2026-04-14] UI rename: "Бизнесы" → "Проекты" в 8 файлах (только UI-лейблы, API/модели без изменений)
+- [2026-04-14] Hybrid AI prompt templates: хардкод IMAGE_TEMPLATES/VIDEO_TEMPLATES → БД (PromptTemplate per-business) + "✨ Подобрать" (Haiku + brandContext). 2 новых endpoint: suggest-image-templates, suggest-video-templates. Seeded: 4 global image + 5 global video + 5 SMMER.RU image
+- [2026-04-14] SMMER.RU: бизнес Антона Григорьева (SMM). Brand profile заполнен, 6 story templates, VK канал (group 218656364). Нужны права редактора от Антона для VK API
+- [2026-04-14] composables: useSectionAccess (canView/canEdit), SECTION_LABELS. shared/section-access.ts — серверная копия
+
 ## Паттерны
 - HTTP client: fetch + httpOnly cookie + X-Tab-ID (из nawode-erp)
 - Auth: JWT в httpOnly cookie, requireAuth middleware

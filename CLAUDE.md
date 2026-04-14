@@ -37,7 +37,8 @@ content-factory/
 │   │   ├── config.ts           # Env validation (zod)
 │   │   ├── eventBus.ts         # SSE events
 │   │   ├── middleware/
-│   │   │   ├── auth.ts         # JWT httpOnly cookie + requireRole
+│   │   │   ├── auth.ts         # JWT httpOnly cookie + requireRole + sectionAccess
+│   │   │   ├── section-access.ts   # requireSection(section, level) — per-section access control
 │   │   │   ├── business-access.ts  # requireBusinessAccess + getUserBusinessIds
 │   │   │   └── resource-access.ts  # verifyPost/Plan/Media/PostVersionAccess
 │   │   ├── routes/             # API endpoints (~16 файлов)
@@ -47,7 +48,7 @@ content-factory/
 │   │   │   ├── platforms.ts    # platformsByBiz + platformsById
 │   │   │   ├── posts.ts        # CRUD + approve + versions (access checks)
 │   │   │   ├── content-plans.ts # CRUD + create-post/ai-generate + batch
-│   │   │   ├── ai.ts           # generate-post/image/scenario, adapt, enhance-prompt, edit-image, remove-bg
+│   │   │   ├── ai.ts           # generate-post/image/scenario, adapt, enhance-prompt, suggest-image/video-templates
 │   │   │   ├── publish.ts      # publish + schedule (access checks)
 │   │   │   ├── media.ts        # upload/delete/attach + library + tags
 │   │   │   ├── settings.ts     # AppConfig CRUD (ADMIN-only, .env fallback)
@@ -77,12 +78,12 @@ content-factory/
 │   └── .env.example
 ├── src/                        # Vue 3 frontend
 │   ├── api/client.ts           # HTTP client (auto-refresh on 401)
-│   ├── router/index.ts         # 12 routes + auth guard (ideas вместо analytics)
-│   ├── stores/                 # auth, businesses, theme, sidebar
-│   ├── composables/            # useToast, useFormatters, useStatus, usePlatform
+│   ├── router/index.ts         # 15 routes + auth guard + section access guard
+│   ├── stores/                 # auth (+ sectionAccess), businesses, theme, sidebar
+│   ├── composables/            # useToast, useFormatters, useStatus, usePlatform, useSectionAccess
 │   ├── views/
-│   │   ├── BusinessesView      # Grid карточек бизнесов (клик → detail)
-│   │   ├── BusinessDetailView  # Хаб бизнеса: 3 таба (профиль/каналы/обзор+доступы)
+│   │   ├── BusinessesView      # Grid карточек проектов (клик → detail)
+│   │   ├── BusinessDetailView  # Хаб проекта: 3 таба (профиль/каналы/обзор+доступы)
 │   │   ├── PostEditorView      # Редактор постов (текст + медиа + платформы)
 │   │   ├── StoryEditorView     # Stories (canvas WYSIWYG + шаблоны, lock after publish)
 │   │   ├── ContentPlansView    # AI планы (таблица + календарь)
@@ -108,17 +109,18 @@ User, UserBusiness, Business, BrandProfile, PlatformAccount, ContentPlan, Conten
 Enums: UserRole, Platform, AccountType, PostType, PostStatus, ContentPlanStatus, PublishStatus
 
 ## RBAC
-- **ADMIN** — полный доступ ко всем бизнесам и настройкам
-- **EDITOR** — только привязанные бизнесы (через UserBusiness), может редактировать бренд-профиль, не может управлять каналами
+- **ADMIN** — полный доступ ко всем проектам и настройкам (bypass sectionAccess)
+- **EDITOR** — только привязанные проекты (через UserBusiness), может редактировать бренд-профиль, не может управлять каналами
 - **VIEWER** — только чтение
-- Все routes проверяют доступ через `resource-access.ts`
+- **Section Access** — гранулярный доступ по разделам (User.sectionAccess JSON). 11 секций × 3 уровня (full/view/none). Дефолты по роли, кастомизация через Settings → Пользователи
+- Все routes проверяют доступ через `resource-access.ts` + `section-access.ts`
 
 ## Пользователи (production)
 | Логин | Роль | Бизнесы |
 |-------|------|---------|
 | admin | ADMIN | Все |
 | sveta | EDITOR | НаWоде |
-| anton | EDITOR | НаWоде |
+| anton | EDITOR | НаWоде, SMMER.RU |
 
 ## Команды разработки
 
@@ -149,7 +151,7 @@ cp backend/.env.example backend/.env
 
 ## AI Pipeline
 1. **Генерация поста** (Sonnet) → мастер-текст 500-1500 символов
-2. **AI-картинка** (Gemini 2.5 Flash Image, OpenRouter) → PNG, шаблоны + AI enhance промптов
+2. **AI-картинка** (KIE.ai Nano Banana 2) → PNG, гибридные шаблоны (БД per-business + AI suggest через Haiku)
 3. **Адаптация** (Haiku x N платформ) → VK/TG/IG версии + хештеги
 4. **Контент-план** (Haiku) → JSON [{date, topic, postType}]
 5. **Stories** → canvas WYSIWYG (drag, zoom, text overlay, шаблоны, export JPEG без кнопки — VK рисует нативную)
@@ -170,9 +172,10 @@ API keys: OpenRouter — из БД (AppConfig) или .env. FAL — из .env (F
 ## Conventions
 - Паттерны из nawode-erp: Hono routes, JWT httpOnly, Prisma, SSE eventBus
 - AI-промпты включают BrandProfile (тон, ЦА, стиль, примеры)
-- Business = единый хаб (BusinessDetailView): бренд-профиль + каналы + обзор (с управлением доступами)
+- Проект (Business) = единый хаб (BusinessDetailView): бренд-профиль + каналы + обзор (с управлением доступами). UI: "Проекты" (не "Бизнесы")
 - BusinessFilter = pills везде (горизонтальный скролл на мобиле)
-- Settings = только системные вещи (VK OAuth, пользователи, профиль, AI). Не-админы: только "Профиль и тема"
+- Settings = системные вещи (VK OAuth, пользователи + sectionAccess UI, профиль, AI). Не-админы видят табы по sectionAccess
+- AI prompt templates: hybrid pattern — БД-шаблоны (PromptTemplate, per-business) + кнопка "✨ Подобрать по контексту" (Haiku, brandContext). Применено к image + video
 - Все routes с businessId проверяют доступ (resource-access middleware)
 - Stories-first UI: навигация "Stories" (не "Посты"), только STORIES тип, lock после публикации
 - Business isActive toggle: ADMIN видит неактивные, toggle на карточках
