@@ -3,6 +3,7 @@ defineOptions({ name: 'VideoStudioView' })
 import { ref, computed, onMounted, nextTick, watch } from 'vue'
 import { http } from '@/api/client'
 import { useToast } from '@/composables/useToast'
+import { formatDate } from '@/composables/useFormatters'
 import { useBusinessesStore } from '@/stores/businesses'
 import VsModeTabs from '@/components/video/VsModeTabs.vue'
 import VsCharacterCarousel from '@/components/video/VsCharacterCarousel.vue'
@@ -31,6 +32,8 @@ function selectBiz(id: string) {
 
 // --- Session persistence (DB-backed) ---
 const currentSessionId = ref<string | null>(null)
+const currentSessionTitle = ref('')
+const showSessionDropdown = ref(false)
 let autoSaveTimer: ReturnType<typeof setTimeout> | null = null
 
 function scheduleAutoSave() {
@@ -40,9 +43,13 @@ function scheduleAutoSave() {
 
 async function saveSession() {
   if (!selectedBizId.value) return
-  const payload = {
+  // Auto-generate title from first 40 chars of prompt
+  const autoTitle = prompt.value.trim().slice(0, 40) || 'Новая сессия'
+  const payload: any = {
     businessId: selectedBizId.value,
+    title: currentSessionTitle.value || autoTitle,
     prompt: prompt.value,
+    promptHistory: promptHistory.value.length ? promptHistory.value.map((p, i) => ({ version: i + 1, prompt: p, createdAt: new Date().toISOString() })) : null,
     duration: duration.value,
     aspectRatio: aspectRatio.value,
     resolution: resolution.value,
@@ -68,7 +75,13 @@ async function loadDraftSession() {
     const draft = await http.get<any>(`/sessions/draft?businessId=${selectedBizId.value}`)
     if (draft) {
       currentSessionId.value = draft.id
+      currentSessionTitle.value = draft.title || ''
       prompt.value = draft.prompt || ''
+      // Restore prompt history
+      if (draft.promptHistory?.length) {
+        promptHistory.value = (draft.promptHistory as any[]).map((h: any) => h.prompt)
+        historyIndex.value = promptHistory.value.length - 1
+      }
       duration.value = draft.duration || 4
       audio.value = draft.generateAudio ?? false
       resolution.value = draft.resolution || '480p'
@@ -94,10 +107,18 @@ async function loadDraftSession() {
 
 function startNewSession() {
   currentSessionId.value = null
+  currentSessionTitle.value = ''
   prompt.value = ''
+  promptHistory.value = []
+  historyIndex.value = -1
   refImages.value = []
   firstFrame.value = null
   lastFrame.value = null
+}
+
+function createNewSession() {
+  startNewSession()
+  toast.success('Новая сессия создана')
 }
 
 // --- State ---
@@ -334,12 +355,31 @@ async function generate() {
     })()
 
     if (currentSessionId.value) {
-      http.put(`/sessions/${currentSessionId.value}`, {
-        status: 'completed',
-        mediaFileId: result.mediaFile.id,
+      // Add result to session's results array (keep within same session)
+      const newResult = {
         resultUrl: result.mediaFile.url,
+        prompt: prompt.value,
         costUsd,
-      }).catch(() => {})
+        createdAt: new Date().toISOString(),
+        mediaFileId: result.mediaFile.id,
+      }
+      // Load current session to get existing results
+      try {
+        const curr = await http.get<any>(`/sessions/${currentSessionId.value}`)
+        const existingResults = (curr?.results as any[]) || []
+        existingResults.push(newResult)
+        await http.put(`/sessions/${currentSessionId.value}`, {
+          status: 'completed',
+          mediaFileId: result.mediaFile.id,
+          resultUrl: result.mediaFile.url,
+          results: existingResults,
+          costUsd: existingResults.reduce((sum: number, r: any) => sum + (r.costUsd || 0), 0),
+        })
+      } catch {
+        http.put(`/sessions/${currentSessionId.value}`, {
+          status: 'completed', mediaFileId: result.mediaFile.id, resultUrl: result.mediaFile.url, costUsd,
+        }).catch(() => {})
+      }
     }
 
     // Auto-save to prompt library (keep for backwards compat)
@@ -349,9 +389,8 @@ async function generate() {
       metadata: { duration: duration.value, model: 'bytedance/seedance-2', resolution: resolution.value, cost: costUsd, audio: audio.value, inputMode: inputMode.value },
     }).catch(() => {})
 
-    // Refresh sessions list + start new draft
+    // Refresh sessions list (stay in current session for more iterations)
     loadSessions()
-    startNewSession()
 
     toast.success(`Видео готово (${duration.value} сек)`)
   } catch (e: any) {
@@ -523,6 +562,43 @@ onMounted(() => { loadCharacters(); loadVideos(); loadSavedPrompts(); loadDraftS
               ]">
               {{ biz.name }}
             </button>
+          </div>
+        </div>
+
+        <!-- Session dropdown -->
+        <div class="relative">
+          <button @click="showSessionDropdown = !showSessionDropdown"
+            class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-900/20 text-sm hover:bg-emerald-100 dark:hover:bg-emerald-900/30 transition-colors">
+            <span class="truncate max-w-[180px] text-emerald-700 dark:text-emerald-300 font-medium">
+              {{ currentSessionTitle || 'Новая сессия' }}
+            </span>
+            <ChevronDown :size="14" class="text-emerald-500" :class="showSessionDropdown ? 'rotate-180' : ''" />
+          </button>
+          <div v-if="showSessionDropdown" class="fixed inset-0 z-10" @click="showSessionDropdown = false" />
+          <div v-if="showSessionDropdown"
+            class="absolute top-full left-0 mt-1 w-72 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl shadow-lg z-20 py-1 max-h-80 overflow-y-auto">
+            <!-- New session button -->
+            <button @click="createNewSession(); showSessionDropdown = false"
+              class="w-full flex items-center gap-2 px-3 py-2 text-sm text-emerald-600 dark:text-emerald-400 font-medium hover:bg-emerald-50 dark:hover:bg-emerald-900/20 transition-colors border-b border-gray-100 dark:border-gray-800">
+              + Новая сессия
+            </button>
+            <!-- Session list -->
+            <button v-for="s in sessions" :key="s.id"
+              @click="loadSession(s); showSessionDropdown = false"
+              :class="[
+                'w-full text-left px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors',
+                currentSessionId === s.id ? 'bg-emerald-50 dark:bg-emerald-900/20' : ''
+              ]">
+              <div class="flex items-center gap-2">
+                <span :class="[
+                  'w-1.5 h-1.5 rounded-full shrink-0',
+                  s.status === 'completed' ? 'bg-emerald-500' : s.status === 'failed' ? 'bg-red-500' : s.status === 'generating' ? 'bg-amber-500' : 'bg-gray-400'
+                ]" />
+                <span class="text-sm truncate flex-1">{{ s.title || s.prompt?.slice(0, 40) || 'Без названия' }}</span>
+                <span class="text-[9px] text-gray-400 shrink-0">{{ formatDate(s.updatedAt) }}</span>
+              </div>
+            </button>
+            <div v-if="!sessions.length" class="px-3 py-4 text-center text-xs text-gray-400">Нет сессий</div>
           </div>
         </div>
       </div>

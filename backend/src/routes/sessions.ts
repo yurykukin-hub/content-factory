@@ -76,7 +76,9 @@ sessions.post('/sessions', async (c) => {
 
 // PUT /api/sessions/:id — обновить сессию (auto-save)
 const updateSchema = z.object({
+  title: z.string().optional(),
   prompt: z.string().optional(),
+  promptHistory: z.any().optional(),
   duration: z.number().int().min(4).max(15).optional(),
   aspectRatio: z.enum(['9:16', '1:1', '16:9']).optional(),
   resolution: z.enum(['480p', '720p']).optional(),
@@ -88,6 +90,7 @@ const updateSchema = z.object({
   status: z.enum(['draft', 'generating', 'completed', 'failed']).optional(),
   mediaFileId: z.string().optional().nullable(),
   resultUrl: z.string().optional().nullable(),
+  results: z.any().optional(),
   errorMessage: z.string().optional().nullable(),
   costUsd: z.number().optional().nullable(),
 })

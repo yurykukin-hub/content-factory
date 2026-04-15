@@ -509,8 +509,12 @@ model GenerationSession {
   businessId       String   @map("business_id")
   userId           String   @map("user_id")
 
+  // Название (авто из промпта или ручное)
+  title            String   @default("")
+
   // Промпт
   prompt           String   @default("")
+  promptHistory    Json?    @map("prompt_history")    // [{version, prompt, createdAt}]
 
   // Настройки
   duration         Int      @default(4)
@@ -530,7 +534,10 @@ model GenerationSession {
   resultUrl        String?  @map("result_url")
   errorMessage     String?  @map("error_message")
 
-  // Стоимость
+  // Результаты генераций (несколько попыток внутри сессии)
+  results          Json?    @map("results")           // [{resultUrl, prompt, costUsd, createdAt, mediaFileId}]
+
+  // Стоимость (суммарная)
   model            String   @default("bytedance/seedance-2")
   costUsd          Float?   @map("cost_usd")
 
