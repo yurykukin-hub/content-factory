@@ -91,11 +91,20 @@ async function saveSession() {
 
 // Check for stuck "generating" sessions and fix them
 async function fixStuckSessions() {
-  const stuck = sessions.value.filter(s => s.status === 'generating' || (s.status === 'failed' && s.resultUrl))
+  const stuck = sessions.value.filter(s =>
+    s.status === 'generating' || (s.status === 'failed' && s.resultUrl)
+  )
   for (const s of stuck) {
     if (s.resultUrl) {
       // Video was generated but status wasn't updated (F5 during generation)
       await http.put(`/sessions/${s.id}`, { status: 'completed' }).catch(() => {})
+    } else if (s.status === 'generating') {
+      // Stuck in generating without result — check updatedAt, if older than 5 min → mark draft
+      const updatedAt = new Date(s.updatedAt).getTime()
+      const fiveMinAgo = Date.now() - 5 * 60 * 1000
+      if (updatedAt < fiveMinAgo) {
+        await http.put(`/sessions/${s.id}`, { status: 'draft' }).catch(() => {})
+      }
     }
   }
   if (stuck.length) loadSessions()
@@ -267,6 +276,7 @@ function loadSession(session: Session) {
   autoSavePaused = true
   // Switch to this session's state
   currentSessionId.value = session.status === 'draft' ? session.id : null
+  currentSessionTitle.value = session.title || ''
   prompt.value = session.prompt || ''
   duration.value = session.duration || 4
   audio.value = session.generateAudio ?? false
@@ -295,6 +305,15 @@ function loadSession(session: Session) {
   }
   setTimeout(() => { autoSavePaused = false }, 500)
   toast.success('Сессия загружена')
+}
+
+async function renameSession(id: string, newTitle: string) {
+  try {
+    await http.put(`/sessions/${id}`, { title: newTitle })
+    // Update local state if it's the current session
+    if (currentSessionId.value === id) currentSessionTitle.value = newTitle
+    await loadSessions()
+  } catch (e: any) { toast.error(e.message || 'Ошибка') }
 }
 
 const costRub = computed(() => {
@@ -427,9 +446,10 @@ async function generate() {
       payload.referenceImageUrls = refImages.value.map(r => r.url)
     }
 
-    // Mark session as generating
+    // Mark session as generating (await to prevent race condition)
     if (currentSessionId.value) {
-      http.put(`/sessions/${currentSessionId.value}`, { status: 'generating' }).catch(() => {})
+      await http.put(`/sessions/${currentSessionId.value}`, { status: 'generating' }).catch(() => {})
+      loadSessions()
     }
 
     const result = await http.post<{ mediaFile: GeneratedVideo }>('/ai/generate-video', payload)
@@ -485,8 +505,8 @@ async function generate() {
       metadata: { duration: duration.value, model: 'bytedance/seedance-2', resolution: resolution.value, cost: costUsd, audio: audio.value, inputMode: inputMode.value },
     }).catch(() => {})
 
-    // Refresh data
-    loadSessions()
+    // Refresh data (await to ensure UI shows updated status)
+    await loadSessions()
     loadVideos()
 
     toast.success(`Видео готово (${duration.value} сек)`)
@@ -693,7 +713,8 @@ onMounted(async () => {
           :current-session-id="currentSessionId"
           @load-session="loadSession"
           @create-new="createNewSession"
-          @delete-session="deleteSession" />
+          @delete-session="deleteSession"
+          @rename-session="(id, title) => renameSession(id, title)" />
         <!-- Prompt block (pinned to bottom) -->
         <div class="shrink-0 border-t border-gray-200 dark:border-gray-800">
         <VsModeTabs v-model="inputMode" />

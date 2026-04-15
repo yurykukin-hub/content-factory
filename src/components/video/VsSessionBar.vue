@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-import { Plus, Trash2, Image, Loader2 } from 'lucide-vue-next'
+import { ref, nextTick } from 'vue'
+import { Plus, Trash2, Image, Loader2, Pencil, Check, X } from 'lucide-vue-next'
 import { formatDate } from '@/composables/useFormatters'
 
 interface Session {
@@ -20,9 +20,30 @@ const emit = defineEmits<{
   loadSession: [session: Session]
   deleteSession: [id: string]
   createNew: []
+  renameSession: [id: string, title: string]
 }>()
 
 const confirmDeleteId = ref<string | null>(null)
+const editingId = ref<string | null>(null)
+const editingTitle = ref('')
+const editInputRef = ref<HTMLInputElement | null>(null)
+
+function startRename(s: Session, e: Event) {
+  e.stopPropagation()
+  editingId.value = s.id
+  editingTitle.value = s.title || s.prompt?.slice(0, 40) || ''
+  nextTick(() => editInputRef.value?.focus())
+}
+
+function saveRename(id: string) {
+  const title = editingTitle.value.trim()
+  if (title) emit('renameSession', id, title)
+  editingId.value = null
+}
+
+function cancelRename() {
+  editingId.value = null
+}
 
 const STATUS_DOT: Record<string, string> = {
   draft: 'bg-gray-400',
@@ -107,7 +128,16 @@ function doDelete(id: string) {
         <div class="flex-1 min-w-0">
           <div class="flex items-center gap-1.5">
             <span :class="['w-1.5 h-1.5 rounded-full shrink-0', STATUS_DOT[s.status] || STATUS_DOT.draft]" />
-            <span class="text-[11px] font-medium text-gray-700 dark:text-gray-300 truncate">
+            <!-- Inline rename input -->
+            <template v-if="editingId === s.id">
+              <input ref="editInputRef" v-model="editingTitle"
+                @click.stop @keyup.enter="saveRename(s.id)" @keyup.escape="cancelRename"
+                @blur="saveRename(s.id)"
+                class="flex-1 min-w-0 text-[11px] font-medium bg-transparent border-b border-emerald-400 dark:border-emerald-600 text-gray-700 dark:text-gray-300 outline-none px-0 py-0" />
+            </template>
+            <!-- Title display (dblclick to rename) -->
+            <span v-else @dblclick="startRename(s, $event)"
+              class="text-[11px] font-medium text-gray-700 dark:text-gray-300 truncate" :title="'Дважды кликните для переименования'">
               {{ s.title || s.prompt?.slice(0, 30) || 'Без названия' }}
             </span>
           </div>
@@ -126,12 +156,18 @@ function doDelete(id: string) {
           </div>
         </div>
 
-        <!-- Delete button -->
-        <button v-if="confirmDeleteId !== s.id"
-          @click="confirmDelete(s.id, $event)"
-          class="p-1 rounded text-gray-300 dark:text-gray-600 opacity-0 group-hover:opacity-100 hover:text-red-500 transition-all shrink-0">
-          <Trash2 :size="12" />
-        </button>
+        <!-- Rename + Delete buttons -->
+        <div v-if="confirmDeleteId !== s.id && editingId !== s.id"
+          class="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-all shrink-0">
+          <button @click="startRename(s, $event)"
+            class="p-1 rounded text-gray-300 dark:text-gray-600 hover:text-emerald-500 transition-colors" title="Переименовать">
+            <Pencil :size="10" />
+          </button>
+          <button @click="confirmDelete(s.id, $event)"
+            class="p-1 rounded text-gray-300 dark:text-gray-600 hover:text-red-500 transition-colors" title="Удалить">
+            <Trash2 :size="12" />
+          </button>
+        </div>
         <!-- Confirm delete -->
         <div v-else class="flex items-center gap-1 shrink-0" @click.stop>
           <button @click="doDelete(s.id)"
