@@ -1,6 +1,6 @@
 <script setup lang="ts">
 defineOptions({ name: 'VideoStudioView' })
-import { ref, computed, onMounted, nextTick } from 'vue'
+import { ref, computed, onMounted, nextTick, watch } from 'vue'
 import { http } from '@/api/client'
 import { useToast } from '@/composables/useToast'
 import { useBusinessesStore } from '@/stores/businesses'
@@ -29,8 +29,36 @@ function selectBiz(id: string) {
   onBusinessChange()
 }
 
+// --- Persist state across page reloads ---
+const STORAGE_KEY = 'vs_state'
+
+function loadSaved<T>(key: string, fallback: T): T {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY)
+    if (!raw) return fallback
+    const obj = JSON.parse(raw)
+    return key in obj ? obj[key] : fallback
+  } catch { return fallback }
+}
+
+function saveState() {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      prompt: prompt.value,
+      duration: duration.value,
+      audio: audio.value,
+      resolution: resolution.value,
+      aspectRatio: aspectRatio.value,
+      inputMode: inputMode.value,
+      refImages: refImages.value,
+      firstFrame: firstFrame.value,
+      lastFrame: lastFrame.value,
+    }))
+  } catch {}
+}
+
 // --- State ---
-const prompt = ref('')
+const prompt = ref(loadSaved('prompt', ''))
 const enhancing = ref(false)
 const generating = ref(false)
 const promptHistory = ref<string[]>([])
@@ -38,18 +66,21 @@ const historyIndex = ref(-1)
 const showConstructor = ref(false)
 
 // Settings
-const duration = ref(4)
-const audio = ref(false)
-const resolution = ref<'480p' | '720p'>('480p')
-const aspectRatio = ref<'9:16' | '1:1' | '16:9'>('9:16')
-const inputMode = ref<'text' | 'frames' | 'references'>('references')
+const duration = ref(loadSaved('duration', 4))
+const audio = ref(loadSaved('audio', false))
+const resolution = ref<'480p' | '720p'>(loadSaved('resolution', '480p'))
+const aspectRatio = ref<'9:16' | '1:1' | '16:9'>(loadSaved('aspectRatio', '9:16'))
+const inputMode = ref<'text' | 'frames' | 'references'>(loadSaved('inputMode', 'references'))
 
 // Frames
-const firstFrame = ref<{ url: string; thumbUrl?: string | null; filename: string } | null>(null)
-const lastFrame = ref<{ url: string; thumbUrl?: string | null; filename: string } | null>(null)
+const firstFrame = ref(loadSaved<{ url: string; thumbUrl?: string | null; filename: string } | null>('firstFrame', null))
+const lastFrame = ref(loadSaved<{ url: string; thumbUrl?: string | null; filename: string } | null>('lastFrame', null))
 
 // References (simplified — no roles, with altText for preview)
-const refImages = ref<{ url: string; thumbUrl?: string | null; filename: string; altText?: string | null }[]>([])
+const refImages = ref(loadSaved<{ url: string; thumbUrl?: string | null; filename: string; altText?: string | null }[]>('refImages', []))
+
+// Auto-save on changes
+watch([prompt, duration, audio, resolution, aspectRatio, inputMode, refImages, firstFrame, lastFrame], saveState, { deep: true })
 const showMediaPicker = ref(false)
 const showRefModal = ref(false)
 const editingCharacter = ref<CharacterData | null>(null)
