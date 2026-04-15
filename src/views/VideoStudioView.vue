@@ -308,11 +308,12 @@ async function loadSession(session: Session) {
     generatedPromptIndices.value = new Set()
   }
 
-  if (session.status === 'draft') {
-    // Draft — edit it directly
+  if (session.status === 'draft' || session.status === 'generating') {
+    // Draft or generating — edit it directly (no clone)
     currentSessionId.value = session.id
+    autoSavePaused = false
   } else {
-    // Non-draft (completed/failed) → clone into a new draft so auto-save always works
+    // Completed/failed → clone into a new draft so auto-save always works
     try {
       const newSession = await http.post<any>('/sessions', { businessId: selectedBizId.value })
       currentSessionId.value = newSession.id
