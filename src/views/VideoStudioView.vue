@@ -36,14 +36,18 @@ const currentSessionId = ref<string | null>(null)
 const currentSessionTitle = ref('')
 const showSessionDropdown = ref(false)
 let autoSaveTimer: ReturnType<typeof setTimeout> | null = null
+let autoSavePaused = false
 
 function scheduleAutoSave() {
+  if (autoSavePaused) return
   if (autoSaveTimer) clearTimeout(autoSaveTimer)
   autoSaveTimer = setTimeout(saveSession, 2000)
 }
 
 async function saveSession() {
-  if (!selectedBizId.value) return
+  if (!selectedBizId.value || autoSavePaused) return
+  // Don't create new sessions automatically — only save existing ones
+  if (!currentSessionId.value) return
   // Auto-generate title from first 40 chars of prompt
   const autoTitle = prompt.value.trim().slice(0, 40) || 'Новая сессия'
   const payload: any = {
@@ -61,17 +65,13 @@ async function saveSession() {
     lastFrameUrl: lastFrame.value?.url || null,
   }
   try {
-    if (currentSessionId.value) {
-      await http.put(`/sessions/${currentSessionId.value}`, payload)
-    } else {
-      const session = await http.post<any>('/sessions', payload)
-      currentSessionId.value = session.id
-    }
+    await http.put(`/sessions/${currentSessionId.value}`, payload)
   } catch (e) { console.error('[VS] saveSession failed:', e) }
 }
 
 async function loadDraftSession() {
   if (!selectedBizId.value) return
+  autoSavePaused = true
   try {
     const draft = await http.get<any>(`/sessions/draft?businessId=${selectedBizId.value}`)
     if (draft) {
@@ -102,8 +102,15 @@ async function loadDraftSession() {
           }
         }, 300)
       }
+    } else {
+      // No draft exists — create one automatically
+      try {
+        const session = await http.post<any>('/sessions', { businessId: selectedBizId.value })
+        currentSessionId.value = session.id
+      } catch {}
     }
   } catch {}
+  finally { setTimeout(() => { autoSavePaused = false }, 500) }
 }
 
 function startNewSession() {
@@ -117,9 +124,15 @@ function startNewSession() {
   lastFrame.value = null
 }
 
-function createNewSession() {
+async function createNewSession() {
   startNewSession()
-  toast.success('Новая сессия создана')
+  if (!selectedBizId.value) return
+  try {
+    const session = await http.post<any>('/sessions', { businessId: selectedBizId.value })
+    currentSessionId.value = session.id
+    loadSessions()
+    toast.success('Новая сессия создана')
+  } catch (e) { console.error('[VS] createNewSession failed:', e) }
 }
 
 // --- State ---
@@ -201,6 +214,7 @@ async function loadSessions() {
 }
 
 function loadSession(session: Session) {
+  autoSavePaused = true
   // Switch to this session's state
   currentSessionId.value = session.status === 'draft' ? session.id : null
   prompt.value = session.prompt || ''
@@ -229,6 +243,7 @@ function loadSession(session: Session) {
       }
     }, 100)
   }
+  setTimeout(() => { autoSavePaused = false }, 500)
   toast.success('Сессия загружена')
 }
 
