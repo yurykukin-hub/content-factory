@@ -47,6 +47,7 @@ const emit = defineEmits<{
   uploadFrame: [event: Event, which: 'first' | 'last']
   addRef: [event: Event]
   addRefFromLibrary: []
+  describeRef: [refImage: RefImage]
   removeRef: [index: number]
   removeFrame: [which: 'first' | 'last']
   openConstructor: []
@@ -59,6 +60,7 @@ const richPromptRef = ref<InstanceType<typeof VsRichPrompt> | null>(null)
 const showAddMenu = ref(false)
 const previewRef = ref<RefImage | null>(null)
 const fileInputRef = ref<HTMLInputElement | null>(null)
+const describingPreview = ref(false)
 
 watch(showTemplates, (val) => {
   if (val && !props.templates.length && !props.loadingTemplates) {
@@ -174,10 +176,19 @@ defineExpose({ insertBadge, openPreview })
             <p v-if="previewRef.altText" class="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
               {{ previewRef.altText }}
             </p>
-            <p v-else class="text-xs text-gray-400 italic">Нет описания</p>
+            <div v-else class="flex items-center gap-2">
+              <p class="text-xs text-gray-400 italic">Нет описания</p>
+              <button @click="emit('describeRef', previewRef!); describingPreview = true"
+                :disabled="describingPreview"
+                class="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50 transition-colors">
+                <Loader2 v-if="describingPreview" :size="10" class="animate-spin" />
+                <Sparkles v-else :size="10" />
+                Auto
+              </button>
+            </div>
           </div>
           <div class="px-4 pb-4">
-            <button @click="previewRef = null"
+            <button @click="previewRef = null; describingPreview = false"
               class="w-full py-2 rounded-lg bg-gray-100 dark:bg-gray-800 text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">
               Закрыть
             </button>

@@ -277,6 +277,17 @@ function onCreateRef() {
   showRefModal.value = true
 }
 
+async function describeRefImage(img: { url: string; thumbUrl?: string | null; filename: string; altText?: string | null }) {
+  try {
+    const res = await http.post<{ description: string }>('/ai/describe-image', {
+      imageUrl: img.url,
+      type: 'person',
+    })
+    img.altText = res.description
+    toast.success('Описание сгенерировано')
+  } catch (e: any) { toast.error(e.message || 'Ошибка AI') }
+}
+
 async function onRefSaved() {
   await loadCharacters()
   // Sync altText in working set from updated characters data
@@ -364,6 +375,7 @@ onMounted(() => { loadCharacters(); loadVideos(); loadSavedPrompts() })
             @upload-frame="uploadFrame"
             @add-ref="addRef"
             @add-ref-from-library="showMediaPicker = true"
+            @describe-ref="describeRefImage"
             @remove-ref="(idx) => refImages.splice(idx, 1)"
             @remove-frame="(w) => w === 'first' ? firstFrame = null : lastFrame = null"
             @open-constructor="showConstructor = true"
