@@ -2,27 +2,40 @@
 import { ref, computed, watch } from 'vue'
 import { http } from '@/api/client'
 import { useToast } from '@/composables/useToast'
-import { X, Upload, Plus, Trash2, Loader2, Sparkles } from 'lucide-vue-next'
+import { X, Upload, Plus, Loader2, Sparkles } from 'lucide-vue-next'
 
-defineProps<{
+export interface CharacterData {
+  id: string
+  name: string
+  description: string
+  type: string
+  style: string
+  referenceMedia?: { id?: string; url: string; thumbUrl: string | null } | null
+  additionalAngles?: { url: string; thumbUrl: string | null; filename: string }[] | null
+}
+
+const props = defineProps<{
   visible: boolean
   businessId: string
+  character?: CharacterData | null  // null = create mode, object = view/edit mode
 }>()
 
 const emit = defineEmits<{
   close: []
-  created: []
+  saved: []
 }>()
 
 const toast = useToast()
 
+const isEditMode = computed(() => !!props.character)
+
 // Form state
 const name = ref('')
-const type = ref<'person' | 'mascot' | 'avatar' | 'object' | 'location'>('person')
+const type = ref<string>('person')
 const description = ref('')
 const mainPhoto = ref<{ url: string; thumbUrl: string | null; filename: string } | null>(null)
 const additionalPhotos = ref<{ url: string; thumbUrl: string | null; filename: string }[]>([])
-const creating = ref(false)
+const saving = ref(false)
 const describing = ref(false)
 
 const TYPE_OPTIONS = [
@@ -33,15 +46,31 @@ const TYPE_OPTIONS = [
   { id: 'location', label: 'Локация' },
 ]
 
-const canCreate = computed(() => name.value.trim() && mainPhoto.value)
+const canSave = computed(() => name.value.trim() && mainPhoto.value)
 
-function reset() {
-  name.value = ''
-  type.value = 'person'
-  description.value = ''
-  mainPhoto.value = null
-  additionalPhotos.value = []
-}
+// Populate form when character prop changes (edit mode)
+watch(() => props.character, (char) => {
+  if (char) {
+    name.value = char.name
+    type.value = char.type || 'person'
+    description.value = char.description || ''
+    mainPhoto.value = char.referenceMedia
+      ? { url: char.referenceMedia.url, thumbUrl: char.referenceMedia.thumbUrl, filename: char.name }
+      : null
+    additionalPhotos.value = (char.additionalAngles as any[]) || []
+  }
+}, { immediate: true })
+
+// Reset on close
+watch(() => props.visible, (val) => {
+  if (!val && !props.character) {
+    name.value = ''
+    type.value = 'person'
+    description.value = ''
+    mainPhoto.value = null
+    additionalPhotos.value = []
+  }
+})
 
 async function uploadPhoto(event: Event, target: 'main' | 'additional') {
   const input = event.target as HTMLInputElement
@@ -57,6 +86,10 @@ async function uploadPhoto(event: Event, target: 'main' | 'additional') {
     const photo = { url: m.url, thumbUrl: m.thumbUrl, filename: m.filename }
     if (target === 'main') {
       mainPhoto.value = photo
+      if (!name.value) {
+        const raw = m.filename.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' ')
+        name.value = raw.charAt(0).toUpperCase() + raw.slice(1)
+      }
     } else if (additionalPhotos.value.length < 3) {
       additionalPhotos.value.push(photo)
     }
@@ -78,15 +111,15 @@ async function autoDescribe() {
   finally { describing.value = false }
 }
 
-async function create() {
-  if (!canCreate.value || !mainPhoto.value || !props.businessId) return
-  creating.value = true
+async function save() {
+  if (!canSave.value || !mainPhoto.value || !props.businessId) return
+  saving.value = true
   try {
-    // Find MediaFile ID by URL (uploaded photos are already in MediaFile table)
+    // Find MediaFile ID for main photo
     const allMedia = await http.get<any[]>(`/media/library/${props.businessId}`)
     const mediaFile = allMedia.find((m: any) => m.url === mainPhoto.value!.url)
 
-    await http.post('/characters', {
+    const payload = {
       name: name.value.trim(),
       description: description.value.trim(),
       type: type.value,
@@ -94,23 +127,21 @@ async function create() {
       referenceMediaId: mediaFile?.id || null,
       additionalAngles: additionalPhotos.value.length ? additionalPhotos.value : null,
       businessIds: [props.businessId],
-    })
+    }
 
-    toast.success('Референс создан')
-    reset()
-    emit('created')
+    if (isEditMode.value && props.character) {
+      await http.put(`/characters/${props.character.id}`, payload)
+      toast.success('Референс обновлён')
+    } else {
+      await http.post('/characters', payload)
+      toast.success('Референс создан')
+    }
+
+    emit('saved')
     emit('close')
-  } catch (e: any) { toast.error(e.message || 'Ошибка создания') }
-  finally { creating.value = false }
+  } catch (e: any) { toast.error(e.message || 'Ошибка сохранения') }
+  finally { saving.value = false }
 }
-
-watch(() => mainPhoto.value, () => {
-  // Автоматически заполнить имя из filename если пустое
-  if (mainPhoto.value && !name.value) {
-    const raw = mainPhoto.value.filename.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' ')
-    name.value = raw.charAt(0).toUpperCase() + raw.slice(1)
-  }
-})
 </script>
 
 <template>
@@ -120,7 +151,7 @@ watch(() => mainPhoto.value, () => {
 
         <!-- Header -->
         <div class="flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-gray-800">
-          <h3 class="text-base font-bold">Создать референс</h3>
+          <h3 class="text-base font-bold">{{ isEditMode ? 'Референс' : 'Создать референс' }}</h3>
           <button @click="emit('close')" class="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors">
             <X :size="18" />
           </button>
@@ -135,10 +166,10 @@ watch(() => mainPhoto.value, () => {
             <div class="shrink-0">
               <div v-if="mainPhoto" class="relative group w-28 h-28 rounded-xl overflow-hidden border-2 border-emerald-300 dark:border-emerald-700">
                 <img :src="mainPhoto.thumbUrl || mainPhoto.url" class="w-full h-full object-cover" />
-                <button @click="mainPhoto = null"
-                  class="absolute top-1 right-1 w-5 h-5 bg-red-500/80 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                  <X :size="10" class="text-white" />
-                </button>
+                <label class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center cursor-pointer transition-opacity">
+                  <Upload :size="20" class="text-white" />
+                  <input type="file" accept="image/*" class="hidden" @change="(e) => uploadPhoto(e, 'main')" />
+                </label>
               </div>
               <label v-else
                 class="w-28 h-28 rounded-xl border-2 border-dashed border-gray-300 dark:border-gray-700 flex flex-col items-center justify-center cursor-pointer hover:border-emerald-400 transition-colors">
@@ -151,7 +182,7 @@ watch(() => mainPhoto.value, () => {
             <!-- Additional angles -->
             <div class="flex-1">
               <p class="text-[10px] text-gray-400 mb-2">Доп. ракурсы (до 3)</p>
-              <div class="flex gap-2">
+              <div class="flex gap-2 flex-wrap">
                 <div v-for="(p, idx) in additionalPhotos" :key="idx"
                   class="relative group w-14 h-14 rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700">
                   <img :src="p.thumbUrl || p.url" class="w-full h-full object-cover" />
@@ -174,9 +205,9 @@ watch(() => mainPhoto.value, () => {
             class="w-full px-3 py-2.5 rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-sm outline-none focus:border-emerald-400 transition-colors" />
 
           <!-- Type -->
-          <div class="flex gap-1.5">
+          <div class="flex gap-1.5 flex-wrap">
             <button v-for="t in TYPE_OPTIONS" :key="t.id"
-              @click="type = t.id as any"
+              @click="type = t.id"
               :class="[
                 'px-3 py-1.5 rounded-lg text-xs font-medium transition-all',
                 type === t.id
@@ -187,12 +218,11 @@ watch(() => mainPhoto.value, () => {
             </button>
           </div>
 
-          <!-- Description -->
+          <!-- Description + Auto -->
           <div class="relative">
             <textarea v-model="description" rows="3"
               placeholder="Опишите ключевые особенности: внешность, стиль, детали..."
               class="w-full px-3 py-2.5 rounded-xl border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-sm outline-none focus:border-emerald-400 resize-none transition-colors" />
-            <!-- Auto button -->
             <button v-if="mainPhoto" @click="autoDescribe" :disabled="describing"
               class="absolute bottom-2 right-2 flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-medium bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50 transition-colors">
               <Loader2 v-if="describing" :size="10" class="animate-spin" />
@@ -208,15 +238,15 @@ watch(() => mainPhoto.value, () => {
             class="px-4 py-2 rounded-lg text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
             Отмена
           </button>
-          <button @click="create" :disabled="!canCreate || creating"
+          <button @click="save" :disabled="!canSave || saving"
             :class="[
               'flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-colors',
-              canCreate
+              canSave
                 ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
                 : 'bg-gray-200 dark:bg-gray-700 text-gray-400 cursor-not-allowed'
             ]">
-            <Loader2 v-if="creating" :size="14" class="animate-spin" />
-            Создать
+            <Loader2 v-if="saving" :size="14" class="animate-spin" />
+            {{ isEditMode ? 'Сохранить' : 'Создать' }}
           </button>
         </div>
       </div>

@@ -11,7 +11,8 @@ import VsSettingsPanel from '@/components/video/VsSettingsPanel.vue'
 import VsGallery from '@/components/video/VsGallery.vue'
 import VsConstructorDrawer from '@/components/video/VsConstructorDrawer.vue'
 import MediaPickerModal from '@/components/MediaPickerModal.vue'
-import VsCreateRefModal from '@/components/video/VsCreateRefModal.vue'
+import VsRefModal from '@/components/video/VsRefModal.vue'
+import type { CharacterData } from '@/components/video/VsRefModal.vue'
 import { Video, ChevronDown } from 'lucide-vue-next'
 
 const toast = useToast()
@@ -50,7 +51,8 @@ const lastFrame = ref<{ url: string; thumbUrl?: string | null; filename: string 
 // References (simplified — no roles, with altText for preview)
 const refImages = ref<{ url: string; thumbUrl?: string | null; filename: string; altText?: string | null }[]>([])
 const showMediaPicker = ref(false)
-const showCreateRef = ref(false)
+const showRefModal = ref(false)
+const editingCharacter = ref<CharacterData | null>(null)
 
 // Characters
 interface CharacterRef { id: string; name: string; type: string; description?: string | null; style?: string | null; referenceMedia?: { url: string; thumbUrl: string | null } | null }
@@ -249,16 +251,18 @@ function usePrompt(entry: PromptEntry) {
 function onCharacterSelect(id: string | null) {
   if (!id) return
   const char = characters.value.find(c => c.id === id)
-  if (!char?.referenceMedia) return
+  if (!char) return
 
-  // Check if already in working set → open preview instead of duplicating
-  const existing = refImages.value.find(r => r.url === char.referenceMedia!.url)
-  if (existing) {
-    vsPromptAreaRef.value?.openPreview(existing)
+  // Check if already in working set → open ref modal for viewing
+  const alreadyAdded = char.referenceMedia && refImages.value.find(r => r.url === char.referenceMedia!.url)
+  if (alreadyAdded) {
+    editingCharacter.value = char as CharacterData
+    showRefModal.value = true
     return
   }
 
-  if (refImages.value.length >= 9) return
+  // First click → add to working set
+  if (!char.referenceMedia || refImages.value.length >= 9) return
   addRefImage({
     url: char.referenceMedia.url,
     thumbUrl: char.referenceMedia.thumbUrl,
@@ -266,6 +270,11 @@ function onCharacterSelect(id: string | null) {
     altText: char.description || null,
   })
   selectedCharacterId.value = id
+}
+
+function onCreateRef() {
+  editingCharacter.value = null
+  showRefModal.value = true
 }
 
 function onBusinessChange() {
@@ -324,7 +333,7 @@ onMounted(() => { loadCharacters(); loadVideos(); loadSavedPrompts() })
           :characters="characters"
           :model-value="selectedCharacterId"
           @update:model-value="onCharacterSelect"
-          @create-new="showCreateRef = true" />
+          @create-new="onCreateRef" />
         <div class="flex-1 overflow-y-auto">
           <VsPromptArea
             ref="vsPromptAreaRef"
@@ -379,12 +388,13 @@ onMounted(() => { loadCharacters(); loadVideos(); loadSavedPrompts() })
       v-model="prompt"
       :reference-images="inputMode === 'references' ? refImages : []" />
 
-    <!-- Create Reference Modal -->
-    <VsCreateRefModal
-      :visible="showCreateRef"
+    <!-- Reference Modal (create / view+edit) -->
+    <VsRefModal
+      :visible="showRefModal"
       :business-id="selectedBizId || ''"
-      @close="showCreateRef = false"
-      @created="loadCharacters()" />
+      :character="editingCharacter"
+      @close="showRefModal = false; editingCharacter = null"
+      @saved="loadCharacters()" />
 
     <!-- Media Picker Modal -->
     <MediaPickerModal
