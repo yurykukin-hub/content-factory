@@ -679,6 +679,10 @@ const enhanceVideoPromptSchema = z.object({
   prompt: z.string().min(1),
   businessId: z.string(),
   duration: z.number().optional(),
+  elements: z.array(z.object({
+    tag: z.string(),
+    description: z.string(),
+  })).optional(),
 })
 
 ai.post('/enhance-video-prompt', async (c) => {
@@ -696,9 +700,16 @@ ai.post('/enhance-video-prompt', async (c) => {
 
   const durationHint = data.duration ? ` Видео длительностью ${data.duration} секунд.` : ''
 
+  // Build elements context for AI
+  let elementsHint = ''
+  if (data.elements?.length) {
+    const desc = data.elements.map(e => `${e.tag} = "${e.description}"`).join(', ')
+    elementsHint = `\n\nReference elements (MUST keep these tags in the output prompt, place each tag right after first mention of the described subject): ${desc}`
+  }
+
   const result = await aiComplete({
     systemPrompt,
-    userPrompt: data.prompt + durationHint,
+    userPrompt: data.prompt + durationHint + elementsHint,
     model: config.models.haiku,
     maxTokens: 500,
     businessId: data.businessId,

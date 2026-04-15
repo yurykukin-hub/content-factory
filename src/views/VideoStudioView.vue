@@ -1,6 +1,6 @@
 <script setup lang="ts">
 defineOptions({ name: 'VideoStudioView' })
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, nextTick } from 'vue'
 import { http } from '@/api/client'
 import { useToast } from '@/composables/useToast'
 import { useBusinessesStore } from '@/stores/businesses'
@@ -132,14 +132,41 @@ async function loadAiTemplates() {
   finally { loadingTemplates.value = false }
 }
 
+function setPromptWithBadges(text: string) {
+  // First set plain text
+  prompt.value = text
+  // Then re-insert badges for any @ImageN references found in text
+  nextTick(() => {
+    refImages.value.forEach((img, idx) => {
+      const tag = `@Image${idx + 1}`
+      if (text.includes(tag)) {
+        vsPromptAreaRef.value?.insertBadge({
+          badgeType: 'image',
+          id: `img_${idx + 1}`,
+          name: `Image${idx + 1}`,
+          thumbUrl: img.thumbUrl || null,
+        })
+      }
+    })
+  })
+}
+
 async function enhance() {
   if (!prompt.value.trim() || !selectedBizId.value) return
   enhancing.value = true
   try {
+    // Collect element descriptions for AI context
+    const elements = refImages.value.map((img, idx) => ({
+      tag: `@Image${idx + 1}`,
+      description: img.altText || img.filename || `Image ${idx + 1}`,
+    }))
+
     const res = await http.post<{ enhancedPrompt: string }>('/ai/enhance-video-prompt', {
       prompt: prompt.value, duration: duration.value, businessId: selectedBizId.value,
+      elements: elements.length ? elements : undefined,
     })
-    prompt.value = res.enhancedPrompt
+    // Set prompt with badges restored
+    setPromptWithBadges(res.enhancedPrompt)
     promptHistory.value.push(res.enhancedPrompt)
     historyIndex.value = promptHistory.value.length - 1
     toast.success('Промпт улучшен')
