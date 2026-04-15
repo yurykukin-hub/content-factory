@@ -277,11 +277,11 @@ async function loadSessions() {
   try { sessions.value = await http.get<Session[]>(`/sessions?businessId=${selectedBizId.value}`) } catch { sessions.value = [] }
 }
 
-function loadSession(session: Session) {
+async function loadSession(session: Session) {
   autoSavePaused = true
-  // Switch to this session's state
-  viewedSessionId.value = session.id  // always highlight the clicked session
-  currentSessionId.value = session.status === 'draft' ? session.id : null
+  viewedSessionId.value = session.id
+
+  // Restore all UI state from the session
   currentSessionTitle.value = session.title || ''
   prompt.value = session.prompt || ''
   duration.value = session.duration || 4
@@ -293,9 +293,37 @@ function loadSession(session: Session) {
   firstFrame.value = session.firstFrameUrl ? { url: session.firstFrameUrl, thumbUrl: null, filename: 'frame' } : null
   lastFrame.value = session.lastFrameUrl ? { url: session.lastFrameUrl, thumbUrl: null, filename: 'frame' } : null
 
-  // If completed session (read-only), create new draft from it
-  if (session.status !== 'draft') {
-    currentSessionId.value = null
+  // Restore prompt history from session
+  const fullSession = await http.get<any>(`/sessions/${session.id}`).catch(() => null)
+  if (fullSession?.promptHistory?.length) {
+    const entries = fullSession.promptHistory as any[]
+    promptHistory.value = entries.map((h: any) => h.prompt)
+    historyIndex.value = promptHistory.value.length - 1
+    generatedPromptIndices.value = new Set(
+      entries.filter((h: any) => h.generated).map((_: any, i: number) => i)
+    )
+  } else {
+    promptHistory.value = prompt.value.trim() ? [prompt.value] : []
+    historyIndex.value = promptHistory.value.length - 1
+    generatedPromptIndices.value = new Set()
+  }
+
+  if (session.status === 'draft') {
+    // Draft — edit it directly
+    currentSessionId.value = session.id
+  } else {
+    // Non-draft (completed/failed) → clone into a new draft so auto-save always works
+    try {
+      const newSession = await http.post<any>('/sessions', { businessId: selectedBizId.value })
+      currentSessionId.value = newSession.id
+      viewedSessionId.value = newSession.id
+      // Immediately save full state into the new draft
+      autoSavePaused = false
+      await saveSession()
+      loadSessions()
+    } catch {
+      currentSessionId.value = null
+    }
   }
 
   // Restore badges
@@ -310,7 +338,6 @@ function loadSession(session: Session) {
     }, 100)
   }
   setTimeout(() => { autoSavePaused = false }, 500)
-  toast.success('Сессия загружена')
 }
 
 async function renameSession(id: string, newTitle: string) {
