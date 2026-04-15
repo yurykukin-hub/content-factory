@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { z } from 'zod'
-import db from '../db'
+import { db } from '../db'
 import type { AuthUser } from '../middleware/auth'
 import { assertBusinessAccess } from '../middleware/resource-access'
 
