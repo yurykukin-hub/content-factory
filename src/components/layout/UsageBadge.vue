@@ -53,7 +53,7 @@ const monthName = computed(() => {
 </script>
 
 <template>
-  <div v-if="stats" class="relative hidden md:block">
+  <div v-if="stats" class="relative">
     <!-- Badge button -->
     <button @click="open = !open"
       :class="['flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-colors border',
