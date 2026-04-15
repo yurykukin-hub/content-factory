@@ -59,7 +59,7 @@ async function saveSession() {
       const session = await http.post<any>('/sessions', payload)
       currentSessionId.value = session.id
     }
-  } catch {}
+  } catch (e) { console.error('[VS] saveSession failed:', e) }
 }
 
 async function loadDraftSession() {

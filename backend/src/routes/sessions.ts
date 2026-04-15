@@ -62,10 +62,12 @@ sessions.post('/sessions', async (c) => {
   const data = createSchema.parse(await c.req.json())
   try { await assertBusinessAccess(user, data.businessId) } catch { return c.json({ error: 'Нет доступа' }, 403) }
 
+  const { businessId, ...rest } = data
   const session = await db.generationSession.create({
     data: {
-      ...data,
-      userId: user.id,
+      ...rest,
+      business: { connect: { id: businessId } },
+      user: { connect: { id: user.id } },
       status: 'draft',
     },
   })
