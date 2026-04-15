@@ -7,10 +7,9 @@ import { formatDate } from '@/composables/useFormatters'
 import {
   Image, Video, Upload, Search, Tag, X, Loader2, Trash2,
   Grid3X3, Link, ExternalLink, Wand2, Eraser,
-  FolderPlus, Folder, FolderOpen, ChevronRight, Home,
-  Pencil, Grid2X2, LayoutGrid, Check, ArrowRightLeft
+  FolderPlus, Folder, FolderOpen, ChevronRight, Home, ChevronDown,
+  Pencil, Grid2X2, LayoutGrid, Check, ArrowRightLeft, Eye,
 } from 'lucide-vue-next'
-import BusinessFilter from '@/components/BusinessFilter.vue'
 import ImageEditModal from '@/components/ai/ImageEditModal.vue'
 import { useSectionAccess } from '@/composables/useSectionAccess'
 
@@ -56,6 +55,8 @@ const loading = ref(true)
 const uploading = ref(false)
 const removingBgId = ref<string | null>(null)
 const editingFile = ref<MediaFile | null>(null)
+const previewFile = ref<MediaFile | null>(null)
+const showBizDropdown = ref(false)
 
 // Folder navigation
 const currentFolderId = ref<string | null>(null)
@@ -367,15 +368,29 @@ watch([typeFilter, tagFilter, showUnattached], loadFiles)
 
 <template>
   <div>
-    <!-- Business filter -->
-    <BusinessFilter
-      :model-value="businesses.currentBusinessId!"
-      @update:model-value="(id: string) => { businesses.setCurrent(id); currentFolderId = null; breadcrumbs = []; loadAll() }"
-    />
-
     <!-- Header row -->
     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
-      <h1 class="text-xl md:text-2xl font-bold">Медиа-библиотека</h1>
+      <div class="flex items-center gap-3">
+        <h1 class="text-xl md:text-2xl font-bold">Медиа-библиотека</h1>
+        <!-- Business dropdown -->
+        <div v-if="businesses.businesses.length > 1" class="relative">
+          <button @click="showBizDropdown = !showBizDropdown"
+            class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-sm hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+            <span class="truncate max-w-[160px]">{{ businesses.currentBusiness?.name || 'Проект' }}</span>
+            <ChevronDown :size="14" :class="['transition-transform', showBizDropdown ? 'rotate-180' : '']" />
+          </button>
+          <div v-if="showBizDropdown" class="fixed inset-0 z-10" @click="showBizDropdown = false" />
+          <div v-if="showBizDropdown"
+            class="absolute top-full left-0 mt-1 min-w-[200px] bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl shadow-lg z-20 py-1">
+            <button v-for="biz in businesses.businesses" :key="biz.id"
+              @click="businesses.setCurrent(biz.id); currentFolderId = null; breadcrumbs = []; loadAll(); showBizDropdown = false"
+              :class="['w-full text-left px-3 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors',
+                businesses.currentBusinessId === biz.id ? 'text-brand-600 dark:text-brand-400 font-medium bg-brand-50 dark:bg-brand-900/20' : 'text-gray-700 dark:text-gray-300']">
+              {{ biz.name }}
+            </button>
+          </div>
+        </div>
+      </div>
       <div class="flex items-center gap-2">
         <!-- Card size toggle -->
         <div class="flex bg-gray-100 dark:bg-gray-800 rounded-lg p-0.5">
@@ -546,7 +561,7 @@ watch([typeFilter, tagFilter, showUnattached], loadFiles)
               ? 'border-brand-500 dark:border-brand-400 ring-2 ring-brand-200 dark:ring-brand-800'
               : 'border-gray-200 dark:border-gray-800 hover:border-brand-300 dark:hover:border-brand-700'
           ]"
-          @click="selectMode ? toggleSelectFile(file.id) : undefined">
+          @click="selectMode ? toggleSelectFile(file.id) : (previewFile = file)">
 
           <!-- Thumbnail -->
           <div class="aspect-square bg-gray-100 dark:bg-gray-800 relative">
@@ -577,18 +592,18 @@ watch([typeFilter, tagFilter, showUnattached], loadFiles)
             <!-- Overlay actions (hidden in select mode) -->
             <div v-if="!selectMode"
               class="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-              <button v-if="file.mimeType.startsWith('image/')" @click="editingFile = file" title="Редактировать AI"
+              <button v-if="file.mimeType.startsWith('image/')" @click.stop="editingFile = file" title="Редактировать AI"
                 class="p-2 bg-purple-600/70 rounded-full hover:bg-purple-600">
                 <Wand2 :size="16" class="text-white" />
               </button>
-              <button v-if="file.mimeType.startsWith('image/')" @click="removeBg(file)" :disabled="removingBgId === file.id" title="Убрать фон"
+              <button v-if="file.mimeType.startsWith('image/')" @click.stop="removeBg(file)" :disabled="removingBgId === file.id" title="Убрать фон"
                 class="p-2 bg-purple-600/70 rounded-full hover:bg-purple-600 disabled:opacity-50">
                 <Loader2 v-if="removingBgId === file.id" :size="16" class="text-white animate-spin" /><Eraser v-else :size="16" class="text-white" />
               </button>
-              <a :href="file.url" target="_blank" class="p-2 bg-white/20 rounded-full hover:bg-white/30">
-                <ExternalLink :size="16" class="text-white" />
-              </a>
-              <button @click="deleteFile(file.id)" class="p-2 bg-white/20 rounded-full hover:bg-red-500/50">
+              <button @click.stop="previewFile = file" class="p-2 bg-white/20 rounded-full hover:bg-white/30" title="Просмотр">
+                <Eye :size="16" class="text-white" />
+              </button>
+              <button @click.stop="deleteFile(file.id)" class="p-2 bg-white/20 rounded-full hover:bg-red-500/50">
                 <Trash2 :size="16" class="text-white" />
               </button>
             </div>
@@ -647,6 +662,45 @@ watch([typeFilter, tagFilter, showUnattached], loadFiles)
         </div>
       </div>
     </template>
+
+    <!-- Preview Modal -->
+    <Teleport to="body">
+      <div v-if="previewFile" class="fixed inset-0 z-50 flex items-center justify-center bg-black/70" @click.self="previewFile = null">
+        <div class="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl max-w-2xl w-full mx-4 overflow-hidden">
+          <!-- Image preview -->
+          <img v-if="isImage(previewFile.mimeType)"
+            :src="previewFile.url"
+            :alt="previewFile.altText || previewFile.filename"
+            class="w-full max-h-[60vh] object-contain bg-black" />
+          <!-- Video preview -->
+          <video v-else-if="isVideo(previewFile.mimeType)"
+            :src="previewFile.url"
+            controls autoplay loop playsinline
+            class="w-full max-h-[60vh] bg-black" />
+          <!-- Info -->
+          <div class="p-4">
+            <div class="flex items-center justify-between mb-2">
+              <div class="text-sm font-medium truncate flex-1 mr-2">{{ previewFile.filename }}</div>
+              <span class="text-[10px] text-gray-400 shrink-0">{{ formatSize(previewFile.sizeBytes) }}</span>
+            </div>
+            <p v-if="previewFile.altText" class="text-xs text-gray-500 dark:text-gray-400 leading-relaxed mb-2">{{ previewFile.altText }}</p>
+            <div class="flex items-center gap-2 text-[10px] text-gray-400">
+              <span>{{ previewFile.mimeType.split('/')[1]?.toUpperCase() }}</span>
+              <span v-if="previewFile.aiModel" class="px-1.5 py-0.5 bg-purple-100 dark:bg-purple-900/50 text-purple-600 dark:text-purple-400 rounded font-medium">{{ previewFile.aiModel }}</span>
+              <span>{{ formatDate(previewFile.createdAt) }}</span>
+            </div>
+          </div>
+          <div class="flex items-center justify-between px-4 pb-4">
+            <a :href="previewFile.url" :download="previewFile.filename"
+              class="text-sm text-brand-600 dark:text-brand-400 font-medium hover:underline">Скачать</a>
+            <button @click="previewFile = null"
+              class="px-4 py-2 rounded-lg bg-gray-100 dark:bg-gray-800 text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">
+              Закрыть
+            </button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
 
     <!-- AI Edit Modal -->
     <ImageEditModal
