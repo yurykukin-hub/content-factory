@@ -5,6 +5,7 @@ import { Coins, TrendingUp, Zap, Video, ImageIcon, MessageSquare } from 'lucide-
 
 interface AiStats {
   openrouter: { balanceUsd: number; limitUsd: number | null } | null
+  kie: { initialCredits: number; spentUsd: number; remainingCredits: number; remainingUsd: number } | null
   month: {
     totalUsd: number
     totalRub: number
@@ -80,6 +81,18 @@ const monthName = computed(() => {
           <span class="text-sm text-gray-500">Баланс</span>
           <span :class="['text-sm font-bold', balanceColor]">
             ${{ fmt(stats.openrouter.balanceUsd) }}
+          </span>
+        </div>
+      </div>
+
+      <!-- KIE.ai balance -->
+      <div v-if="stats.kie" class="px-4 py-3 border-b border-gray-100 dark:border-gray-800">
+        <div class="text-[9px] font-semibold text-gray-400 uppercase tracking-wider mb-1">KIE.ai</div>
+        <div class="flex items-center justify-between">
+          <span class="text-sm text-gray-500">Баланс</span>
+          <span :class="['text-sm font-bold', stats.kie.remainingCredits < 500 ? 'text-red-500' : stats.kie.remainingCredits < 2000 ? 'text-amber-500' : 'text-emerald-500 dark:text-emerald-400']">
+            {{ stats.kie.remainingCredits.toLocaleString() }} кр.
+            <span class="text-gray-400 font-normal text-xs ml-1">${{ fmt(stats.kie.remainingUsd) }}</span>
           </span>
         </div>
       </div>

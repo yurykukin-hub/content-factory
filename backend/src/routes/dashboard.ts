@@ -9,6 +9,8 @@ const dashboard = new Hono()
 const USD_RUB = 95
 const IMAGE_ACTIONS = ['generate_image', 'edit_image', 'remove_background']
 const VIDEO_ACTIONS = ['generate_video']
+const KIE_ACTIONS = [...IMAGE_ACTIONS, ...VIDEO_ACTIONS]
+const KIE_CREDIT_PRICE = 0.005 // 1 credit = $0.005
 
 // Simple in-memory cache (60s TTL)
 let aiStatsCache: { data: any; ts: number } | null = null
@@ -75,7 +77,7 @@ dashboard.get('/ai-stats', async (c) => {
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
 
-  const [openrouter, monthTotal, monthByAction, todayTotal] = await Promise.all([
+  const [openrouter, monthTotal, monthByAction, todayTotal, kieInitialConfig, kieTotalSpent] = await Promise.all([
     fetchOpenRouterBalance(),
     db.aiUsageLog.aggregate({
       where: { createdAt: { gte: monthStart } },
@@ -92,6 +94,13 @@ dashboard.get('/ai-stats', async (c) => {
       _sum: { costUsd: true },
       _count: true,
     }),
+    // KIE.ai initial credits (set via AppConfig 'kie_initial_credits')
+    db.appConfig.findUnique({ where: { key: 'kie_initial_credits' } }),
+    // Total KIE.ai spend (all time) to calculate remaining
+    db.aiUsageLog.aggregate({
+      where: { action: { in: KIE_ACTIONS } },
+      _sum: { costUsd: true },
+    }),
   ])
 
   // Calculate breakdown
@@ -105,8 +114,19 @@ dashboard.get('/ai-stats', async (c) => {
 
   const totalUsd = monthTotal._sum.costUsd || 0
 
+  // KIE.ai balance: initial credits - total spent (all time)
+  const kieInitialCredits = kieInitialConfig?.value ? parseFloat(kieInitialConfig.value) : null
+  const kieTotalSpentUsd = kieTotalSpent._sum.costUsd || 0
+  const kie = kieInitialCredits !== null ? {
+    initialCredits: kieInitialCredits,
+    spentUsd: Math.round(kieTotalSpentUsd * 10000) / 10000,
+    remainingCredits: Math.round(kieInitialCredits - kieTotalSpentUsd / KIE_CREDIT_PRICE),
+    remainingUsd: Math.round((kieInitialCredits * KIE_CREDIT_PRICE - kieTotalSpentUsd) * 100) / 100,
+  } : null
+
   const result = {
     openrouter,
+    kie,
     month: {
       totalUsd: Math.round(totalUsd * 10000) / 10000,
       totalRub: Math.round(totalUsd * USD_RUB),
