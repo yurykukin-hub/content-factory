@@ -72,6 +72,10 @@ function insertBadge(badge: BadgeData) {
   richPromptRef.value?.insertBadge(badge)
 }
 
+function setContentWithBadges(text: string, badges: BadgeData[]) {
+  richPromptRef.value?.setContentWithBadges(text, badges)
+}
+
 function onUploadClick() {
   showAddMenu.value = false
   fileInputRef.value?.click()
@@ -86,7 +90,7 @@ function openPreview(img: RefImage) {
   previewRef.value = img
 }
 
-defineExpose({ insertBadge, openPreview })
+defineExpose({ insertBadge, openPreview, setContentWithBadges })
 </script>
 
 <template>

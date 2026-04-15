@@ -133,22 +133,24 @@ async function loadAiTemplates() {
 }
 
 function setPromptWithBadges(text: string) {
-  // First set plain text
-  prompt.value = text
-  // Then re-insert badges for any @ImageN references found in text
-  nextTick(() => {
-    refImages.value.forEach((img, idx) => {
-      const tag = `@Image${idx + 1}`
-      if (text.includes(tag)) {
-        vsPromptAreaRef.value?.insertBadge({
-          badgeType: 'image',
-          id: `img_${idx + 1}`,
-          name: `Image${idx + 1}`,
-          thumbUrl: img.thumbUrl || null,
-        })
-      }
+  // Build badge data for all @ImageN found in text
+  const badges = refImages.value
+    .map((img, idx) => ({
+      badgeType: 'image' as const,
+      id: `img_${idx + 1}`,
+      name: `Image${idx + 1}`,
+      thumbUrl: img.thumbUrl || null,
+    }))
+    .filter(b => text.includes(`@${b.name}`))
+
+  if (badges.length) {
+    // Use setContentWithBadges to replace @ImageN text with inline badge chips
+    nextTick(() => {
+      vsPromptAreaRef.value?.setContentWithBadges(text, badges)
     })
-  })
+  } else {
+    prompt.value = text
+  }
 }
 
 async function enhance() {

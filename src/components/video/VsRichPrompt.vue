@@ -195,6 +195,54 @@ function setContent(text: string) {
   isEmpty.value = !text.trim()
 }
 
+// Set content with @ImageN replaced by badge chips inline
+function setContentWithBadges(text: string, badges: BadgeData[]) {
+  if (!editorRef.value) return
+  isInternalUpdate = true
+
+  // Build a map of tag → badge HTML
+  const badgeMap = new Map<string, string>()
+  for (const b of badges) {
+    badgeMap.set(`@${b.name}`, badgeHtml(b))
+  }
+
+  // Split text by @ImageN patterns and rebuild as HTML
+  let html = ''
+  const regex = /@Image\d+/g
+  let lastIndex = 0
+  let match: RegExpExecArray | null
+
+  while ((match = regex.exec(text)) !== null) {
+    // Escape text before the match
+    const before = text.slice(lastIndex, match.index)
+    html += escapeHtml(before)
+
+    const tag = match[0]
+    const badge = badgeMap.get(tag)
+    if (badge) {
+      html += badge
+    } else {
+      html += escapeHtml(tag)
+    }
+    lastIndex = match.index + match[0].length
+  }
+  // Remaining text after last match
+  html += escapeHtml(text.slice(lastIndex))
+
+  editorRef.value.innerHTML = html
+  isEmpty.value = !text.trim()
+
+  // Emit the plain text (with @ImageN as text)
+  const extracted = extractText(editorRef.value)
+  emit('update:modelValue', extracted)
+
+  nextTick(() => { isInternalUpdate = false })
+}
+
+function escapeHtml(str: string): string {
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>')
+}
+
 watch(() => props.modelValue, (val) => {
   setContent(val)
 })
@@ -205,7 +253,7 @@ onMounted(() => {
   }
 })
 
-defineExpose({ insertBadge })
+defineExpose({ insertBadge, setContentWithBadges })
 </script>
 
 <template>
