@@ -218,7 +218,7 @@ ai.post('/generate-image', async (c) => {
 
 // POST /api/ai/enhance-image-prompt — улучшение промпта для генерации картинки
 const enhanceImagePromptSchema = z.object({
-  prompt: z.string().min(1).max(2000),
+  prompt: z.string().min(1).max(10000),
   aspectRatio: z.enum(['1:1', '16:9', '9:16']).default('1:1'),
   businessId: z.string(),
   mode: z.enum(['generate', 'edit']).default('generate'),
@@ -456,7 +456,7 @@ ai.get('/edit-models', (c) => {
 const editImageSchema = z.object({
   businessId: z.string(),
   mediaId: z.string(),
-  prompt: z.string().min(1).max(2000),
+  prompt: z.string().min(1).max(10000),
   postId: z.string().optional(),
   model: z.enum(['flux-kontext-pro', 'nano-banana-2'] as const).default('flux-kontext-pro'),
 })
@@ -723,7 +723,7 @@ ai.post('/enhance-video-prompt', async (c) => {
 const generateVideoSchema = z.object({
   businessId: z.string(),
   postId: z.string().optional(),
-  prompt: z.string().min(1).max(2000),
+  prompt: z.string().min(1).max(10000),
   duration: z.number().int().min(4).max(15).default(5),
   aspectRatio: z.enum(['1:1', '16:9', '9:16']).default('9:16'),
   resolution: z.enum(['480p', '720p']).default('720p'),
