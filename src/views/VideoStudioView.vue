@@ -57,8 +57,10 @@ function scheduleAutoSave() {
 
 async function saveSession() {
   if (!selectedBizId.value || autoSavePaused) return
-  // Don't create new sessions automatically — only save existing ones
   if (!currentSessionId.value) return
+  // Only auto-save draft sessions (don't overwrite completed/failed)
+  const current = sessions.value.find(s => s.id === currentSessionId.value)
+  if (current && current.status !== 'draft') return
   // Auto-generate title from first 40 chars of prompt
   const autoTitle = prompt.value.trim().slice(0, 40) || 'Новая сессия'
   const payload: any = {
@@ -313,24 +315,9 @@ async function loadSession(session: Session) {
     generatedPromptIndices.value = new Set()
   }
 
-  if (session.status === 'draft' || session.status === 'generating') {
-    // Draft or generating — edit it directly (no clone)
-    currentSessionId.value = session.id
-    autoSavePaused = false
-  } else {
-    // Completed/failed → clone into a new draft so auto-save always works
-    try {
-      const newSession = await http.post<any>('/sessions', { businessId: selectedBizId.value })
-      currentSessionId.value = newSession.id
-      viewedSessionId.value = newSession.id
-      // Immediately save full state into the new draft
-      autoSavePaused = false
-      await saveSession()
-      loadSessions()
-    } catch {
-      currentSessionId.value = null
-    }
-  }
+  // Always set currentSessionId — auto-save guards by status
+  currentSessionId.value = session.id
+  autoSavePaused = false
 
   // Restore badges
   if (prompt.value && refImages.value.length) {
