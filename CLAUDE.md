@@ -29,7 +29,7 @@ AI-контент-фабрика для автоматизации SMM. Гене
 ```
 content-factory/
 ├── backend/
-│   ├── prisma/schema.prisma    # 16 моделей, 8 enums
+│   ├── prisma/schema.prisma    # 23 модели, 8 enums
 │   ├── src/
 │   │   ├── app.ts              # Hono app (routes, middleware, error handler)
 │   │   ├── index.ts            # Server start + scheduler
@@ -41,21 +41,22 @@ content-factory/
 │   │   │   ├── section-access.ts   # requireSection(section, level) — per-section access control
 │   │   │   ├── business-access.ts  # requireBusinessAccess + getUserBusinessIds
 │   │   │   └── resource-access.ts  # verifyPost/Plan/Media/PostVersionAccess
-│   │   ├── routes/             # API endpoints (~16 файлов)
+│   │   ├── routes/             # API endpoints (~17 файлов)
 │   │   │   ├── auth.ts         # login/logout/me/refresh (access+refresh tokens)
 │   │   │   ├── users.ts        # CRUD пользователей (ADMIN-only)
 │   │   │   ├── businesses.ts   # CRUD + brand profile + isActive toggle (ADMIN sees inactive)
 │   │   │   ├── platforms.ts    # platformsByBiz + platformsById
 │   │   │   ├── posts.ts        # CRUD + approve + versions (access checks)
 │   │   │   ├── content-plans.ts # CRUD + create-post/ai-generate + batch
-│   │   │   ├── ai.ts           # generate-post/image/scenario, adapt, enhance-prompt, suggest-image/video-templates
+│   │   │   ├── ai.ts           # generate-post/image/video/scenario, adapt, enhance-prompt, describe-image, suggest-templates
 │   │   │   ├── publish.ts      # publish + schedule (access checks)
 │   │   │   ├── media.ts        # upload/delete/attach + library + tags
 │   │   │   ├── settings.ts     # AppConfig CRUD (ADMIN-only, .env fallback)
 │   │   │   ├── vk-oauth.ts     # VK OAuth 2.1 PKCE
 │   │   │   ├── ideas.ts        # CRUD идей (per-user, ownership check)
-│   │   │   ├── characters.ts   # CRUD AI-персонажей (person/mascot/avatar, per-business)
+│   │   │   ├── characters.ts   # CRUD AI-персонажей (person/mascot/avatar/object/location, per-business)
 │   │   │   ├── scenarios.ts    # CRUD сценариев (scenes JSON, AI-генерация)
+│   │   │   ├── sessions.ts     # CRUD GenerationSession (video generation sessions)
 │   │   │   ├── dashboard.ts    # metrics (scoped by business access)
 │   │   │   └── sse.ts          # Server-Sent Events
 │   │   ├── services/
@@ -87,24 +88,36 @@ content-factory/
 │   │   ├── PostEditorView      # Редактор постов (текст + медиа + платформы)
 │   │   ├── StoryEditorView     # Stories (canvas WYSIWYG + шаблоны, lock after publish)
 │   │   ├── ContentPlansView    # AI планы (таблица + календарь)
-│   │   ├── MediaLibraryView    # Медиа-библиотека (grid, теги, фильтры)
+│   │   ├── MediaLibraryView    # Медиа-библиотека (grid, click-to-preview modal, AI describe)
+│   │   ├── VideoStudioView     # Видео-студия (Kling-style 50/50 layout, sessions, rich prompt)
 │   │   ├── IdeasView           # Личный блокнот идей (inline edit, auto-save)
 │   │   └── ...                 # Dashboard, Login, Settings
 │   └── components/
 │       ├── layout/             # TheSidebar (mobile overlay), TheHeader (hamburger)
-│       ├── BusinessFilter.vue  # Pill-кнопки выбора бизнеса (везде pills)
+│       ├── BusinessFilter.vue  # Pill-кнопки выбора бизнеса (везде кроме VideoStudio/Media)
+│       ├── MediaPickerModal.vue # Выбор файла из медиатеки (модальное окно)
 │       ├── ToastContainer.vue  # Toast notifications
 │       ├── MediaUpload.vue     # Drag & drop + AI edit/remove bg buttons
 │       ├── ai/
 │       │   └── ImageEditModal.vue  # AI image editing modal (FLUX Kontext)
+│       ├── video/              # Видео-студия компоненты
+│       │   ├── VsModeTabs.vue         # Табы режимов (Референсы/Кадры/Текст)
+│       │   ├── VsCharacterCarousel.vue # Карусель референсов + hover popup + create
+│       │   ├── VsPromptArea.vue       # Промпт + ref images + шаблоны
+│       │   ├── VsRichPrompt.vue       # Contenteditable с draggable badge chips (@ImageN)
+│       │   ├── VsSettingsPanel.vue    # Resolution/Duration/Ratio/Audio + Generate
+│       │   ├── VsGallery.vue          # Галерея: видео/сессии/промпты/избранное
+│       │   ├── VsConstructorDrawer.vue # Drawer с PromptConstructor
+│       │   ├── VsRefModal.vue         # Модалка создания/просмотра референса + AI Auto
+│       │   └── PromptConstructor.vue  # Конструктор промптов (6 секций)
 │       └── settings/           # VkOAuthTab, ProfileTab, AiTab, UsersTab
 ├── docker-compose.yml          # Dev (postgres only)
 ├── docker-compose.prod.yml     # Prod (postgres + backend, healthchecks)
 └── scripts/deploy.sh, backup-db.sh
 ```
 
-## Schema (22 модели, 8 enums)
-User, UserBusiness, Business, BrandProfile, PlatformAccount, ContentPlan, ContentPlanItem, Post, PostVersion, PublishLog, MediaFolder, MediaFile, AiUsageLog, WebhookRule, AppConfig, Idea, StoryTemplate, Character, CharacterBusiness, Scenario, PromptEntry, PromptTemplate
+## Schema (23 модели, 8 enums)
+User, UserBusiness, Business, BrandProfile, PlatformAccount, ContentPlan, ContentPlanItem, Post, PostVersion, PublishLog, MediaFolder, MediaFile, AiUsageLog, WebhookRule, AppConfig, Idea, StoryTemplate, Character, CharacterBusiness, Scenario, PromptEntry, PromptTemplate, **GenerationSession**
 
 Enums: UserRole, Platform, AccountType, PostType, PostStatus, ContentPlanStatus, PublishStatus
 
@@ -157,8 +170,10 @@ cp backend/.env.example backend/.env
 5. **Stories** → canvas WYSIWYG (drag, zoom, text overlay, шаблоны, export JPEG без кнопки — VK рисует нативную)
 6. **Редактирование фото** (FAL.ai FLUX Kontext Pro) → img2img по промпту (смена фона, стилизация)
 7. **Удаление фона** (FAL.ai rembg) → PNG с прозрачностью, одна кнопка
+8. **Видео-генерация** (KIE.ai Seedance 2) → 480p/720p, 4-15 сек, 9:16/1:1/16:9, audio toggle
+9. **AI-описание фото** (Gemini 2.0 Flash Vision) → auto-describe для референсов и медиатеки
 
-API keys: OpenRouter — из БД (AppConfig) или .env. FAL — из .env (FAL_API_KEY)
+API keys: OpenRouter — из БД (AppConfig) или .env. FAL — из .env (FAL_API_KEY). KIE — из .env (KIE_API_KEY)
 
 ## Auth
 - Access token: 1 час (httpOnly cookie `token`)
@@ -173,7 +188,7 @@ API keys: OpenRouter — из БД (AppConfig) или .env. FAL — из .env (F
 - Паттерны из nawode-erp: Hono routes, JWT httpOnly, Prisma, SSE eventBus
 - AI-промпты включают BrandProfile (тон, ЦА, стиль, примеры)
 - Проект (Business) = единый хаб (BusinessDetailView): бренд-профиль + каналы + обзор (с управлением доступами). UI: "Проекты" (не "Бизнесы")
-- BusinessFilter = pills везде (горизонтальный скролл на мобиле)
+- BusinessFilter = pills в большинстве views, но VideoStudio и MediaLibrary используют inline dropdown в header
 - Settings = системные вещи (VK OAuth, пользователи + sectionAccess UI, профиль, AI). Не-админы видят табы по sectionAccess
 - AI prompt templates: hybrid pattern — БД-шаблоны (PromptTemplate, per-business) + кнопка "✨ Подобрать по контексту" (Haiku, brandContext). Применено к image + video
 - Все routes с businessId проверяют доступ (resource-access middleware)
