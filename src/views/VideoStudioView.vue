@@ -178,9 +178,14 @@ async function deleteSession(id: string) {
   try {
     await http.delete(`/sessions/${id}`)
     sessions.value = sessions.value.filter(s => s.id !== id)
-    // If deleted current session — create new
-    if (currentSessionId.value === id) {
-      await createNewSession()
+    // If deleted the active session — switch to first remaining draft or clear
+    if (currentSessionId.value === id || viewedSessionId.value === id) {
+      const nextDraft = sessions.value.find(s => s.status === 'draft')
+      if (nextDraft) {
+        loadSession(nextDraft)
+      } else {
+        startNewSession()
+      }
     }
     toast.success('Сессия удалена')
   } catch (e: any) { toast.error(e.message || 'Ошибка удаления') }
@@ -193,8 +198,7 @@ async function createNewSession() {
     const session = await http.post<any>('/sessions', { businessId: selectedBizId.value })
     currentSessionId.value = session.id
     viewedSessionId.value = session.id
-    loadSessions()
-    toast.success('Новая сессия создана')
+    await loadSessions()
   } catch (e) { console.error('[VS] createNewSession failed:', e) }
 }
 
