@@ -249,8 +249,16 @@ function usePrompt(entry: PromptEntry) {
 function onCharacterSelect(id: string | null) {
   if (!id) return
   const char = characters.value.find(c => c.id === id)
-  if (!char?.referenceMedia || refImages.value.length >= 9) return
-  // Add character's photo to ref images (working set for current generation)
+  if (!char?.referenceMedia) return
+
+  // Check if already in working set → open preview instead of duplicating
+  const existing = refImages.value.find(r => r.url === char.referenceMedia!.url)
+  if (existing) {
+    vsPromptAreaRef.value?.openPreview(existing)
+    return
+  }
+
+  if (refImages.value.length >= 9) return
   addRefImage({
     url: char.referenceMedia.url,
     thumbUrl: char.referenceMedia.thumbUrl,

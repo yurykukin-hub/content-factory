@@ -80,7 +80,11 @@ function onLibraryClick() {
   emit('addRefFromLibrary')
 }
 
-defineExpose({ insertBadge })
+function openPreview(img: RefImage) {
+  previewRef.value = img
+}
+
+defineExpose({ insertBadge, openPreview })
 </script>
 
 <template>
