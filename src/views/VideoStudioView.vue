@@ -29,36 +29,79 @@ function selectBiz(id: string) {
   onBusinessChange()
 }
 
-// --- Persist state across page reloads ---
-const STORAGE_KEY = 'vs_state'
+// --- Session persistence (DB-backed) ---
+const currentSessionId = ref<string | null>(null)
+let autoSaveTimer: ReturnType<typeof setTimeout> | null = null
 
-function loadSaved<T>(key: string, fallback: T): T {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return fallback
-    const obj = JSON.parse(raw)
-    return key in obj ? obj[key] : fallback
-  } catch { return fallback }
+function scheduleAutoSave() {
+  if (autoSaveTimer) clearTimeout(autoSaveTimer)
+  autoSaveTimer = setTimeout(saveSession, 2000)
 }
 
-function saveState() {
+async function saveSession() {
+  if (!selectedBizId.value) return
+  const payload = {
+    businessId: selectedBizId.value,
+    prompt: prompt.value,
+    duration: duration.value,
+    aspectRatio: aspectRatio.value,
+    resolution: resolution.value,
+    generateAudio: audio.value,
+    inputMode: inputMode.value,
+    referenceImages: refImages.value.length ? refImages.value : null,
+    firstFrameUrl: firstFrame.value?.url || null,
+    lastFrameUrl: lastFrame.value?.url || null,
+  }
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({
-      prompt: prompt.value,
-      duration: duration.value,
-      audio: audio.value,
-      resolution: resolution.value,
-      aspectRatio: aspectRatio.value,
-      inputMode: inputMode.value,
-      refImages: refImages.value,
-      firstFrame: firstFrame.value,
-      lastFrame: lastFrame.value,
-    }))
+    if (currentSessionId.value) {
+      await http.put(`/sessions/${currentSessionId.value}`, payload)
+    } else {
+      const session = await http.post<any>('/sessions', payload)
+      currentSessionId.value = session.id
+    }
   } catch {}
 }
 
+async function loadDraftSession() {
+  if (!selectedBizId.value) return
+  try {
+    const draft = await http.get<any>(`/sessions/draft?businessId=${selectedBizId.value}`)
+    if (draft) {
+      currentSessionId.value = draft.id
+      prompt.value = draft.prompt || ''
+      duration.value = draft.duration || 4
+      audio.value = draft.generateAudio ?? false
+      resolution.value = draft.resolution || '480p'
+      aspectRatio.value = draft.aspectRatio || '9:16'
+      inputMode.value = draft.inputMode || 'references'
+      refImages.value = (draft.referenceImages as any[]) || []
+      firstFrame.value = draft.firstFrameUrl ? { url: draft.firstFrameUrl, thumbUrl: null, filename: 'frame' } : null
+      lastFrame.value = draft.lastFrameUrl ? { url: draft.lastFrameUrl, thumbUrl: null, filename: 'frame' } : null
+      // Restore badges from prompt text
+      if (prompt.value && refImages.value.length) {
+        nextTick(() => {
+          const badges = refImages.value
+            .map((img, idx) => ({ badgeType: 'image' as const, id: `img_${idx + 1}`, name: `Image${idx + 1}`, thumbUrl: img.thumbUrl || null }))
+            .filter(b => prompt.value.includes(`@${b.name}`))
+          if (badges.length) {
+            vsPromptAreaRef.value?.setContentWithBadges(prompt.value, badges)
+          }
+        })
+      }
+    }
+  } catch {}
+}
+
+function startNewSession() {
+  currentSessionId.value = null
+  prompt.value = ''
+  refImages.value = []
+  firstFrame.value = null
+  lastFrame.value = null
+}
+
 // --- State ---
-const prompt = ref(loadSaved('prompt', ''))
+const prompt = ref('')
 const enhancing = ref(false)
 const generating = ref(false)
 const promptHistory = ref<string[]>([])
@@ -66,21 +109,21 @@ const historyIndex = ref(-1)
 const showConstructor = ref(false)
 
 // Settings
-const duration = ref(loadSaved('duration', 4))
-const audio = ref(loadSaved('audio', false))
-const resolution = ref<'480p' | '720p'>(loadSaved('resolution', '480p'))
-const aspectRatio = ref<'9:16' | '1:1' | '16:9'>(loadSaved('aspectRatio', '9:16'))
-const inputMode = ref<'text' | 'frames' | 'references'>(loadSaved('inputMode', 'references'))
+const duration = ref(4)
+const audio = ref(false)
+const resolution = ref<'480p' | '720p'>('480p')
+const aspectRatio = ref<'9:16' | '1:1' | '16:9'>('9:16')
+const inputMode = ref<'text' | 'frames' | 'references'>('references')
 
 // Frames
-const firstFrame = ref(loadSaved<{ url: string; thumbUrl?: string | null; filename: string } | null>('firstFrame', null))
-const lastFrame = ref(loadSaved<{ url: string; thumbUrl?: string | null; filename: string } | null>('lastFrame', null))
+const firstFrame = ref<{ url: string; thumbUrl?: string | null; filename: string } | null>(null)
+const lastFrame = ref<{ url: string; thumbUrl?: string | null; filename: string } | null>(null)
 
-// References (simplified — no roles, with altText for preview)
-const refImages = ref(loadSaved<{ url: string; thumbUrl?: string | null; filename: string; altText?: string | null }[]>('refImages', []))
+// References
+const refImages = ref<{ url: string; thumbUrl?: string | null; filename: string; altText?: string | null }[]>([])
 
-// Auto-save on changes
-watch([prompt, duration, audio, resolution, aspectRatio, inputMode, refImages, firstFrame, lastFrame], saveState, { deep: true })
+// Auto-save on changes (debounced 2sec)
+watch([prompt, duration, audio, resolution, aspectRatio, inputMode, refImages, firstFrame, lastFrame], scheduleAutoSave, { deep: true })
 const showMediaPicker = ref(false)
 const showRefModal = ref(false)
 const editingCharacter = ref<CharacterData | null>(null)
@@ -223,11 +266,17 @@ async function generate() {
       payload.referenceImageUrls = refImages.value.map(r => r.url)
     }
 
+    // Mark session as generating
+    if (currentSessionId.value) {
+      http.put(`/sessions/${currentSessionId.value}`, { status: 'generating' }).catch(() => {})
+    }
+
     const result = await http.post<{ mediaFile: GeneratedVideo }>('/ai/generate-video', payload)
     promptHistory.value.push(prompt.value)
     historyIndex.value = promptHistory.value.length - 1
     generatedVideos.value.unshift(result.mediaFile)
-    // Auto-save to library
+
+    // Mark session as completed with result
     const costUsd = (() => {
       const hasImg = inputMode.value !== 'text' && (firstFrame.value || refImages.value.length > 0)
       const tier = PRICING[resolution.value]
@@ -235,13 +284,36 @@ async function generate() {
       const base = cps * duration.value * CREDIT_PRICE
       return audio.value ? base * AUDIO_MULT : base
     })()
+
+    if (currentSessionId.value) {
+      http.put(`/sessions/${currentSessionId.value}`, {
+        status: 'completed',
+        mediaFileId: result.mediaFile.id,
+        resultUrl: result.mediaFile.url,
+        costUsd,
+      }).catch(() => {})
+    }
+
+    // Auto-save to prompt library (keep for backwards compat)
     http.post('/prompt-library', {
       businessId: selectedBizId.value, type: 'video', prompt: prompt.value,
       resultUrl: result.mediaFile.url,
       metadata: { duration: duration.value, model: 'bytedance/seedance-2', resolution: resolution.value, cost: costUsd, audio: audio.value, inputMode: inputMode.value },
     }).catch(() => {})
+
+    // Start new draft session for next generation
+    startNewSession()
+
     toast.success(`Видео готово (${duration.value} сек)`)
-  } catch (e: any) { toast.error(e.message || 'Ошибка генерации') }
+  } catch (e: any) {
+    // Mark session as failed
+    if (currentSessionId.value) {
+      http.put(`/sessions/${currentSessionId.value}`, {
+        status: 'failed', errorMessage: e.message || 'Ошибка генерации',
+      }).catch(() => {})
+    }
+    toast.error(e.message || 'Ошибка генерации')
+  }
   finally { generating.value = false }
 }
 
@@ -367,7 +439,7 @@ function onBusinessChange() {
   aiTemplates.value = []
 }
 
-onMounted(() => { loadCharacters(); loadVideos(); loadSavedPrompts() })
+onMounted(() => { loadCharacters(); loadVideos(); loadSavedPrompts(); loadDraftSession() })
 </script>
 
 <template>

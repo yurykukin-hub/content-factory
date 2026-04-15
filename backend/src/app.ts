@@ -29,6 +29,7 @@ import { characters } from './routes/characters'
 import { scenarios } from './routes/scenarios'
 import { promptLibrary } from './routes/prompt-library'
 import { promptTemplates } from './routes/prompt-templates'
+import { sessions } from './routes/sessions'
 
 const app = new Hono()
 
@@ -107,6 +108,7 @@ app.route('/api', characters) // /api/businesses/:bizId/characters + /api/charac
 app.route('/api/scenarios', scenarios)
 app.route('/api/prompt-library', promptLibrary)
 app.route('/api/prompt-templates', promptTemplates)
+app.route('/api', sessions)  // /api/sessions
 app.route('/api/dashboard', dashboard)
 app.route('/api/sse', sse)
 

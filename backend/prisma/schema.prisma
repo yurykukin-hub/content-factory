@@ -78,6 +78,7 @@ model User {
 
   businesses UserBusiness[]
   ideas      Idea[]
+  sessions   GenerationSession[]
 
   @@map("users")
 }
@@ -126,6 +127,7 @@ model Business {
   scenarios           Scenario[]
   promptEntries       PromptEntry[]
   promptTemplates     PromptTemplate[]
+  sessions            GenerationSession[]
 
   @@map("businesses")
 }
@@ -340,7 +342,8 @@ model MediaFile {
   post         Post?        @relation(fields: [postId], references: [id])
   business     Business     @relation(fields: [businessId], references: [id])
   folder       MediaFolder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
-  characterRef Character[]  @relation("CharacterReference")
+  characterRef Character[]           @relation("CharacterReference")
+  sessions     GenerationSession[]  @relation("SessionMediaFile")
 
   @@index([businessId])
   @@index([postId])
@@ -498,4 +501,48 @@ model Scenario {
 
   @@index([businessId])
   @@map("scenarios")
+}
+
+/// Сессия генерации видео (полный контекст: промпт + референсы + настройки + результат)
+model GenerationSession {
+  id               String   @id @default(cuid())
+  businessId       String   @map("business_id")
+  userId           String   @map("user_id")
+
+  // Промпт
+  prompt           String   @default("")
+
+  // Настройки
+  duration         Int      @default(4)
+  aspectRatio      String   @default("9:16") @map("aspect_ratio")
+  resolution       String   @default("480p")
+  generateAudio    Boolean  @default(false) @map("generate_audio")
+  inputMode        String   @default("references") @map("input_mode") // text | frames | references
+
+  // Референсы (JSON)
+  referenceImages  Json?    @map("reference_images")  // [{url, thumbUrl, filename, altText}]
+  firstFrameUrl    String?  @map("first_frame_url")
+  lastFrameUrl     String?  @map("last_frame_url")
+
+  // Результат
+  status           String   @default("draft")         // draft | generating | completed | failed
+  mediaFileId      String?  @map("media_file_id")
+  resultUrl        String?  @map("result_url")
+  errorMessage     String?  @map("error_message")
+
+  // Стоимость
+  model            String   @default("bytedance/seedance-2")
+  costUsd          Float?   @map("cost_usd")
+
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  business  Business   @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  user      User       @relation(fields: [userId], references: [id])
+  mediaFile MediaFile? @relation("SessionMediaFile", fields: [mediaFileId], references: [id])
+
+  @@index([businessId])
+  @@index([userId])
+  @@index([status])
+  @@map("generation_sessions")
 }
