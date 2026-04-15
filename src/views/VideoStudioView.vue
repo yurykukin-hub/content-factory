@@ -119,6 +119,7 @@ function startNewSession() {
   prompt.value = ''
   promptHistory.value = []
   historyIndex.value = -1
+  generatedPromptIndices.value = new Set()
   refImages.value = []
   firstFrame.value = null
   lastFrame.value = null
@@ -153,6 +154,7 @@ const enhancing = ref(false)
 const generating = ref(false)
 const promptHistory = ref<string[]>([])
 const historyIndex = ref(-1)
+const generatedPromptIndices = ref<Set<number>>(new Set())
 const showConstructor = ref(false)
 
 // Settings
@@ -338,7 +340,11 @@ async function enhance() {
       prompt: prompt.value, duration: duration.value, businessId: selectedBizId.value,
       elements: elements.length ? elements : undefined,
     })
-    // Set prompt with badges restored
+    // Save original before replacing (if not already in history)
+    if (!promptHistory.value.length || promptHistory.value[promptHistory.value.length - 1] !== prompt.value) {
+      promptHistory.value.push(prompt.value)
+    }
+    // Set enhanced prompt with badges restored
     setPromptWithBadges(res.enhancedPrompt)
     promptHistory.value.push(res.enhancedPrompt)
     historyIndex.value = promptHistory.value.length - 1
@@ -369,7 +375,11 @@ async function generate() {
     }
 
     const result = await http.post<{ mediaFile: GeneratedVideo }>('/ai/generate-video', payload)
-    promptHistory.value.push(prompt.value)
+    // Save prompt to history and mark as generated
+    if (!promptHistory.value.length || promptHistory.value[promptHistory.value.length - 1] !== prompt.value) {
+      promptHistory.value.push(prompt.value)
+    }
+    generatedPromptIndices.value.add(promptHistory.value.length - 1)
     historyIndex.value = promptHistory.value.length - 1
     generatedVideos.value.unshift(result.mediaFile)
 
@@ -639,6 +649,7 @@ onMounted(() => { loadCharacters(); loadVideos(); loadSavedPrompts(); loadDraftS
             :enhancing="enhancing"
             :prompt-history="promptHistory"
             :history-index="historyIndex"
+            :generated-indices="generatedPromptIndices"
             :templates="aiTemplates"
             :loading-templates="loadingTemplates"
             @enhance="enhance"

@@ -35,6 +35,7 @@ const props = defineProps<{
   enhancing: boolean
   promptHistory: string[]
   historyIndex: number
+  generatedIndices?: Set<number>
   templates: AiTemplate[]
   loadingTemplates: boolean
 }>()
@@ -233,7 +234,15 @@ defineExpose({ insertBadge, openPreview, setContentWithBadges })
       <div class="flex-1" />
 
       <!-- History nav -->
-      <div v-if="promptHistory.length" class="flex items-center gap-0.5">
+      <div v-if="promptHistory.length" class="flex items-center gap-1">
+        <!-- Generated indicator -->
+        <span v-if="generatedIndices?.has(historyIndex)"
+          class="px-1.5 py-0.5 rounded text-[8px] font-medium bg-emerald-100 dark:bg-emerald-900/50 text-emerald-600 dark:text-emerald-400">
+          ✓ сгенерировано
+        </span>
+        <span v-else class="px-1.5 py-0.5 rounded text-[8px] font-medium bg-gray-100 dark:bg-gray-800 text-gray-400">
+          черновик
+        </span>
         <button @click="emit('historyBack')" :disabled="historyIndex <= 0"
           class="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-30 transition-colors">
           <ChevronLeft :size="14" />
