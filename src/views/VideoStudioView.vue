@@ -50,7 +50,6 @@ const lastFrame = ref<{ url: string; thumbUrl?: string | null; filename: string 
 // References (simplified — no roles, with altText for preview)
 const refImages = ref<{ url: string; thumbUrl?: string | null; filename: string; altText?: string | null }[]>([])
 const showMediaPicker = ref(false)
-const showCharacterPicker = ref(false)
 const showCreateRef = ref(false)
 
 // Characters
@@ -226,17 +225,6 @@ function addRefFromLibrary(file: { url: string; thumbUrl: string | null; filenam
   showMediaPicker.value = false
 }
 
-function addRefFromCharacter(char: CharacterRef) {
-  if (refImages.value.length >= 9 || !char.referenceMedia) return
-  addRefImage({
-    url: char.referenceMedia.url,
-    thumbUrl: char.referenceMedia.thumbUrl,
-    filename: char.name,
-    altText: char.description || null,
-  })
-  showCharacterPicker.value = false
-}
-
 function addRefImage(img: { url: string; thumbUrl?: string | null; filename: string; altText?: string | null }) {
   refImages.value.push(img)
   const idx = refImages.value.length
@@ -259,18 +247,17 @@ function usePrompt(entry: PromptEntry) {
 }
 
 function onCharacterSelect(id: string | null) {
+  if (!id) return
+  const char = characters.value.find(c => c.id === id)
+  if (!char?.referenceMedia || refImages.value.length >= 9) return
+  // Add character's photo to ref images (working set for current generation)
+  addRefImage({
+    url: char.referenceMedia.url,
+    thumbUrl: char.referenceMedia.thumbUrl,
+    filename: char.name,
+    altText: char.description || null,
+  })
   selectedCharacterId.value = id
-  if (id) {
-    const char = characters.value.find(c => c.id === id)
-    if (char) {
-      vsPromptAreaRef.value?.insertBadge({
-        badgeType: 'character',
-        id: char.id,
-        name: char.name,
-        thumbUrl: char.referenceMedia?.thumbUrl || char.referenceMedia?.url || null,
-      })
-    }
-  }
 }
 
 function onBusinessChange() {
@@ -349,7 +336,6 @@ onMounted(() => { loadCharacters(); loadVideos(); loadSavedPrompts() })
             @upload-frame="uploadFrame"
             @add-ref="addRef"
             @add-ref-from-library="showMediaPicker = true"
-            @add-ref-from-characters="showCharacterPicker = true"
             @remove-ref="(idx) => refImages.splice(idx, 1)"
             @remove-frame="(w) => w === 'first' ? firstFrame = null : lastFrame = null"
             @open-constructor="showConstructor = true"
@@ -399,28 +385,5 @@ onMounted(() => { loadCharacters(); loadVideos(); loadSavedPrompts() })
       @close="showMediaPicker = false"
       @selected="(f: any) => addRefFromLibrary(f)" />
 
-    <!-- Character Picker Modal -->
-    <Teleport to="body">
-      <div v-if="showCharacterPicker" class="fixed inset-0 z-50 flex items-center justify-center bg-black/60" @click.self="showCharacterPicker = false">
-        <div class="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl max-w-md w-full mx-4 overflow-hidden">
-          <div class="px-4 py-3 border-b border-gray-200 dark:border-gray-800 flex items-center justify-between">
-            <h3 class="text-sm font-bold">Выбрать из референсов</h3>
-            <button @click="showCharacterPicker = false" class="p-1 text-gray-400 hover:text-gray-600">&#10005;</button>
-          </div>
-          <div class="p-4 max-h-80 overflow-y-auto">
-            <div v-if="!characters.length" class="text-center text-sm text-gray-400 py-8">Нет референсов</div>
-            <div v-else class="grid grid-cols-3 gap-3">
-              <button v-for="c in characters.filter(ch => ch.referenceMedia)" :key="c.id"
-                @click="addRefFromCharacter(c)"
-                class="flex flex-col items-center gap-1.5 p-2 rounded-xl border border-gray-200 dark:border-gray-700 hover:border-emerald-400 dark:hover:border-emerald-600 transition-colors">
-                <img :src="c.referenceMedia!.thumbUrl || c.referenceMedia!.url"
-                  class="w-16 h-16 rounded-lg object-cover" />
-                <span class="text-[10px] font-medium truncate max-w-full">{{ c.name }}</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </Teleport>
   </div>
 </template>

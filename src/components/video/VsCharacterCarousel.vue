@@ -42,20 +42,6 @@ const TYPE_LABELS: Record<string, string> = {
 <template>
   <div class="px-4 py-2 border-b border-gray-100 dark:border-gray-800">
     <div class="flex gap-3 overflow-x-auto pb-1 scrollbar-hide">
-      <!-- "None" option -->
-      <button @click="emit('update:modelValue', null)"
-        class="flex flex-col items-center gap-1 shrink-0 group">
-        <div :class="[
-          'w-11 h-11 rounded-full border-2 flex items-center justify-center transition-all',
-          modelValue === null
-            ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-900/30'
-            : 'border-gray-200 dark:border-gray-700 group-hover:border-gray-300 dark:group-hover:border-gray-600'
-        ]">
-          <UserCircle :size="18" :class="modelValue === null ? 'text-emerald-500' : 'text-gray-400'" />
-        </div>
-        <span class="text-[9px] text-gray-400 truncate max-w-[48px]">Без</span>
-      </button>
-
       <!-- Create new -->
       <button @click="emit('createNew')"
         class="flex flex-col items-center gap-1 shrink-0 group">

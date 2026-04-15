@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {
   Wand2, Loader2, PenTool, ChevronLeft, ChevronRight, ChevronDown, ChevronUp,
-  Image, Trash2, Plus, Sparkles, Upload, FolderOpen, Users, X,
+  Image, Trash2, Plus, Sparkles, Upload, FolderOpen, X,
 } from 'lucide-vue-next'
 import { ref, watch } from 'vue'
 import VsRichPrompt from './VsRichPrompt.vue'
@@ -47,7 +47,6 @@ const emit = defineEmits<{
   uploadFrame: [event: Event, which: 'first' | 'last']
   addRef: [event: Event]
   addRefFromLibrary: []
-  addRefFromCharacters: []
   removeRef: [index: number]
   removeFrame: [which: 'first' | 'last']
   openConstructor: []
@@ -79,11 +78,6 @@ function onUploadClick() {
 function onLibraryClick() {
   showAddMenu.value = false
   emit('addRefFromLibrary')
-}
-
-function onCharactersClick() {
-  showAddMenu.value = false
-  emit('addRefFromCharacters')
 }
 
 defineExpose({ insertBadge })
@@ -145,11 +139,6 @@ defineExpose({ insertBadge })
             class="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
             <FolderOpen :size="14" class="text-gray-400" />
             Из медиатеки
-          </button>
-          <button @click="onCharactersClick"
-            class="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
-            <Users :size="14" class="text-gray-400" />
-            Из референсов
           </button>
         </div>
       </div>
