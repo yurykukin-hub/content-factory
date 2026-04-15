@@ -10,6 +10,7 @@ import VsCharacterCarousel from '@/components/video/VsCharacterCarousel.vue'
 import VsPromptArea from '@/components/video/VsPromptArea.vue'
 import VsSettingsPanel from '@/components/video/VsSettingsPanel.vue'
 import VsGallery from '@/components/video/VsGallery.vue'
+import VsSessionBar from '@/components/video/VsSessionBar.vue'
 import VsConstructorDrawer from '@/components/video/VsConstructorDrawer.vue'
 import MediaPickerModal from '@/components/MediaPickerModal.vue'
 import VsRefModal from '@/components/video/VsRefModal.vue'
@@ -575,42 +576,6 @@ onMounted(() => { loadCharacters(); loadVideos(); loadSavedPrompts(); loadDraftS
           </div>
         </div>
 
-        <!-- Session dropdown -->
-        <div class="relative">
-          <button @click="showSessionDropdown = !showSessionDropdown"
-            class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-900/20 text-sm hover:bg-emerald-100 dark:hover:bg-emerald-900/30 transition-colors">
-            <span class="truncate max-w-[180px] text-emerald-700 dark:text-emerald-300 font-medium">
-              {{ currentSessionTitle || 'Новая сессия' }}
-            </span>
-            <ChevronDown :size="14" class="text-emerald-500" :class="showSessionDropdown ? 'rotate-180' : ''" />
-          </button>
-          <div v-if="showSessionDropdown" class="fixed inset-0 z-10" @click="showSessionDropdown = false" />
-          <div v-if="showSessionDropdown"
-            class="absolute top-full left-0 mt-1 w-72 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl shadow-lg z-20 py-1 max-h-80 overflow-y-auto">
-            <!-- New session button -->
-            <button @click="createNewSession(); showSessionDropdown = false"
-              class="w-full flex items-center gap-2 px-3 py-2 text-sm text-emerald-600 dark:text-emerald-400 font-medium hover:bg-emerald-50 dark:hover:bg-emerald-900/20 transition-colors border-b border-gray-100 dark:border-gray-800">
-              + Новая сессия
-            </button>
-            <!-- Session list -->
-            <button v-for="s in sessions" :key="s.id"
-              @click="loadSession(s); showSessionDropdown = false"
-              :class="[
-                'w-full text-left px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors',
-                currentSessionId === s.id ? 'bg-emerald-50 dark:bg-emerald-900/20' : ''
-              ]">
-              <div class="flex items-center gap-2">
-                <span :class="[
-                  'w-1.5 h-1.5 rounded-full shrink-0',
-                  s.status === 'completed' ? 'bg-emerald-500' : s.status === 'failed' ? 'bg-red-500' : s.status === 'generating' ? 'bg-amber-500' : 'bg-gray-400'
-                ]" />
-                <span class="text-sm truncate flex-1">{{ s.title || s.prompt?.slice(0, 40) || 'Без названия' }}</span>
-                <span class="text-[9px] text-gray-400 shrink-0">{{ formatDate(s.updatedAt) }}</span>
-              </div>
-            </button>
-            <div v-if="!sessions.length" class="px-3 py-4 text-center text-xs text-gray-400">Нет сессий</div>
-          </div>
-        </div>
       </div>
     </div>
 
@@ -619,6 +584,11 @@ onMounted(() => { loadCharacters(); loadVideos(); loadSavedPrompts(); loadDraftS
 
       <!-- LEFT PANEL: Generator -->
       <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 overflow-hidden flex flex-col lg:max-h-[calc(100vh-140px)]">
+        <VsSessionBar
+          :sessions="sessions"
+          :current-session-id="currentSessionId"
+          @load-session="loadSession"
+          @create-new="createNewSession" />
         <VsModeTabs v-model="inputMode" />
         <VsCharacterCarousel
           :characters="characters"
@@ -670,10 +640,8 @@ onMounted(() => { loadCharacters(); loadVideos(); loadSavedPrompts(); loadDraftS
       <VsGallery
         :videos="generatedVideos"
         :saved-prompts="savedPrompts"
-        :sessions="sessions"
         @use-prompt="usePrompt"
-        @rate-prompt="ratePrompt"
-        @load-session="loadSession" />
+        @rate-prompt="ratePrompt" />
     </div>
 
     <!-- Constructor Drawer -->
