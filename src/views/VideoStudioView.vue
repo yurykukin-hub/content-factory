@@ -277,6 +277,17 @@ function onCreateRef() {
   showRefModal.value = true
 }
 
+async function onRefSaved() {
+  await loadCharacters()
+  // Sync altText in working set from updated characters data
+  for (const img of refImages.value) {
+    const char = characters.value.find(c => c.referenceMedia?.url === img.url)
+    if (char) {
+      img.altText = char.description || null
+    }
+  }
+}
+
 function onBusinessChange() {
   loadCharacters()
   loadVideos()
@@ -394,7 +405,7 @@ onMounted(() => { loadCharacters(); loadVideos(); loadSavedPrompts() })
       :business-id="selectedBizId || ''"
       :character="editingCharacter"
       @close="showRefModal = false; editingCharacter = null"
-      @saved="loadCharacters()" />
+      @saved="onRefSaved()" />
 
     <!-- Media Picker Modal -->
     <MediaPickerModal
