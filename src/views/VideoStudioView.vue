@@ -405,8 +405,18 @@ async function generate() {
   finally { generating.value = false }
 }
 
-function historyBack() { if (historyIndex.value > 0) { historyIndex.value--; prompt.value = promptHistory.value[historyIndex.value] } }
-function historyForward() { if (historyIndex.value < promptHistory.value.length - 1) { historyIndex.value++; prompt.value = promptHistory.value[historyIndex.value] } }
+function historyBack() {
+  if (historyIndex.value > 0) {
+    historyIndex.value--
+    setPromptWithBadges(promptHistory.value[historyIndex.value])
+  }
+}
+function historyForward() {
+  if (historyIndex.value < promptHistory.value.length - 1) {
+    historyIndex.value++
+    setPromptWithBadges(promptHistory.value[historyIndex.value])
+  }
+}
 
 async function uploadFrame(event: Event, which: 'first' | 'last') {
   const input = event.target as HTMLInputElement
