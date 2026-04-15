@@ -7,8 +7,8 @@ import { formatDate } from '@/composables/useFormatters'
 import {
   Image, Video, Upload, Search, Tag, X, Loader2, Trash2,
   Grid3X3, Link, ExternalLink, Wand2, Eraser,
-  FolderPlus, Folder, FolderOpen, ChevronRight, Home, ChevronDown,
-  Pencil, Grid2X2, LayoutGrid, Check, ArrowRightLeft, Eye,
+  FolderPlus, Folder, FolderOpen, ChevronRight, Home, ChevronDown, Sparkles,
+  Pencil, Grid2X2, LayoutGrid, Check, ArrowRightLeft,
 } from 'lucide-vue-next'
 import ImageEditModal from '@/components/ai/ImageEditModal.vue'
 import { useSectionAccess } from '@/composables/useSectionAccess'
@@ -57,6 +57,24 @@ const removingBgId = ref<string | null>(null)
 const editingFile = ref<MediaFile | null>(null)
 const previewFile = ref<MediaFile | null>(null)
 const showBizDropdown = ref(false)
+const describingPreviewId = ref<string | null>(null)
+
+async function describePreviewFile() {
+  if (!previewFile.value) return
+  describingPreviewId.value = previewFile.value.id
+  try {
+    const res = await http.post<{ description: string }>('/ai/describe-image', {
+      imageUrl: previewFile.value.url,
+      type: 'person',
+    })
+    previewFile.value.altText = res.description
+    // Also update in the files list
+    const f = files.value.find(f => f.id === previewFile.value?.id)
+    if (f) f.altText = res.description
+    toast.success('Описание сгенерировано')
+  } catch (e: any) { toast.error(e.message || 'Ошибка AI') }
+  finally { describingPreviewId.value = null }
+}
 
 // Folder navigation
 const currentFolderId = ref<string | null>(null)
@@ -589,24 +607,6 @@ watch([typeFilter, tagFilter, showUnattached], loadFiles)
               </div>
             </div>
 
-            <!-- Overlay actions (hidden in select mode) -->
-            <div v-if="!selectMode"
-              class="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-              <button v-if="file.mimeType.startsWith('image/')" @click.stop="editingFile = file" title="Редактировать AI"
-                class="p-2 bg-purple-600/70 rounded-full hover:bg-purple-600">
-                <Wand2 :size="16" class="text-white" />
-              </button>
-              <button v-if="file.mimeType.startsWith('image/')" @click.stop="removeBg(file)" :disabled="removingBgId === file.id" title="Убрать фон"
-                class="p-2 bg-purple-600/70 rounded-full hover:bg-purple-600 disabled:opacity-50">
-                <Loader2 v-if="removingBgId === file.id" :size="16" class="text-white animate-spin" /><Eraser v-else :size="16" class="text-white" />
-              </button>
-              <button @click.stop="previewFile = file" class="p-2 bg-white/20 rounded-full hover:bg-white/30" title="Просмотр">
-                <Eye :size="16" class="text-white" />
-              </button>
-              <button @click.stop="deleteFile(file.id)" class="p-2 bg-white/20 rounded-full hover:bg-red-500/50">
-                <Trash2 :size="16" class="text-white" />
-              </button>
-            </div>
 
             <!-- Post badge -->
             <div v-if="file.post && !selectMode" class="absolute top-1.5 left-1.5">
@@ -665,36 +665,67 @@ watch([typeFilter, tagFilter, showUnattached], loadFiles)
 
     <!-- Preview Modal -->
     <Teleport to="body">
-      <div v-if="previewFile" class="fixed inset-0 z-50 flex items-center justify-center bg-black/70" @click.self="previewFile = null">
-        <div class="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl max-w-2xl w-full mx-4 overflow-hidden">
+      <div v-if="previewFile" class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" @click.self="previewFile = null">
+        <div class="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
           <!-- Image preview -->
           <img v-if="isImage(previewFile.mimeType)"
             :src="previewFile.url"
             :alt="previewFile.altText || previewFile.filename"
-            class="w-full max-h-[60vh] object-contain bg-black" />
+            class="w-full max-h-[50vh] object-contain bg-black rounded-t-2xl" />
           <!-- Video preview -->
           <video v-else-if="isVideo(previewFile.mimeType)"
             :src="previewFile.url"
             controls autoplay loop playsinline
-            class="w-full max-h-[60vh] bg-black" />
+            class="w-full max-h-[50vh] bg-black rounded-t-2xl" />
           <!-- Info -->
           <div class="p-4">
-            <div class="flex items-center justify-between mb-2">
+            <div class="flex items-center justify-between mb-1">
               <div class="text-sm font-medium truncate flex-1 mr-2">{{ previewFile.filename }}</div>
               <span class="text-[10px] text-gray-400 shrink-0">{{ formatSize(previewFile.sizeBytes) }}</span>
             </div>
-            <p v-if="previewFile.altText" class="text-xs text-gray-500 dark:text-gray-400 leading-relaxed mb-2">{{ previewFile.altText }}</p>
-            <div class="flex items-center gap-2 text-[10px] text-gray-400">
+            <!-- Description -->
+            <div v-if="previewFile.altText" class="mb-2">
+              <p class="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">{{ previewFile.altText }}</p>
+            </div>
+            <div v-else class="flex items-center gap-2 mb-2">
+              <span class="text-xs text-gray-400 italic">Нет описания</span>
+              <button @click="describePreviewFile" :disabled="describingPreviewId === previewFile.id"
+                class="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium bg-purple-100 dark:bg-purple-900/50 text-purple-600 dark:text-purple-400 hover:bg-purple-200 dark:hover:bg-purple-800 disabled:opacity-50 transition-colors">
+                <Loader2 v-if="describingPreviewId === previewFile.id" :size="10" class="animate-spin" />
+                <Sparkles v-else :size="10" />
+                Auto
+              </button>
+            </div>
+            <!-- Meta -->
+            <div class="flex items-center gap-2 text-[10px] text-gray-400 mb-3">
               <span>{{ previewFile.mimeType.split('/')[1]?.toUpperCase() }}</span>
               <span v-if="previewFile.aiModel" class="px-1.5 py-0.5 bg-purple-100 dark:bg-purple-900/50 text-purple-600 dark:text-purple-400 rounded font-medium">{{ previewFile.aiModel }}</span>
               <span>{{ formatDate(previewFile.createdAt) }}</span>
             </div>
+            <!-- Actions -->
+            <div class="flex flex-wrap gap-2 mb-3">
+              <button v-if="isImage(previewFile.mimeType)" @click="editingFile = previewFile; previewFile = null"
+                class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-purple-100 dark:bg-purple-900/50 text-purple-600 dark:text-purple-400 hover:bg-purple-200 dark:hover:bg-purple-800 transition-colors">
+                <Wand2 :size="12" /> AI-редактор
+              </button>
+              <button v-if="isImage(previewFile.mimeType)" @click="removeBg(previewFile!); previewFile = null"
+                class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">
+                <Eraser :size="12" /> Убрать фон
+              </button>
+              <a :href="previewFile.url" :download="previewFile.filename"
+                class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">
+                <ExternalLink :size="12" /> Скачать
+              </a>
+              <button @click="deleteFile(previewFile!.id); previewFile = null"
+                class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors">
+                <Trash2 :size="12" /> Удалить
+              </button>
+            </div>
           </div>
-          <div class="flex items-center justify-between px-4 pb-4">
-            <a :href="previewFile.url" :download="previewFile.filename"
-              class="text-sm text-brand-600 dark:text-brand-400 font-medium hover:underline">Скачать</a>
+          <!-- Footer -->
+          <div class="px-4 pb-4">
             <button @click="previewFile = null"
-              class="px-4 py-2 rounded-lg bg-gray-100 dark:bg-gray-800 text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">
+              class="w-full py-2 rounded-lg bg-gray-100 dark:bg-gray-800 text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">
               Закрыть
             </button>
           </div>
