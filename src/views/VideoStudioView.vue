@@ -79,6 +79,18 @@ async function saveSession() {
   } catch (e) { console.error('[VS] saveSession failed:', e) }
 }
 
+// Check for stuck "generating" sessions and fix them
+async function fixStuckSessions() {
+  const stuck = sessions.value.filter(s => s.status === 'generating' || (s.status === 'failed' && s.resultUrl))
+  for (const s of stuck) {
+    if (s.resultUrl) {
+      // Video was generated but status wasn't updated (F5 during generation)
+      await http.put(`/sessions/${s.id}`, { status: 'completed' }).catch(() => {})
+    }
+  }
+  if (stuck.length) loadSessions()
+}
+
 async function loadDraftSession() {
   if (!selectedBizId.value) return
   autoSavePaused = true
@@ -447,13 +459,15 @@ async function generate() {
 
     toast.success(`Видео готово (${duration.value} сек)`)
   } catch (e: any) {
-    // Mark session as failed
-    if (currentSessionId.value) {
+    const msg = e.message || 'Ошибка генерации'
+    // Don't mark as failed if connection was aborted (F5, navigation)
+    const isAbort = msg.includes('abort') || msg.includes('network') || msg.includes('fetch')
+    if (currentSessionId.value && !isAbort) {
       http.put(`/sessions/${currentSessionId.value}`, {
-        status: 'failed', errorMessage: e.message || 'Ошибка генерации',
+        status: 'failed', errorMessage: msg,
       }).catch(() => {})
     }
-    toast.error(e.message || 'Ошибка генерации')
+    toast.error(msg)
   }
   finally { generating.value = false }
 }
@@ -592,7 +606,11 @@ function onBusinessChange() {
   aiTemplates.value = []
 }
 
-onMounted(() => { loadCharacters(); loadVideos(); loadSavedPrompts(); loadDraftSession(); loadSessions() })
+onMounted(async () => {
+  loadCharacters(); loadVideos(); loadSavedPrompts(); loadDraftSession()
+  await loadSessions()
+  fixStuckSessions()
+})
 </script>
 
 <template>

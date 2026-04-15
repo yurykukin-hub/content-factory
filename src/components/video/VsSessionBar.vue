@@ -112,12 +112,17 @@ function doDelete(id: string) {
             </span>
           </div>
           <div class="flex items-center gap-1.5 text-[9px] text-gray-400 mt-0.5">
-            <span :title="s.status === 'failed' && s.errorMessage ? s.errorMessage : undefined">
+            <span :class="s.status === 'failed' ? 'text-red-500' : s.status === 'generating' ? 'text-amber-500' : ''">
               {{ STATUS_LABEL[s.status] || s.status }}
             </span>
             <span>·</span>
             <span>{{ s.resolution }} · {{ s.duration }}с</span>
             <span v-if="s.referenceImages?.length">· 📷{{ (s.referenceImages as any[]).length }}</span>
+          </div>
+          <!-- Error message -->
+          <div v-if="s.status === 'failed' && s.errorMessage"
+            class="text-[8px] text-red-400 mt-0.5 truncate" :title="s.errorMessage">
+            {{ s.errorMessage.slice(0, 60) }}
           </div>
         </div>
 
