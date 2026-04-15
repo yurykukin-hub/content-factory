@@ -124,6 +124,18 @@ function startNewSession() {
   lastFrame.value = null
 }
 
+async function deleteSession(id: string) {
+  try {
+    await http.delete(`/sessions/${id}`)
+    sessions.value = sessions.value.filter(s => s.id !== id)
+    // If deleted current session — create new
+    if (currentSessionId.value === id) {
+      await createNewSession()
+    }
+    toast.success('Сессия удалена')
+  } catch (e: any) { toast.error(e.message || 'Ошибка удаления') }
+}
+
 async function createNewSession() {
   startNewSession()
   if (!selectedBizId.value) return
@@ -603,7 +615,8 @@ onMounted(() => { loadCharacters(); loadVideos(); loadSavedPrompts(); loadDraftS
           :sessions="sessions"
           :current-session-id="currentSessionId"
           @load-session="loadSession"
-          @create-new="createNewSession" />
+          @create-new="createNewSession"
+          @delete-session="deleteSession" />
         <VsModeTabs v-model="inputMode" />
         <VsCharacterCarousel
           :characters="characters"
