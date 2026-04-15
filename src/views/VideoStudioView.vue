@@ -54,7 +54,17 @@ async function saveSession() {
     businessId: selectedBizId.value,
     title: currentSessionTitle.value || autoTitle,
     prompt: prompt.value,
-    promptHistory: promptHistory.value.length ? promptHistory.value.map((p, i) => ({ version: i + 1, prompt: p, createdAt: new Date().toISOString() })) : null,
+    promptHistory: (() => {
+      // Ensure current prompt is in history before saving
+      const history = [...promptHistory.value]
+      if (prompt.value.trim() && (!history.length || history[history.length - 1] !== prompt.value)) {
+        history.push(prompt.value)
+      }
+      return history.length ? history.map((p, i) => ({
+        version: i + 1, prompt: p, createdAt: new Date().toISOString(),
+        generated: generatedPromptIndices.value.has(i),
+      })) : null
+    })(),
     duration: duration.value,
     aspectRatio: aspectRatio.value,
     resolution: resolution.value,
@@ -78,10 +88,14 @@ async function loadDraftSession() {
       currentSessionId.value = draft.id
       currentSessionTitle.value = draft.title || ''
       prompt.value = draft.prompt || ''
-      // Restore prompt history
+      // Restore prompt history + generated markers
       if (draft.promptHistory?.length) {
-        promptHistory.value = (draft.promptHistory as any[]).map((h: any) => h.prompt)
+        const entries = draft.promptHistory as any[]
+        promptHistory.value = entries.map((h: any) => h.prompt)
         historyIndex.value = promptHistory.value.length - 1
+        generatedPromptIndices.value = new Set(
+          entries.filter((h: any) => h.generated).map((_: any, i: number) => i)
+        )
       }
       duration.value = draft.duration || 4
       audio.value = draft.generateAudio ?? false
