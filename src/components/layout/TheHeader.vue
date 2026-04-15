@@ -4,6 +4,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useThemeStore } from '@/stores/theme'
 import { useSidebarStore } from '@/stores/sidebar'
 import { LogOut, Sun, Moon, Menu } from 'lucide-vue-next'
+import UsageBadge from './UsageBadge.vue'
 
 const auth = useAuthStore()
 const theme = useThemeStore()
@@ -38,6 +39,9 @@ async function handleLogout() {
         <Sun v-if="theme.isDark" :size="20" />
         <Moon v-else :size="20" />
       </button>
+
+      <!-- AI Usage badge (ADMIN only) -->
+      <UsageBadge v-if="auth.user?.role === 'ADMIN'" />
 
       <span class="hidden sm:inline text-sm text-gray-500 dark:text-gray-400">{{ auth.user?.name }}</span>
 

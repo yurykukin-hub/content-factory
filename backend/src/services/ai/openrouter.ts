@@ -29,6 +29,26 @@ export function calculateCost(model: string, tokensIn: number, tokensOut: number
   return (tokensIn * pricing.input + tokensOut * pricing.output) / 1_000_000
 }
 
+/**
+ * Fetch OpenRouter account balance via /api/v1/credits
+ */
+export async function fetchOpenRouterBalance(): Promise<{ balanceUsd: number; limitUsd: number | null } | null> {
+  try {
+    const apiKey = await getApiKey()
+    if (!apiKey) return null
+    const res = await fetch('https://openrouter.ai/api/v1/credits', {
+      headers: { 'Authorization': `Bearer ${apiKey}` },
+    })
+    if (!res.ok) return null
+    const data = await res.json() as any
+    const total = data.total_credits ?? 0
+    const used = data.total_usage ?? 0
+    return { balanceUsd: total - used, limitUsd: data.limit ?? null }
+  } catch {
+    return null
+  }
+}
+
 interface AiCompleteParams {
   systemPrompt: string
   userPrompt: string
