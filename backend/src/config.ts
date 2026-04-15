@@ -24,6 +24,7 @@ export const config = {
   models: {
     haiku: 'anthropic/claude-3.5-haiku',
     sonnet: 'anthropic/claude-sonnet-4',
+    vision: 'google/gemini-2.0-flash-001',
     imageGen: 'google/gemini-2.5-flash-image',
     kieEditImage: 'nano-banana-2',
     kieRemoveBg: 'recraft/remove-background',
