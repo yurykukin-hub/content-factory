@@ -39,8 +39,7 @@ const STATUS_LABEL: Record<string, string> = {
 
 function getThumbUrl(url: string | null | undefined): string | null {
   if (!url) return null
-  // Ensure /api prefix for local uploads
-  if (url.startsWith('/uploads/')) return `/api${url}`
+  // Local uploads are served directly at /uploads/, NOT /api/uploads/
   return url
 }
 
