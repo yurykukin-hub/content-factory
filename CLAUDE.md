@@ -105,8 +105,9 @@ content-factory/
 │       │   ├── VsCharacterCarousel.vue # Карусель референсов + hover popup + create
 │       │   ├── VsPromptArea.vue       # Промпт + ref images + шаблоны
 │       │   ├── VsRichPrompt.vue       # Contenteditable с draggable badge chips (@ImageN)
-│       │   ├── VsSettingsPanel.vue    # Resolution/Duration/Ratio/Audio + Generate
-│       │   ├── VsGallery.vue          # Галерея: видео/сессии/промпты/избранное
+│       │   ├── VsSettingsPanel.vue    # Resolution/Duration/Ratio/Audio + Generate + timer
+│       │   ├── VsSessionBar.vue       # Список сессий (вверху левой панели, status dots, delete)
+│       │   ├── VsGallery.vue          # Галерея: видео/промпты/избранное (inline player)
 │       │   ├── VsConstructorDrawer.vue # Drawer с PromptConstructor
 │       │   ├── VsRefModal.vue         # Модалка создания/просмотра референса + AI Auto
 │       │   └── PromptConstructor.vue  # Конструктор промптов (6 секций)
@@ -183,6 +184,16 @@ API keys: OpenRouter — из БД (AppConfig) или .env. FAL — из .env (F
 ## Brand Colors
 - Primary: Fuchsia/Magenta (#d946ef)
 - Dark mode supported
+
+## Video Studio Architecture
+- **GenerationSession** — DB-backed sessions: prompt + refs + settings + results + promptHistory + status (draft/generating/completed/failed)
+- **VsSessionBar** — session list above prompt (flex-1), prompt block pinned to bottom (shrink-0)
+- **VsRichPrompt** — contenteditable + draggable @ImageN badge chips, resize-y
+- **Auto-save** — debounced 2sec PUT to /sessions/:id, paused during load/switch
+- **Prompt history** — versions saved per-session with generated:true/false markers, ◀▶ navigation with badge restore
+- **Generation flow** — sync POST (backend polls KIE internally). Timer shown on button. Status saved to session
+- **Planned: async tasks** — POST returns taskId, frontend polls, enables parallel + F5-safe generation
+- **KeepAlive** — VideoStudioView preserved on navigation (App.vue)
 
 ## Conventions
 - Паттерны из nawode-erp: Hono routes, JWT httpOnly, Prisma, SSE eventBus
