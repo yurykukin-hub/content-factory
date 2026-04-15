@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, reactive, nextTick } from 'vue'
 import { Play, Download, Video, Sparkles } from 'lucide-vue-next'
 import { formatDate } from '@/composables/useFormatters'
 
@@ -26,6 +26,30 @@ const emit = defineEmits<{
 type Filter = 'all' | 'videos' | 'prompts' | 'favorites'
 const activeFilter = ref<Filter>('all')
 const activeVideoUrl = ref<string | null>(null)
+const videoRefs = reactive<Record<string, HTMLVideoElement>>({})
+
+function togglePlay(v: GeneratedVideo) {
+  const videoEl = videoRefs[v.id]
+  if (activeVideoUrl.value === v.url) {
+    // Already playing — let native controls handle it
+    return
+  }
+  // Pause any other playing video
+  if (activeVideoUrl.value) {
+    const prevId = props.videos.find(vid => vid.url === activeVideoUrl.value)?.id
+    if (prevId && videoRefs[prevId]) {
+      videoRefs[prevId].pause()
+      videoRefs[prevId].currentTime = 0
+    }
+  }
+  activeVideoUrl.value = v.url
+  nextTick(() => {
+    if (videoEl) {
+      videoEl.muted = false
+      videoEl.play().catch(() => {})
+    }
+  })
+}
 
 const filters = computed(() => [
   { id: 'all' as const, label: 'Все' },
@@ -70,14 +94,6 @@ const showVideos = computed(() => activeFilter.value !== 'prompts' && activeFilt
       </div>
     </div>
 
-    <!-- Active video player -->
-    <div v-if="activeVideoUrl && showVideos" class="px-4 pb-2 shrink-0">
-      <div class="rounded-xl overflow-hidden bg-black">
-        <video :src="activeVideoUrl" controls loop autoplay playsinline
-          class="w-full" style="aspect-ratio: 9/16; max-height: 360px; object-fit: contain;" />
-      </div>
-    </div>
-
     <!-- Card feed -->
     <div class="flex-1 overflow-y-auto px-4 pb-4 space-y-3">
 
@@ -92,20 +108,31 @@ const showVideos = computed(() => activeFilter.value !== 'prompts' && activeFilt
         </p>
       </div>
 
-      <!-- Video cards -->
+      <!-- Video cards (inline player) -->
       <template v-if="showVideos">
         <div v-for="v in filteredVideos" :key="v.id"
-          @click="activeVideoUrl = v.url"
           :class="[
-            'rounded-xl border overflow-hidden cursor-pointer transition-all',
+            'rounded-xl border overflow-hidden transition-all',
             activeVideoUrl === v.url
               ? 'border-emerald-400 dark:border-emerald-600 ring-1 ring-emerald-400/30'
-              : 'border-gray-200 dark:border-gray-800 hover:border-gray-300 dark:hover:border-gray-700'
+              : 'border-gray-200 dark:border-gray-800'
           ]">
-          <!-- Thumbnail area -->
-          <div class="relative bg-black/5 dark:bg-black/20" style="aspect-ratio: 16/9;">
-            <video :src="v.url" class="w-full h-full object-cover" preload="metadata" muted />
-            <div class="absolute inset-0 flex items-center justify-center bg-black/20 hover:bg-black/10 transition-colors">
+          <!-- Video area -->
+          <div class="relative bg-black" @click="togglePlay(v)">
+            <video
+              :ref="(el) => { if (el) videoRefs[v.id] = el as HTMLVideoElement }"
+              :src="v.url"
+              class="w-full object-contain"
+              :style="activeVideoUrl === v.url ? 'aspect-ratio: 9/16; max-height: 400px;' : 'aspect-ratio: 16/9;'"
+              :controls="activeVideoUrl === v.url"
+              :loop="activeVideoUrl === v.url"
+              playsinline
+              preload="metadata"
+              :muted="activeVideoUrl !== v.url"
+              @ended="activeVideoUrl = null" />
+            <!-- Play overlay (only when not active) -->
+            <div v-if="activeVideoUrl !== v.url"
+              class="absolute inset-0 flex items-center justify-center bg-black/20 hover:bg-black/10 cursor-pointer transition-colors">
               <div class="w-10 h-10 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center">
                 <Play :size="18" class="text-white ml-0.5" />
               </div>
