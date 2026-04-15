@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { ref, nextTick } from 'vue'
 import { Plus, Trash2, Image, Loader2, Pencil, Check, X } from 'lucide-vue-next'
-import { formatDate } from '@/composables/useFormatters'
 
 interface Session {
   id: string; title: string; prompt: string; duration: number; resolution: string
@@ -30,9 +29,13 @@ const editInputRef = ref<HTMLInputElement | null>(null)
 
 function startRename(s: Session, e: Event) {
   e.stopPropagation()
+  confirmDeleteId.value = null
   editingId.value = s.id
   editingTitle.value = s.title || s.prompt?.slice(0, 40) || ''
-  nextTick(() => editInputRef.value?.focus())
+  nextTick(() => {
+    editInputRef.value?.focus()
+    editInputRef.value?.select()
+  })
 }
 
 function saveRename(id: string) {
@@ -54,19 +57,14 @@ const STATUS_DOT: Record<string, string> = {
 
 const STATUS_LABEL: Record<string, string> = {
   draft: 'Черновик',
-  generating: '⏳ Генерация...',
+  generating: 'Генерация...',
   completed: 'Готово',
   failed: 'Ошибка',
 }
 
-function getThumbUrl(url: string | null | undefined): string | null {
-  if (!url) return null
-  // Local uploads are served directly at /uploads/, NOT /api/uploads/
-  return url
-}
-
 function confirmDelete(id: string, e: Event) {
   e.stopPropagation()
+  editingId.value = null
   confirmDeleteId.value = id
 }
 
@@ -87,35 +85,34 @@ function doDelete(id: string) {
       </button>
     </div>
 
-    <!-- Session list (fills available space) -->
+    <!-- Session list -->
     <div class="flex-1 overflow-y-auto px-2 pb-1 space-y-0.5">
       <div v-for="s in sessions" :key="s.id"
         @click="emit('loadSession', s)"
         :class="[
-          'flex items-center gap-2 px-2 py-1 rounded-lg cursor-pointer transition-all group',
+          'flex items-center gap-2 px-2 py-1 rounded-lg cursor-pointer transition-colors group',
           s.status === 'generating'
-            ? 'bg-amber-50 dark:bg-amber-900/10 border border-amber-300 dark:border-amber-700 animate-pulse'
+            ? 'bg-amber-50 dark:bg-amber-900/10 border border-amber-300 dark:border-amber-700'
             : currentSessionId === s.id
               ? 'bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-300 dark:border-emerald-700'
               : 'hover:bg-gray-50 dark:hover:bg-gray-800/50 border border-transparent'
         ]">
-        <!-- Thumbnail (with generating overlay) -->
+        <!-- Thumbnail -->
         <div class="w-9 h-9 rounded-lg overflow-hidden bg-gray-100 dark:bg-gray-800 shrink-0 flex relative">
-          <!-- Generating spinner overlay -->
           <div v-if="s.status === 'generating'" class="absolute inset-0 bg-amber-500/20 flex items-center justify-center z-10">
             <Loader2 :size="14" class="text-amber-500 animate-spin" />
           </div>
           <img v-if="s.resultUrl"
-            :src="getThumbUrl(s.resultUrl)!"
+            :src="s.resultUrl"
             class="w-full h-full object-cover"
             @error="($event.target as HTMLImageElement).style.display='none'" />
           <img v-else-if="s.mediaFile?.thumbUrl || s.mediaFile?.url"
-            :src="getThumbUrl(s.mediaFile.thumbUrl || s.mediaFile.url)!"
+            :src="(s.mediaFile.thumbUrl || s.mediaFile.url)!"
             class="w-full h-full object-cover"
             @error="($event.target as HTMLImageElement).style.display='none'" />
           <template v-else-if="s.referenceImages?.length">
             <img v-for="(r, i) in (s.referenceImages as any[]).slice(0, 2)" :key="i"
-              :src="getThumbUrl(r.thumbUrl || r.url)!"
+              :src="(r.thumbUrl || r.url)!"
               class="flex-1 h-full object-cover"
               @error="($event.target as HTMLImageElement).style.display='none'" />
           </template>
@@ -129,15 +126,13 @@ function doDelete(id: string) {
           <div class="flex items-center gap-1.5">
             <span :class="['w-1.5 h-1.5 rounded-full shrink-0', STATUS_DOT[s.status] || STATUS_DOT.draft]" />
             <!-- Inline rename input -->
-            <template v-if="editingId === s.id">
-              <input ref="editInputRef" v-model="editingTitle"
-                @click.stop @keyup.enter="saveRename(s.id)" @keyup.escape="cancelRename"
-                @blur="saveRename(s.id)"
-                class="flex-1 min-w-0 text-[11px] font-medium bg-transparent border-b border-emerald-400 dark:border-emerald-600 text-gray-700 dark:text-gray-300 outline-none px-0 py-0" />
-            </template>
-            <!-- Title display (dblclick to rename) -->
+            <input v-if="editingId === s.id" ref="editInputRef" v-model="editingTitle"
+              @click.stop @keyup.enter="saveRename(s.id)" @keyup.escape="cancelRename"
+              @blur="saveRename(s.id)"
+              class="flex-1 min-w-0 text-[11px] font-medium bg-transparent border-b border-emerald-400 dark:border-emerald-600 text-gray-700 dark:text-gray-300 outline-none px-0 py-0" />
+            <!-- Title (dblclick to rename) -->
             <span v-else @dblclick="startRename(s, $event)"
-              class="text-[11px] font-medium text-gray-700 dark:text-gray-300 truncate" :title="'Дважды кликните для переименования'">
+              class="text-[11px] font-medium text-gray-700 dark:text-gray-300 truncate">
               {{ s.title || s.prompt?.slice(0, 30) || 'Без названия' }}
             </span>
           </div>
@@ -147,36 +142,40 @@ function doDelete(id: string) {
             </span>
             <span>·</span>
             <span>{{ s.resolution }} · {{ s.duration }}с</span>
-            <span v-if="s.referenceImages?.length">· 📷{{ (s.referenceImages as any[]).length }}</span>
+            <span v-if="s.referenceImages?.length">· {{ (s.referenceImages as any[]).length }}</span>
           </div>
-          <!-- Error message -->
           <div v-if="s.status === 'failed' && s.errorMessage"
             class="text-[8px] text-red-400 mt-0.5 truncate" :title="s.errorMessage">
             {{ s.errorMessage.slice(0, 60) }}
           </div>
         </div>
 
-        <!-- Rename + Delete buttons -->
-        <div v-if="confirmDeleteId !== s.id && editingId !== s.id"
-          class="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-all shrink-0">
+        <!-- Actions: 3 mutually exclusive states -->
+
+        <!-- State 1: Confirm delete -->
+        <div v-if="confirmDeleteId === s.id" class="flex items-center gap-0.5 shrink-0" @click.stop>
+          <button @click="doDelete(s.id)"
+            class="p-1 rounded text-red-500 hover:bg-red-500/10 transition-colors" title="Подтвердить удаление">
+            <Check :size="14" />
+          </button>
+          <button @click="confirmDeleteId = null"
+            class="p-1 rounded text-gray-400 hover:text-gray-600 transition-colors" title="Отмена">
+            <X :size="14" />
+          </button>
+        </div>
+
+        <!-- State 2: Editing (no action buttons needed, blur saves) -->
+
+        <!-- State 3: Normal hover (rename + delete icons) -->
+        <div v-else-if="editingId !== s.id"
+          class="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
           <button @click="startRename(s, $event)"
-            class="p-1 rounded text-gray-300 dark:text-gray-600 hover:text-emerald-500 transition-colors" title="Переименовать">
+            class="p-1 rounded text-gray-400 dark:text-gray-600 hover:text-emerald-500 transition-colors" title="Переименовать">
             <Pencil :size="10" />
           </button>
           <button @click="confirmDelete(s.id, $event)"
-            class="p-1 rounded text-gray-300 dark:text-gray-600 hover:text-red-500 transition-colors" title="Удалить">
+            class="p-1 rounded text-gray-400 dark:text-gray-600 hover:text-red-500 transition-colors" title="Удалить">
             <Trash2 :size="12" />
-          </button>
-        </div>
-        <!-- Confirm delete -->
-        <div v-else class="flex items-center gap-1 shrink-0" @click.stop>
-          <button @click="doDelete(s.id)"
-            class="px-1.5 py-0.5 rounded text-[9px] font-medium bg-red-500 text-white hover:bg-red-600 transition-colors">
-            Да
-          </button>
-          <button @click="confirmDeleteId = null"
-            class="px-1.5 py-0.5 rounded text-[9px] font-medium text-gray-400 hover:text-gray-600 transition-colors">
-            Нет
           </button>
         </div>
       </div>

@@ -315,10 +315,12 @@ function loadSession(session: Session) {
 
 async function renameSession(id: string, newTitle: string) {
   try {
-    await http.put(`/sessions/${id}`, { title: newTitle })
-    // Update local state if it's the current session
+    // Update locally first (no flash)
+    const s = sessions.value.find(s => s.id === id)
+    if (s) s.title = newTitle
     if (currentSessionId.value === id) currentSessionTitle.value = newTitle
-    await loadSessions()
+    // Persist to DB (background, no loadSessions needed)
+    await http.put(`/sessions/${id}`, { title: newTitle })
   } catch (e: any) { toast.error(e.message || 'Ошибка') }
 }
 
