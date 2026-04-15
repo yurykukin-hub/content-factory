@@ -417,8 +417,9 @@ async function generate() {
       metadata: { duration: duration.value, model: 'bytedance/seedance-2', resolution: resolution.value, cost: costUsd, audio: audio.value, inputMode: inputMode.value },
     }).catch(() => {})
 
-    // Refresh sessions list (stay in current session for more iterations)
+    // Refresh data
     loadSessions()
+    loadVideos()
 
     toast.success(`Видео готово (${duration.value} сек)`)
   } catch (e: any) {
@@ -627,7 +628,7 @@ onMounted(() => { loadCharacters(); loadVideos(); loadSavedPrompts(); loadDraftS
           :model-value="selectedCharacterId"
           @update:model-value="onCharacterSelect"
           @create-new="onCreateRef" />
-        <div class="max-h-64 overflow-y-auto">
+        <div>
           <VsPromptArea
             ref="vsPromptAreaRef"
             v-model="prompt"

@@ -262,7 +262,7 @@ defineExpose({ insertBadge, setContentWithBadges })
       ref="editorRef"
       contenteditable="true"
       :class="[
-        'rich-prompt w-full min-h-[120px] max-h-[240px] overflow-y-auto px-4 py-3 rounded-xl border text-sm outline-none transition-colors',
+        'rich-prompt w-full min-h-[180px] max-h-[400px] overflow-y-auto px-4 py-3 rounded-xl border text-sm outline-none transition-colors resize-y',
         isFocused
           ? 'border-emerald-500 ring-2 ring-emerald-500/20 bg-gray-50 dark:bg-gray-800'
           : 'border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-800'
