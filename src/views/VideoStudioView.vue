@@ -77,16 +77,16 @@ async function loadDraftSession() {
       refImages.value = (draft.referenceImages as any[]) || []
       firstFrame.value = draft.firstFrameUrl ? { url: draft.firstFrameUrl, thumbUrl: null, filename: 'frame' } : null
       lastFrame.value = draft.lastFrameUrl ? { url: draft.lastFrameUrl, thumbUrl: null, filename: 'frame' } : null
-      // Restore badges from prompt text
+      // Restore badges from prompt text (setTimeout ensures DOM is ready)
       if (prompt.value && refImages.value.length) {
-        nextTick(() => {
+        setTimeout(() => {
           const badges = refImages.value
             .map((img, idx) => ({ badgeType: 'image' as const, id: `img_${idx + 1}`, name: `Image${idx + 1}`, thumbUrl: img.thumbUrl || null }))
             .filter(b => prompt.value.includes(`@${b.name}`))
           if (badges.length) {
             vsPromptAreaRef.value?.setContentWithBadges(prompt.value, badges)
           }
-        })
+        }, 300)
       }
     }
   } catch {}
@@ -137,6 +137,17 @@ const selectedCharacterId = ref<string | null>(null)
 interface PromptEntry { id: string; prompt: string; resultUrl: string | null; rating: number | null; tags: string[]; metadata: any; createdAt: string }
 const savedPrompts = ref<PromptEntry[]>([])
 
+// Sessions
+interface Session {
+  id: string; businessId: string; prompt: string; duration: number; aspectRatio: string
+  resolution: string; generateAudio: boolean; inputMode: string
+  referenceImages: any; firstFrameUrl: string | null; lastFrameUrl: string | null
+  status: string; resultUrl: string | null; costUsd: number | null
+  mediaFile?: { url: string; thumbUrl: string | null; filename: string; durationSec: number | null } | null
+  createdAt: string; updatedAt: string
+}
+const sessions = ref<Session[]>([])
+
 // Generated videos
 interface GeneratedVideo {
   id: string; url: string; filename: string; durationSec: number | null
@@ -161,6 +172,43 @@ const PRICING = {
 const CREDIT_PRICE = 0.005
 const AUDIO_MULT = 2.0
 const USD_RUB = 95
+
+async function loadSessions() {
+  if (!selectedBizId.value) return
+  try { sessions.value = await http.get<Session[]>(`/sessions?businessId=${selectedBizId.value}`) } catch { sessions.value = [] }
+}
+
+function loadSession(session: Session) {
+  // Switch to this session's state
+  currentSessionId.value = session.status === 'draft' ? session.id : null
+  prompt.value = session.prompt || ''
+  duration.value = session.duration || 4
+  audio.value = session.generateAudio ?? false
+  resolution.value = (session.resolution || '480p') as any
+  aspectRatio.value = (session.aspectRatio || '9:16') as any
+  inputMode.value = (session.inputMode || 'references') as any
+  refImages.value = (session.referenceImages as any[]) || []
+  firstFrame.value = session.firstFrameUrl ? { url: session.firstFrameUrl, thumbUrl: null, filename: 'frame' } : null
+  lastFrame.value = session.lastFrameUrl ? { url: session.lastFrameUrl, thumbUrl: null, filename: 'frame' } : null
+
+  // If completed session (read-only), create new draft from it
+  if (session.status !== 'draft') {
+    currentSessionId.value = null
+  }
+
+  // Restore badges
+  if (prompt.value && refImages.value.length) {
+    setTimeout(() => {
+      const badges = refImages.value
+        .map((img, idx) => ({ badgeType: 'image' as const, id: `img_${idx + 1}`, name: `Image${idx + 1}`, thumbUrl: img.thumbUrl || null }))
+        .filter(b => prompt.value.includes(`@${b.name}`))
+      if (badges.length) {
+        vsPromptAreaRef.value?.setContentWithBadges(prompt.value, badges)
+      }
+    }, 100)
+  }
+  toast.success('Сессия загружена')
+}
 
 const costRub = computed(() => {
   const hasImg = inputMode.value !== 'text' && (firstFrame.value || refImages.value.length > 0)
@@ -301,7 +349,8 @@ async function generate() {
       metadata: { duration: duration.value, model: 'bytedance/seedance-2', resolution: resolution.value, cost: costUsd, audio: audio.value, inputMode: inputMode.value },
     }).catch(() => {})
 
-    // Start new draft session for next generation
+    // Refresh sessions list + start new draft
+    loadSessions()
     startNewSession()
 
     toast.success(`Видео готово (${duration.value} сек)`)
@@ -435,11 +484,13 @@ function onBusinessChange() {
   loadCharacters()
   loadVideos()
   loadSavedPrompts()
+  loadSessions()
+  loadDraftSession()
   templatesLoaded.value = false
   aiTemplates.value = []
 }
 
-onMounted(() => { loadCharacters(); loadVideos(); loadSavedPrompts(); loadDraftSession() })
+onMounted(() => { loadCharacters(); loadVideos(); loadSavedPrompts(); loadDraftSession(); loadSessions() })
 </script>
 
 <template>
@@ -533,8 +584,10 @@ onMounted(() => { loadCharacters(); loadVideos(); loadSavedPrompts(); loadDraftS
       <VsGallery
         :videos="generatedVideos"
         :saved-prompts="savedPrompts"
+        :sessions="sessions"
         @use-prompt="usePrompt"
-        @rate-prompt="ratePrompt" />
+        @rate-prompt="ratePrompt"
+        @load-session="loadSession" />
     </div>
 
     <!-- Constructor Drawer -->

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, reactive, nextTick } from 'vue'
-import { Play, Download, Video, Sparkles } from 'lucide-vue-next'
+import { Play, Download, Video, Sparkles, Clock, CheckCircle, AlertCircle, FileText, Image } from 'lucide-vue-next'
 import { formatDate } from '@/composables/useFormatters'
 
 interface GeneratedVideo {
@@ -13,17 +13,27 @@ interface PromptEntry {
   tags: string[]; metadata: any; createdAt: string
 }
 
+interface Session {
+  id: string; prompt: string; duration: number; aspectRatio: string
+  resolution: string; generateAudio: boolean; inputMode: string
+  referenceImages: any; status: string; resultUrl: string | null; costUsd: number | null
+  mediaFile?: { url: string; thumbUrl: string | null; filename: string; durationSec: number | null } | null
+  createdAt: string; updatedAt: string
+}
+
 const props = defineProps<{
   videos: GeneratedVideo[]
   savedPrompts: PromptEntry[]
+  sessions?: Session[]
 }>()
 
 const emit = defineEmits<{
   usePrompt: [entry: PromptEntry]
   ratePrompt: [id: string, rating: number]
+  loadSession: [session: Session]
 }>()
 
-type Filter = 'all' | 'videos' | 'prompts' | 'favorites'
+type Filter = 'all' | 'videos' | 'sessions' | 'prompts' | 'favorites'
 const activeFilter = ref<Filter>('all')
 const activeVideoUrl = ref<string | null>(null)
 const videoRefs = reactive<Record<string, HTMLVideoElement>>({})
@@ -54,6 +64,7 @@ function togglePlay(v: GeneratedVideo) {
 const filters = computed(() => [
   { id: 'all' as const, label: 'Все' },
   { id: 'videos' as const, label: 'Видео', count: props.videos.length },
+  { id: 'sessions' as const, label: 'Сессии', count: props.sessions?.length || 0 },
   { id: 'prompts' as const, label: 'Промпты', count: props.savedPrompts.length },
   { id: 'favorites' as const, label: 'Избранное', count: props.savedPrompts.filter(p => (p.rating || 0) >= 4).length },
 ])
@@ -71,7 +82,15 @@ const filteredPrompts = computed(() => {
 })
 
 const showPrompts = computed(() => activeFilter.value === 'prompts' || activeFilter.value === 'favorites')
-const showVideos = computed(() => activeFilter.value !== 'prompts' && activeFilter.value !== 'favorites')
+const showVideos = computed(() => activeFilter.value === 'all' || activeFilter.value === 'videos')
+const showSessions = computed(() => activeFilter.value === 'sessions')
+
+const STATUS_CONFIG: Record<string, { label: string; icon: any; color: string }> = {
+  draft: { label: 'Черновик', icon: FileText, color: 'text-gray-400' },
+  generating: { label: 'Генерация...', icon: Clock, color: 'text-amber-500' },
+  completed: { label: 'Готово', icon: CheckCircle, color: 'text-emerald-500' },
+  failed: { label: 'Ошибка', icon: AlertCircle, color: 'text-red-500' },
+}
 </script>
 
 <template>
@@ -187,6 +206,49 @@ const showVideos = computed(() => activeFilter.value !== 'prompts' && activeFilt
             <div class="flex items-center gap-1.5 text-[9px] text-gray-400">
               <span v-if="entry.metadata?.duration">{{ entry.metadata.duration }}с</span>
               <span v-if="entry.metadata?.cost">{{ Math.round(entry.metadata.cost * 95) }} &#8381;</span>
+            </div>
+          </div>
+        </div>
+      </template>
+
+      <!-- Session cards -->
+      <template v-if="showSessions">
+        <div v-for="s in (sessions || [])" :key="s.id"
+          @click="emit('loadSession', s)"
+          class="rounded-xl border border-gray-200 dark:border-gray-800 hover:border-emerald-300 dark:hover:border-emerald-700 cursor-pointer transition-colors overflow-hidden">
+          <!-- Thumbnail (if completed with video) -->
+          <div v-if="s.mediaFile" class="relative bg-black" style="aspect-ratio: 16/9;">
+            <video :src="s.mediaFile.url" class="w-full h-full object-cover" preload="metadata" muted />
+            <div class="absolute inset-0 flex items-center justify-center bg-black/20">
+              <div class="w-8 h-8 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center">
+                <Play :size="14" class="text-white ml-0.5" />
+              </div>
+            </div>
+          </div>
+          <!-- Ref images strip (if no video) -->
+          <div v-else-if="s.referenceImages?.length" class="flex gap-1 p-2 bg-gray-50 dark:bg-gray-800/50">
+            <img v-for="(r, i) in (s.referenceImages as any[]).slice(0, 4)" :key="i"
+              :src="r.thumbUrl || r.url" class="w-10 h-10 rounded-lg object-cover" />
+          </div>
+          <!-- Info -->
+          <div class="p-3">
+            <div class="flex items-center gap-1.5 mb-1">
+              <component :is="STATUS_CONFIG[s.status]?.icon || FileText" :size="12"
+                :class="STATUS_CONFIG[s.status]?.color || 'text-gray-400'" />
+              <span class="text-[10px] font-medium" :class="STATUS_CONFIG[s.status]?.color">
+                {{ STATUS_CONFIG[s.status]?.label || s.status }}
+              </span>
+              <span class="text-[9px] text-gray-400 ml-auto">{{ s.resolution }} · {{ s.duration }}с</span>
+            </div>
+            <p v-if="s.prompt" class="text-[11px] text-gray-600 dark:text-gray-400 line-clamp-2 leading-relaxed mb-1">
+              {{ s.prompt.slice(0, 120) }}
+            </p>
+            <div class="flex items-center gap-2 text-[9px] text-gray-400">
+              <span v-if="s.referenceImages?.length">
+                <Image :size="10" class="inline" /> {{ (s.referenceImages as any[]).length }}
+              </span>
+              <span v-if="s.costUsd">{{ Math.round(s.costUsd * 95) }} &#8381;</span>
+              <span>{{ formatDate(s.updatedAt) }}</span>
             </div>
           </div>
         </div>
