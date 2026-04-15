@@ -38,11 +38,11 @@ const historyIndex = ref(-1)
 const showConstructor = ref(false)
 
 // Settings
-const duration = ref(5)
-const audio = ref(true)
-const resolution = ref<'480p' | '720p'>('720p')
+const duration = ref(4)
+const audio = ref(false)
+const resolution = ref<'480p' | '720p'>('480p')
 const aspectRatio = ref<'9:16' | '1:1' | '16:9'>('9:16')
-const inputMode = ref<'text' | 'frames' | 'references'>('text')
+const inputMode = ref<'text' | 'frames' | 'references'>('references')
 
 // Frames
 const firstFrame = ref<{ url: string; thumbUrl?: string | null; filename: string } | null>(null)
