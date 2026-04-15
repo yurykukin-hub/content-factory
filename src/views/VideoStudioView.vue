@@ -205,7 +205,8 @@ async function createNewSession() {
 // --- State ---
 const prompt = ref('')
 const enhancing = ref(false)
-const generating = ref(false)
+const generatingSessions = ref(new Set<string>())
+const generating = computed(() => currentSessionId.value ? generatingSessions.value.has(currentSessionId.value) : false)
 const promptHistory = ref<string[]>([])
 const historyIndex = ref(-1)
 const generatedPromptIndices = ref<Set<number>>(new Set())
@@ -472,96 +473,110 @@ async function enhance(mode: EnhanceMode = 'enhance') {
 
 async function generate() {
   if (!prompt.value.trim() || !selectedBizId.value) return
-  generating.value = true
+  const sessionId = currentSessionId.value
+  if (!sessionId) return
+  if (generatingSessions.value.has(sessionId)) return // already generating
+
+  // Capture all state at click time (user may switch sessions)
+  const capturedState = {
+    businessId: selectedBizId.value,
+    prompt: prompt.value,
+    duration: duration.value,
+    aspectRatio: aspectRatio.value,
+    resolution: resolution.value,
+    generateAudio: audio.value,
+    inputMode: inputMode.value,
+    firstFrameUrl: inputMode.value === 'frames' && firstFrame.value ? firstFrame.value.url : null,
+    lastFrameUrl: inputMode.value === 'frames' && lastFrame.value ? lastFrame.value.url : null,
+    referenceImageUrls: inputMode.value === 'references' ? refImages.value.map(r => r.url) : [],
+  }
+
+  // Mark as generating (UI updates immediately)
+  generatingSessions.value = new Set([...generatingSessions.value, sessionId])
+  await http.put(`/sessions/${sessionId}`, { status: 'generating' }).catch(() => {})
+  loadSessions()
+
+  // Save prompt to history
+  if (!promptHistory.value.length || promptHistory.value[promptHistory.value.length - 1] !== capturedState.prompt) {
+    promptHistory.value.push(capturedState.prompt)
+  }
+  generatedPromptIndices.value.add(promptHistory.value.length - 1)
+  historyIndex.value = promptHistory.value.length - 1
+
+  // Fire and forget — don't block the UI
+  runGeneration(sessionId, capturedState)
+}
+
+/** Background generation — runs without blocking, supports parallel calls */
+async function runGeneration(sessionId: string, state: {
+  businessId: string; prompt: string; duration: number; aspectRatio: string
+  resolution: string; generateAudio: boolean; inputMode: string
+  firstFrameUrl: string | null; lastFrameUrl: string | null; referenceImageUrls: string[]
+}) {
   try {
     const payload: any = {
-      businessId: selectedBizId.value, prompt: prompt.value,
-      duration: duration.value, aspectRatio: aspectRatio.value,
-      resolution: resolution.value, generateAudio: audio.value,
+      businessId: state.businessId, prompt: state.prompt,
+      duration: state.duration, aspectRatio: state.aspectRatio,
+      resolution: state.resolution, generateAudio: state.generateAudio,
     }
-    if (inputMode.value === 'frames' && firstFrame.value) {
-      payload.firstFrameUrl = firstFrame.value.url
-      if (lastFrame.value) payload.lastFrameUrl = lastFrame.value.url
-    } else if (inputMode.value === 'references' && refImages.value.length) {
-      payload.referenceImageUrls = refImages.value.map(r => r.url)
-    }
-
-    // Mark session as generating (await to prevent race condition)
-    if (currentSessionId.value) {
-      await http.put(`/sessions/${currentSessionId.value}`, { status: 'generating' }).catch(() => {})
-      loadSessions()
+    if (state.firstFrameUrl) {
+      payload.firstFrameUrl = state.firstFrameUrl
+      if (state.lastFrameUrl) payload.lastFrameUrl = state.lastFrameUrl
+    } else if (state.referenceImageUrls.length) {
+      payload.referenceImageUrls = state.referenceImageUrls
     }
 
     const result = await http.post<{ mediaFile: GeneratedVideo }>('/ai/generate-video', payload)
-    // Save prompt to history and mark as generated
-    if (!promptHistory.value.length || promptHistory.value[promptHistory.value.length - 1] !== prompt.value) {
-      promptHistory.value.push(prompt.value)
-    }
-    generatedPromptIndices.value.add(promptHistory.value.length - 1)
-    historyIndex.value = promptHistory.value.length - 1
     generatedVideos.value.unshift(result.mediaFile)
 
-    // Mark session as completed with result
-    const costUsd = (() => {
-      const hasImg = inputMode.value !== 'text' && (firstFrame.value || refImages.value.length > 0)
-      const tier = PRICING[resolution.value]
-      const cps = hasImg ? tier.withImage : tier.textOnly
-      const base = cps * duration.value * CREDIT_PRICE
-      return audio.value ? base * AUDIO_MULT : base
-    })()
+    // Calculate cost
+    const hasImg = state.firstFrameUrl || state.referenceImageUrls.length > 0
+    const tier = PRICING[state.resolution as keyof typeof PRICING] || PRICING['480p']
+    const cps = hasImg ? tier.withImage : tier.textOnly
+    const baseCost = cps * state.duration * CREDIT_PRICE
+    const costUsd = state.generateAudio ? baseCost * AUDIO_MULT : baseCost
 
-    if (currentSessionId.value) {
-      // Add result to session's results array (keep within same session)
-      const newResult = {
-        resultUrl: result.mediaFile.url,
-        prompt: prompt.value,
-        costUsd,
-        createdAt: new Date().toISOString(),
-        mediaFileId: result.mediaFile.id,
-      }
-      // Load current session to get existing results
-      try {
-        const curr = await http.get<any>(`/sessions/${currentSessionId.value}`)
-        const existingResults = (curr?.results as any[]) || []
-        existingResults.push(newResult)
-        await http.put(`/sessions/${currentSessionId.value}`, {
-          status: 'completed',
-          mediaFileId: result.mediaFile.id,
-          resultUrl: result.mediaFile.url,
-          results: existingResults,
-          costUsd: existingResults.reduce((sum: number, r: any) => sum + (r.costUsd || 0), 0),
-        })
-      } catch {
-        http.put(`/sessions/${currentSessionId.value}`, {
-          status: 'completed', mediaFileId: result.mediaFile.id, resultUrl: result.mediaFile.url, costUsd,
-        }).catch(() => {})
-      }
-    }
-
-    // Auto-save to prompt library (keep for backwards compat)
-    http.post('/prompt-library', {
-      businessId: selectedBizId.value, type: 'video', prompt: prompt.value,
-      resultUrl: result.mediaFile.url,
-      metadata: { duration: duration.value, model: 'bytedance/seedance-2', resolution: resolution.value, cost: costUsd, audio: audio.value, inputMode: inputMode.value },
-    }).catch(() => {})
-
-    // Refresh data (await to ensure UI shows updated status)
-    await loadSessions()
-    loadVideos()
-
-    toast.success(`Видео готово (${duration.value} сек)`)
-  } catch (e: any) {
-    const msg = e.message || 'Ошибка генерации'
-    // Don't mark as failed if connection was aborted (F5, navigation)
-    const isAbort = msg.includes('abort') || msg.includes('network') || msg.includes('fetch')
-    if (currentSessionId.value && !isAbort) {
-      http.put(`/sessions/${currentSessionId.value}`, {
-        status: 'failed', errorMessage: msg,
+    // Update session with result
+    try {
+      const curr = await http.get<any>(`/sessions/${sessionId}`)
+      const existingResults = (curr?.results as any[]) || []
+      existingResults.push({
+        resultUrl: result.mediaFile.url, prompt: state.prompt, costUsd,
+        createdAt: new Date().toISOString(), mediaFileId: result.mediaFile.id,
+      })
+      await http.put(`/sessions/${sessionId}`, {
+        status: 'completed', mediaFileId: result.mediaFile.id,
+        resultUrl: result.mediaFile.url, results: existingResults,
+        costUsd: existingResults.reduce((sum: number, r: any) => sum + (r.costUsd || 0), 0),
+      })
+    } catch {
+      http.put(`/sessions/${sessionId}`, {
+        status: 'completed', mediaFileId: result.mediaFile.id, resultUrl: result.mediaFile.url, costUsd,
       }).catch(() => {})
     }
+
+    // Save to prompt library
+    http.post('/prompt-library', {
+      businessId: state.businessId, type: 'video', prompt: state.prompt,
+      resultUrl: result.mediaFile.url,
+      metadata: { duration: state.duration, model: 'bytedance/seedance-2', resolution: state.resolution, cost: costUsd, audio: state.generateAudio, inputMode: state.inputMode },
+    }).catch(() => {})
+
+    toast.success(`Видео готово (${state.duration} сек)`)
+  } catch (e: any) {
+    const msg = e.message || 'Ошибка генерации'
+    const isAbort = msg.includes('abort') || msg.includes('network') || msg.includes('fetch')
+    if (!isAbort) {
+      http.put(`/sessions/${sessionId}`, { status: 'failed', errorMessage: msg }).catch(() => {})
+    }
     toast.error(msg)
+  } finally {
+    const next = new Set(generatingSessions.value)
+    next.delete(sessionId)
+    generatingSessions.value = next
+    loadSessions()
+    loadVideos()
   }
-  finally { generating.value = false }
 }
 
 function historyBack() {
