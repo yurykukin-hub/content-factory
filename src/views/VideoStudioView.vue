@@ -43,6 +43,7 @@ function selectBiz(id: string) {
 
 // --- Session persistence (DB-backed) ---
 const currentSessionId = ref<string | null>(null)
+const viewedSessionId = ref<string | null>(null)  // tracks which session is highlighted (including non-draft)
 const currentSessionTitle = ref('')
 const showSessionDropdown = ref(false)
 let autoSaveTimer: ReturnType<typeof setTimeout> | null = null
@@ -117,6 +118,7 @@ async function loadDraftSession() {
     const draft = await http.get<any>(`/sessions/draft?businessId=${selectedBizId.value}`)
     if (draft) {
       currentSessionId.value = draft.id
+      viewedSessionId.value = draft.id
       currentSessionTitle.value = draft.title || ''
       prompt.value = draft.prompt || ''
       // Restore prompt history + generated markers
@@ -152,6 +154,7 @@ async function loadDraftSession() {
       try {
         const session = await http.post<any>('/sessions', { businessId: selectedBizId.value })
         currentSessionId.value = session.id
+        viewedSessionId.value = session.id
       } catch {}
     }
   } catch {}
@@ -160,6 +163,7 @@ async function loadDraftSession() {
 
 function startNewSession() {
   currentSessionId.value = null
+  viewedSessionId.value = null
   currentSessionTitle.value = ''
   prompt.value = ''
   promptHistory.value = []
@@ -188,6 +192,7 @@ async function createNewSession() {
   try {
     const session = await http.post<any>('/sessions', { businessId: selectedBizId.value })
     currentSessionId.value = session.id
+    viewedSessionId.value = session.id
     loadSessions()
     toast.success('Новая сессия создана')
   } catch (e) { console.error('[VS] createNewSession failed:', e) }
@@ -275,6 +280,7 @@ async function loadSessions() {
 function loadSession(session: Session) {
   autoSavePaused = true
   // Switch to this session's state
+  viewedSessionId.value = session.id  // always highlight the clicked session
   currentSessionId.value = session.status === 'draft' ? session.id : null
   currentSessionTitle.value = session.title || ''
   prompt.value = session.prompt || ''
@@ -710,7 +716,7 @@ onMounted(async () => {
         <VsSessionBar
           class="flex-1 min-h-0"
           :sessions="sessions"
-          :current-session-id="currentSessionId"
+          :current-session-id="viewedSessionId"
           @load-session="loadSession"
           @create-new="createNewSession"
           @delete-session="deleteSession"
