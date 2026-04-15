@@ -16,8 +16,18 @@ import MediaPickerModal from '@/components/MediaPickerModal.vue'
 import VsRefModal from '@/components/video/VsRefModal.vue'
 import type { CharacterData } from '@/components/video/VsRefModal.vue'
 import { Video, ChevronDown } from 'lucide-vue-next'
+import { useAuthStore } from '@/stores/auth'
+import { useThemeStore } from '@/stores/theme'
+import type { EnhanceMode } from '@/components/video/VsEnhanceMenu.vue'
+import type { EnhanceDebugInfo } from '@/components/video/VsPromptArea.vue'
 
 const toast = useToast()
+const auth = useAuthStore()
+const theme = useThemeStore()
+
+const isAdmin = computed(() => auth.user?.role === 'ADMIN')
+const isProMode = computed(() => theme.devMode)
+const lastEnhanceDebug = ref<EnhanceDebugInfo | null>(null)
 const businesses = useBusinessesStore()
 const selectedBizId = ref<string | null>(businesses.currentBusinessId)
 
@@ -352,9 +362,21 @@ function setPromptWithBadges(text: string) {
   }
 }
 
-async function enhance() {
+const MODE_LABELS: Record<EnhanceMode, string> = {
+  enhance: 'Промпт улучшен',
+  director: 'Режиссёрский промпт готов',
+  structure: 'Промпт структурирован',
+  focus: 'Промпт сфокусирован',
+  audio: 'Звук добавлен',
+  camera: 'Камера улучшена',
+  translate: 'Промпт переведён',
+  simplify: 'Промпт упрощён',
+}
+
+async function enhance(mode: EnhanceMode = 'enhance') {
   if (!prompt.value.trim() || !selectedBizId.value) return
   enhancing.value = true
+  lastEnhanceDebug.value = null
   try {
     // Collect element descriptions for AI context
     const elements = refImages.value.map((img, idx) => ({
@@ -362,8 +384,14 @@ async function enhance() {
       description: img.altText || img.filename || `Image ${idx + 1}`,
     }))
 
-    const res = await http.post<{ enhancedPrompt: string }>('/ai/enhance-video-prompt', {
+    const res = await http.post<{
+      enhancedPrompt: string
+      analysis?: Record<string, unknown>
+      debug?: EnhanceDebugInfo
+    }>('/ai/enhance-video-prompt', {
       prompt: prompt.value, duration: duration.value, businessId: selectedBizId.value,
+      mode,
+      debug: isProMode.value,
       elements: elements.length ? elements : undefined,
     })
     // Save original before replacing (if not already in history)
@@ -374,7 +402,11 @@ async function enhance() {
     setPromptWithBadges(res.enhancedPrompt)
     promptHistory.value.push(res.enhancedPrompt)
     historyIndex.value = promptHistory.value.length - 1
-    toast.success('Промпт улучшен')
+
+    // Store debug info for display
+    if (res.debug) lastEnhanceDebug.value = res.debug
+
+    toast.success(MODE_LABELS[mode] || 'Промпт улучшен')
   } catch (e: any) { toast.error(e.message || 'Ошибка') }
   finally { enhancing.value = false }
 }
@@ -684,6 +716,9 @@ onMounted(async () => {
             :generated-indices="generatedPromptIndices"
             :templates="aiTemplates"
             :loading-templates="loadingTemplates"
+            :is-admin="isAdmin"
+            :is-pro-mode="isProMode"
+            :debug-info="lastEnhanceDebug"
             @enhance="enhance"
             @history-back="historyBack"
             @history-forward="historyForward"

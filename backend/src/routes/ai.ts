@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { db } from '../db'
 import { config } from '../config'
 import { aiComplete, aiVision } from '../services/ai/openrouter'
-import { buildBrandContext, buildPlanPrompt, buildPostPrompt, buildAdaptPrompt, buildHashtagPrompt, buildImageEnhancerPrompt, buildEditEnhancerPrompt, buildStoryTitlePrompt, buildScenarioPrompt, buildVideoPromptEnhancer } from '../services/ai/prompt-builder'
+import { buildBrandContext, buildPlanPrompt, buildPostPrompt, buildAdaptPrompt, buildHashtagPrompt, buildImageEnhancerPrompt, buildEditEnhancerPrompt, buildStoryTitlePrompt, buildScenarioPrompt, buildVideoPromptEnhancer, buildVideoPromptEnhancerAdaptive, buildVideoPromptDirector, buildVideoPromptStructure, buildVideoPromptFocus, buildVideoPromptAudio, buildVideoPromptCamera, buildVideoPromptTranslate, buildVideoPromptSimplify, analyzeVideoPrompt } from '../services/ai/prompt-builder'
 import { generateImage, editImage, removeBackground, generateVideo, EDIT_MODELS } from '../services/ai/kie'
 import { emitEvent } from '../eventBus'
 import type { AuthUser } from '../middleware/auth'
@@ -674,11 +674,13 @@ ai.post('/generate-scenario', async (c) => {
   return c.json({ title, scenes, usage: result.usage })
 })
 
-// POST /api/ai/enhance-video-prompt — улучшение промпта для видео
+// POST /api/ai/enhance-video-prompt — улучшение промпта для видео (multi-mode)
 const enhanceVideoPromptSchema = z.object({
   prompt: z.string().min(1),
   businessId: z.string(),
   duration: z.number().optional(),
+  mode: z.enum(['enhance', 'director', 'structure', 'focus', 'audio', 'camera', 'translate', 'simplify']).default('enhance'),
+  debug: z.boolean().optional().default(false),
   elements: z.array(z.object({
     tag: z.string(),
     description: z.string(),
@@ -695,8 +697,50 @@ ai.post('/enhance-video-prompt', async (c) => {
     throw e
   }
 
-  const brandContext = await buildBrandContext(data.businessId)
-  const systemPrompt = buildVideoPromptEnhancer(brandContext)
+  const startMs = Date.now()
+
+  // Analyze prompt complexity
+  const analysis = analyzeVideoPrompt(data.prompt)
+
+  // Build system prompt based on mode
+  let systemPrompt: string
+  let model: string = config.models.haiku
+  let maxTokens: number = 600
+
+  switch (data.mode) {
+    case 'director': {
+      const brandContext = await buildBrandContext(data.businessId)
+      systemPrompt = buildVideoPromptDirector(brandContext)
+      model = config.models.sonnet
+      maxTokens = 800
+      break
+    }
+    case 'structure':
+      systemPrompt = buildVideoPromptStructure()
+      break
+    case 'focus':
+      systemPrompt = buildVideoPromptFocus()
+      break
+    case 'audio':
+      systemPrompt = buildVideoPromptAudio()
+      break
+    case 'camera':
+      systemPrompt = buildVideoPromptCamera()
+      break
+    case 'translate':
+      systemPrompt = buildVideoPromptTranslate()
+      break
+    case 'simplify':
+      systemPrompt = buildVideoPromptSimplify()
+      maxTokens = 300
+      break
+    case 'enhance':
+    default: {
+      const brandContext = await buildBrandContext(data.businessId)
+      systemPrompt = buildVideoPromptEnhancerAdaptive(brandContext, analysis)
+      break
+    }
+  }
 
   const durationHint = data.duration ? ` Видео длительностью ${data.duration} секунд.` : ''
 
@@ -710,13 +754,30 @@ ai.post('/enhance-video-prompt', async (c) => {
   const result = await aiComplete({
     systemPrompt,
     userPrompt: data.prompt + durationHint + elementsHint,
-    model: config.models.haiku,
-    maxTokens: 500,
+    model,
+    maxTokens,
     businessId: data.businessId,
-    action: 'enhance_video_prompt',
+    action: `enhance_video_prompt_${data.mode}`,
   })
 
-  return c.json({ enhancedPrompt: result.content.trim() })
+  const responseMs = Date.now() - startMs
+
+  const response: Record<string, unknown> = {
+    enhancedPrompt: result.content.trim(),
+    analysis,
+  }
+
+  if (data.debug) {
+    response.debug = {
+      model: result.model,
+      tokensIn: result.tokensIn,
+      tokensOut: result.tokensOut,
+      costUsd: result.costUsd,
+      responseMs,
+    }
+  }
+
+  return c.json(response)
 })
 
 // POST /api/ai/generate-video — AI-генерация видео (Seedance 2)

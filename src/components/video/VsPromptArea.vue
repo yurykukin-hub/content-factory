@@ -6,6 +6,8 @@ import {
 import { ref, watch } from 'vue'
 import VsRichPrompt from './VsRichPrompt.vue'
 import type { BadgeData } from './VsRichPrompt.vue'
+import VsEnhanceMenu from './VsEnhanceMenu.vue'
+import type { EnhanceMode } from './VsEnhanceMenu.vue'
 
 interface FrameRef {
   url: string
@@ -26,6 +28,14 @@ interface AiTemplate {
   prompt: string
 }
 
+export interface EnhanceDebugInfo {
+  model: string
+  tokensIn: number
+  tokensOut: number
+  costUsd: number
+  responseMs: number
+}
+
 const props = defineProps<{
   modelValue: string
   inputMode: 'text' | 'frames' | 'references'
@@ -38,11 +48,14 @@ const props = defineProps<{
   generatedIndices?: Set<number>
   templates: AiTemplate[]
   loadingTemplates: boolean
+  isAdmin?: boolean
+  isProMode?: boolean
+  debugInfo?: EnhanceDebugInfo | null
 }>()
 
 const emit = defineEmits<{
   'update:modelValue': [value: string]
-  enhance: []
+  enhance: [mode: EnhanceMode]
   historyBack: []
   historyForward: []
   uploadFrame: [event: Event, which: 'first' | 'last']
@@ -88,6 +101,7 @@ function onLibraryClick() {
 }
 
 function openPreview(img: RefImage) {
+  describingPreview.value = false
   previewRef.value = img
 }
 
@@ -215,13 +229,13 @@ defineExpose({ insertBadge, openPreview, setContentWithBadges })
         Конструктор
       </button>
 
-      <!-- Enhance -->
-      <button @click="emit('enhance')" :disabled="enhancing || !modelValue.trim()"
-        class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-purple-300 dark:border-purple-700 text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-950 disabled:opacity-50 transition-colors">
-        <Loader2 v-if="enhancing" :size="12" class="animate-spin" />
-        <Wand2 v-else :size="12" />
-        {{ enhancing ? 'Улучшаю...' : 'Улучшить (AI)' }}
-      </button>
+      <!-- Enhance (split-button with mode menu) -->
+      <VsEnhanceMenu
+        :enhancing="enhancing"
+        :disabled="!modelValue.trim()"
+        :is-admin="isAdmin ?? false"
+        :is-pro-mode="isProMode ?? false"
+        @enhance="(mode: EnhanceMode) => emit('enhance', mode)" />
 
       <!-- Templates toggle -->
       <button @click="showTemplates = !showTemplates"
@@ -253,6 +267,18 @@ defineExpose({ insertBadge, openPreview, setContentWithBadges })
           <ChevronRight :size="14" />
         </button>
       </div>
+    </div>
+
+    <!-- 3b. DEBUG INFO (visible in Pro mode after enhance) -->
+    <div v-if="isProMode && debugInfo"
+      class="flex items-center gap-2 px-2 py-1 rounded-lg bg-purple-50 dark:bg-purple-950/30 text-[9px] text-purple-500 dark:text-purple-400 font-mono">
+      <span>{{ debugInfo.model.split('/').pop() }}</span>
+      <span class="text-purple-300 dark:text-purple-600">|</span>
+      <span>{{ debugInfo.tokensIn }}→{{ debugInfo.tokensOut }} tok</span>
+      <span class="text-purple-300 dark:text-purple-600">|</span>
+      <span>${{ debugInfo.costUsd.toFixed(4) }}</span>
+      <span class="text-purple-300 dark:text-purple-600">|</span>
+      <span>{{ debugInfo.responseMs }}ms</span>
     </div>
 
     <!-- 4. TEMPLATES (collapsible, AI-generated) -->

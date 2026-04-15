@@ -103,7 +103,8 @@ content-factory/
 │       ├── video/              # Видео-студия компоненты
 │       │   ├── VsModeTabs.vue         # Табы режимов (Референсы/Кадры/Текст)
 │       │   ├── VsCharacterCarousel.vue # Карусель референсов + hover popup + create
-│       │   ├── VsPromptArea.vue       # Промпт + ref images + шаблоны
+│       │   ├── VsPromptArea.vue       # Промпт + ref images + шаблоны + VsEnhanceMenu
+│       │   ├── VsEnhanceMenu.vue     # Split-button dropdown: 8 режимов enhance (basic+pro)
 │       │   ├── VsRichPrompt.vue       # Contenteditable с draggable badge chips (@ImageN)
 │       │   ├── VsSettingsPanel.vue    # Resolution/Duration/Ratio/Audio + Generate + timer
 │       │   ├── VsSessionBar.vue       # Список сессий (вверху левой панели, status dots, delete)
@@ -189,8 +190,10 @@ API keys: OpenRouter — из БД (AppConfig) или .env. FAL — из .env (F
 - **GenerationSession** — DB-backed sessions: prompt + refs + settings + results + promptHistory + status (draft/generating/completed/failed)
 - **VsSessionBar** — session list above prompt (flex-1), prompt block pinned to bottom (shrink-0)
 - **VsRichPrompt** — contenteditable + draggable @ImageN badge chips, resize-y
+- **VsEnhanceMenu** — split-button dropdown: 8 режимов enhance (enhance/director/structure/focus/audio/camera/translate/simplify). EDITOR: 2 basic. ADMIN+devMode: все 8 + debug info
 - **Auto-save** — debounced 2sec PUT to /sessions/:id, paused during load/switch
 - **Prompt history** — versions saved per-session with generated:true/false markers, ◀▶ navigation with badge restore
+- **Prompt enhancement** — adaptive: short prompts expanded, long/timeline prompts preserved. Director mode uses Sonnet, others Haiku. analyzeVideoPrompt() detects complexity. Debug info: model/tokens/cost/time (devMode)
 - **Generation flow** — sync POST (backend polls KIE internally). Timer shown on button. Status saved to session
 - **Planned: async tasks** — POST returns taskId, frontend polls, enables parallel + F5-safe generation
 - **KeepAlive** — VideoStudioView preserved on navigation (App.vue)

@@ -110,6 +110,15 @@ User, UserBusiness, Business, BrandProfile, PlatformAccount, ContentPlan, Conten
 - [2026-04-14] SMMER.RU: бизнес Антона Григорьева (SMM). Brand profile заполнен, 6 story templates, VK канал (group 218656364). Нужны права редактора от Антона для VK API
 - [2026-04-14] composables: useSectionAccess (canView/canEdit), SECTION_LABELS. shared/section-access.ts — серверная копия
 
+## Video Studio: Pro Prompt Enhancement (2026-04-15)
+- [2026-04-15] POST /api/ai/enhance-video-prompt расширен: +mode (8 режимов: enhance/director/structure/focus/audio/camera/translate/simplify), +debug (модель/токены/стоимость/время)
+- [2026-04-15] analyzeVideoPrompt() — анализ сложности промпта (wordCount, timeline, кириллица, @ImageN, пустые прилагательные, "fast")
+- [2026-04-15] Адаптивный enhance: короткие промпты расширяет, длинные (>150 слов / timeline) НЕ сжимает
+- [2026-04-15] Director mode: timeline [0s][3s][6s], мультишот, 200-300 слов, Sonnet (остальные Haiku)
+- [2026-04-15] VsEnhanceMenu.vue: split-button dropdown. EDITOR видит 2 режима, ADMIN+devMode — все 8
+- [2026-04-15] Debug info bar: модель, токены in/out, стоимость USD, время ms — виден при devMode=on
+- [2026-04-15] Seedance 2.0 best practices зашиты во все промпты: no "fast", no empty adjectives, inline audio, one camera per shot
+
 ## Паттерны
 - HTTP client: fetch + httpOnly cookie + X-Tab-ID (из nawode-erp)
 - Auth: JWT в httpOnly cookie, requireAuth middleware
