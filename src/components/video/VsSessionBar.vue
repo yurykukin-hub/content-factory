@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { Plus, Trash2, Image } from 'lucide-vue-next'
+import { Plus, Trash2, Image, Loader2 } from 'lucide-vue-next'
 import { formatDate } from '@/composables/useFormatters'
 
 interface Session {
@@ -32,7 +32,7 @@ const STATUS_DOT: Record<string, string> = {
 
 const STATUS_LABEL: Record<string, string> = {
   draft: 'Черновик',
-  generating: 'Генерация...',
+  generating: '⏳ Генерация...',
   completed: 'Готово',
   failed: 'Ошибка',
 }
@@ -71,12 +71,18 @@ function doDelete(id: string) {
         @click="emit('loadSession', s)"
         :class="[
           'flex items-center gap-2 px-2 py-1 rounded-lg cursor-pointer transition-all group',
-          currentSessionId === s.id
-            ? 'bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-300 dark:border-emerald-700'
-            : 'hover:bg-gray-50 dark:hover:bg-gray-800/50 border border-transparent'
+          s.status === 'generating'
+            ? 'bg-amber-50 dark:bg-amber-900/10 border border-amber-300 dark:border-amber-700 animate-pulse'
+            : currentSessionId === s.id
+              ? 'bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-300 dark:border-emerald-700'
+              : 'hover:bg-gray-50 dark:hover:bg-gray-800/50 border border-transparent'
         ]">
-        <!-- Thumbnail -->
-        <div class="w-9 h-9 rounded-lg overflow-hidden bg-gray-100 dark:bg-gray-800 shrink-0 flex">
+        <!-- Thumbnail (with generating overlay) -->
+        <div class="w-9 h-9 rounded-lg overflow-hidden bg-gray-100 dark:bg-gray-800 shrink-0 flex relative">
+          <!-- Generating spinner overlay -->
+          <div v-if="s.status === 'generating'" class="absolute inset-0 bg-amber-500/20 flex items-center justify-center z-10">
+            <Loader2 :size="14" class="text-amber-500 animate-spin" />
+          </div>
           <img v-if="s.resultUrl"
             :src="getThumbUrl(s.resultUrl)!"
             class="w-full h-full object-cover"
