@@ -37,7 +37,7 @@ sessions.get('/sessions/draft', async (c) => {
   try { await assertBusinessAccess(user, businessId) } catch { return c.json(null) }
 
   const draft = await db.generationSession.findFirst({
-    where: { businessId, userId: user.id, status: 'draft' },
+    where: { businessId, userId: user.userId, status: 'draft' },
     orderBy: { updatedAt: 'desc' },
   })
   return c.json(draft)
@@ -67,7 +67,7 @@ sessions.post('/sessions', async (c) => {
     data: {
       ...rest,
       business: { connect: { id: businessId } },
-      user: { connect: { id: user.id } },
+      user: { connect: { id: user.userId } },
       status: 'draft',
     },
   })
@@ -99,7 +99,7 @@ sessions.put('/sessions/:id', async (c) => {
 
   const existing = await db.generationSession.findUnique({ where: { id } })
   if (!existing) return c.json({ error: 'Не найдена' }, 404)
-  if (existing.userId !== user.id && (user as any).role !== 'ADMIN') {
+  if (existing.userId !== user.userId && (user as any).role !== 'ADMIN') {
     return c.json({ error: 'Нет доступа' }, 403)
   }
 
@@ -114,7 +114,7 @@ sessions.delete('/sessions/:id', async (c) => {
 
   const existing = await db.generationSession.findUnique({ where: { id } })
   if (!existing) return c.json({ error: 'Не найдена' }, 404)
-  if (existing.userId !== user.id && (user as any).role !== 'ADMIN') {
+  if (existing.userId !== user.userId && (user as any).role !== 'ADMIN') {
     return c.json({ error: 'Нет доступа' }, 403)
   }
 
