@@ -478,6 +478,7 @@ async function generate() {
   if (generatingSessions.value.has(sessionId)) return // already generating
 
   // Capture all state at click time (user may switch sessions)
+  const sessionTitle = currentSessionTitle.value || prompt.value.slice(0, 30) || 'Сессия'
   const capturedState = {
     businessId: selectedBizId.value,
     prompt: prompt.value,
@@ -504,7 +505,7 @@ async function generate() {
   historyIndex.value = promptHistory.value.length - 1
 
   // Fire and forget — don't block the UI
-  runGeneration(sessionId, capturedState)
+  runGeneration(sessionId, capturedState, sessionTitle)
 }
 
 /** Background generation — runs without blocking, supports parallel calls */
@@ -512,7 +513,7 @@ async function runGeneration(sessionId: string, state: {
   businessId: string; prompt: string; duration: number; aspectRatio: string
   resolution: string; generateAudio: boolean; inputMode: string
   firstFrameUrl: string | null; lastFrameUrl: string | null; referenceImageUrls: string[]
-}) {
+}, sessionTitle: string) {
   try {
     const payload: any = {
       businessId: state.businessId, prompt: state.prompt,
@@ -562,14 +563,14 @@ async function runGeneration(sessionId: string, state: {
       metadata: { duration: state.duration, model: 'bytedance/seedance-2', resolution: state.resolution, cost: costUsd, audio: state.generateAudio, inputMode: state.inputMode },
     }).catch(() => {})
 
-    toast.success(`Видео готово (${state.duration} сек)`)
+    toast.success(`Видео готово: ${sessionTitle} (${state.duration}с)`, 7000)
   } catch (e: any) {
     const msg = e.message || 'Ошибка генерации'
     const isAbort = msg.includes('abort') || msg.includes('network') || msg.includes('fetch')
     if (!isAbort) {
       http.put(`/sessions/${sessionId}`, { status: 'failed', errorMessage: msg }).catch(() => {})
     }
-    toast.error(msg)
+    toast.error(`Ошибка: ${sessionTitle} — ${msg}`, 8000)
   } finally {
     const next = new Set(generatingSessions.value)
     next.delete(sessionId)

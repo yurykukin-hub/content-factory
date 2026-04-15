@@ -20,8 +20,8 @@ export function useToast() {
 
   return {
     toasts,
-    success: (msg: string) => show(msg, 'success'),
-    error: (msg: string) => show(msg, 'error', 5000),
-    info: (msg: string) => show(msg, 'info'),
+    success: (msg: string, duration?: number) => show(msg, 'success', duration ?? 3000),
+    error: (msg: string, duration?: number) => show(msg, 'error', duration ?? 5000),
+    info: (msg: string, duration?: number) => show(msg, 'info', duration ?? 3000),
   }
 }
