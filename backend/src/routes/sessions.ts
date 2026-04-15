@@ -30,6 +30,7 @@ sessions.get('/sessions', async (c) => {
 })
 
 // GET /api/sessions/draft?businessId=X — получить текущий draft (или null)
+// IMPORTANT: must be before :id route
 sessions.get('/sessions/draft', async (c) => {
   const user = c.get('user') as AuthUser
   const businessId = c.req.query('businessId')
@@ -41,6 +42,21 @@ sessions.get('/sessions/draft', async (c) => {
     orderBy: { updatedAt: 'desc' },
   })
   return c.json(draft)
+})
+
+// GET /api/sessions/:id — одна сессия
+sessions.get('/sessions/:id', async (c) => {
+  const { id } = c.req.param()
+  const user = c.get('user') as AuthUser
+  const session = await db.generationSession.findUnique({
+    where: { id },
+    include: { mediaFile: { select: { id: true, url: true, thumbUrl: true, filename: true, durationSec: true } } },
+  })
+  if (!session) return c.json({ error: 'Не найдена' }, 404)
+  if (session.userId !== user.userId && (user as any).role !== 'ADMIN') {
+    return c.json({ error: 'Нет доступа' }, 403)
+  }
+  return c.json(session)
 })
 
 // POST /api/sessions — создать сессию

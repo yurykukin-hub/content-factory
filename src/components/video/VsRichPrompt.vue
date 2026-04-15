@@ -44,10 +44,16 @@ function extractText(el: HTMLElement): string {
         const name = element.dataset.badgeName || ''
         text += `@${name}`
       } else if (element.tagName === 'BR') {
-        text += '\n'
+        // Only add newline for BR if it's not inside an empty div (Chrome adds <div><br></div>)
+        const parent = element.parentElement
+        if (!parent || parent === el || parent.childNodes.length > 1) {
+          text += '\n'
+        }
       } else if (element.tagName === 'DIV' || element.tagName === 'P') {
+        // Chrome wraps lines in divs — add newline before (not after)
         if (text && !text.endsWith('\n')) text += '\n'
-        text += extractText(element)
+        const inner = extractText(element)
+        text += inner
       } else {
         text += extractText(element)
       }

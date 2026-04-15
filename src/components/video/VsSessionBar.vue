@@ -6,6 +6,7 @@ import { formatDate } from '@/composables/useFormatters'
 interface Session {
   id: string; title: string; prompt: string; duration: number; resolution: string
   referenceImages: any; status: string; resultUrl: string | null; costUsd: number | null
+  errorMessage?: string | null
   mediaFile?: { url: string; thumbUrl: string | null } | null
   updatedAt: string
 }
@@ -111,7 +112,9 @@ function doDelete(id: string) {
             </span>
           </div>
           <div class="flex items-center gap-1.5 text-[9px] text-gray-400 mt-0.5">
-            <span>{{ STATUS_LABEL[s.status] || s.status }}</span>
+            <span :title="s.status === 'failed' && s.errorMessage ? s.errorMessage : undefined">
+              {{ STATUS_LABEL[s.status] || s.status }}
+            </span>
             <span>·</span>
             <span>{{ s.resolution }} · {{ s.duration }}с</span>
             <span v-if="s.referenceImages?.length">· 📷{{ (s.referenceImages as any[]).length }}</span>
