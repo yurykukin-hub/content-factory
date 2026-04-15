@@ -611,19 +611,23 @@ onMounted(() => { loadCharacters(); loadVideos(); loadSavedPrompts(); loadDraftS
 
       <!-- LEFT PANEL: Generator -->
       <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 overflow-hidden flex flex-col lg:max-h-[calc(100vh-140px)]">
+        <!-- Sessions list (takes available space) -->
         <VsSessionBar
+          class="flex-1 min-h-0"
           :sessions="sessions"
           :current-session-id="currentSessionId"
           @load-session="loadSession"
           @create-new="createNewSession"
           @delete-session="deleteSession" />
+        <!-- Prompt block (pinned to bottom) -->
+        <div class="shrink-0 border-t border-gray-200 dark:border-gray-800">
         <VsModeTabs v-model="inputMode" />
         <VsCharacterCarousel
           :characters="characters"
           :model-value="selectedCharacterId"
           @update:model-value="onCharacterSelect"
           @create-new="onCreateRef" />
-        <div class="flex-1 overflow-y-auto">
+        <div class="max-h-64 overflow-y-auto">
           <VsPromptArea
             ref="vsPromptAreaRef"
             v-model="prompt"
@@ -662,6 +666,7 @@ onMounted(() => { loadCharacters(); loadVideos(); loadSavedPrompts(); loadDraftS
           @update:resolution="resolution = $event"
           @update:aspect-ratio="aspectRatio = $event"
           @generate="generate" />
+        </div>
       </div>
 
       <!-- RIGHT PANEL: Gallery -->

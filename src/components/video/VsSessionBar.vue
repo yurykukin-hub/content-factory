@@ -56,38 +56,44 @@ function doDelete(id: string) {
 </script>
 
 <template>
-  <div class="border-b border-gray-100 dark:border-gray-800">
+  <div class="flex flex-col min-h-0">
     <!-- Header -->
-    <div class="flex items-center justify-between px-4 py-2">
+    <div class="flex items-center justify-between px-4 py-1.5 shrink-0">
       <span class="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Сессии</span>
       <button @click="emit('createNew')"
-        class="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 transition-colors">
+        class="flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-medium text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 transition-colors">
         <Plus :size="12" /> Новая
       </button>
     </div>
 
-    <!-- Session list (scrollable, max height) -->
-    <div class="max-h-36 overflow-y-auto px-2 pb-2 space-y-1">
+    <!-- Session list (fills available space) -->
+    <div class="flex-1 overflow-y-auto px-2 pb-1 space-y-0.5">
       <div v-for="s in sessions" :key="s.id"
         @click="emit('loadSession', s)"
         :class="[
-          'flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer transition-all group',
+          'flex items-center gap-2 px-2 py-1 rounded-lg cursor-pointer transition-all group',
           currentSessionId === s.id
             ? 'bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-300 dark:border-emerald-700'
             : 'hover:bg-gray-50 dark:hover:bg-gray-800/50 border border-transparent'
         ]">
         <!-- Thumbnail -->
-        <div class="w-10 h-10 rounded-lg overflow-hidden bg-gray-100 dark:bg-gray-800 shrink-0 flex">
-          <img v-if="s.mediaFile?.thumbUrl || s.mediaFile?.url"
+        <div class="w-9 h-9 rounded-lg overflow-hidden bg-gray-100 dark:bg-gray-800 shrink-0 flex">
+          <img v-if="s.resultUrl"
+            :src="getThumbUrl(s.resultUrl)!"
+            class="w-full h-full object-cover"
+            @error="($event.target as HTMLImageElement).style.display='none'" />
+          <img v-else-if="s.mediaFile?.thumbUrl || s.mediaFile?.url"
             :src="getThumbUrl(s.mediaFile.thumbUrl || s.mediaFile.url)!"
-            class="w-full h-full object-cover" />
+            class="w-full h-full object-cover"
+            @error="($event.target as HTMLImageElement).style.display='none'" />
           <template v-else-if="s.referenceImages?.length">
             <img v-for="(r, i) in (s.referenceImages as any[]).slice(0, 2)" :key="i"
               :src="getThumbUrl(r.thumbUrl || r.url)!"
-              class="flex-1 h-full object-cover" />
+              class="flex-1 h-full object-cover"
+              @error="($event.target as HTMLImageElement).style.display='none'" />
           </template>
           <div v-else class="w-full h-full flex items-center justify-center">
-            <Image :size="14" class="text-gray-300 dark:text-gray-600" />
+            <Image :size="12" class="text-gray-300 dark:text-gray-600" />
           </div>
         </div>
 
