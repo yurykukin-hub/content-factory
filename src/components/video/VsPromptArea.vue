@@ -173,19 +173,17 @@ defineExpose({ insertBadge, openPreview })
             class="w-full max-h-[360px] object-contain bg-black" />
           <div class="p-4">
             <div class="text-sm font-medium mb-1 truncate">{{ previewRef.filename }}</div>
-            <p v-if="previewRef.altText" class="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
+            <p v-if="previewRef.altText" class="text-xs text-gray-500 dark:text-gray-400 leading-relaxed mb-1">
               {{ previewRef.altText }}
             </p>
-            <div v-else class="flex items-center gap-2">
-              <p class="text-xs text-gray-400 italic">Нет описания</p>
-              <button @click="emit('describeRef', previewRef!); describingPreview = true"
-                :disabled="describingPreview"
-                class="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50 transition-colors">
-                <Loader2 v-if="describingPreview" :size="10" class="animate-spin" />
-                <Sparkles v-else :size="10" />
-                Auto
-              </button>
-            </div>
+            <p v-else class="text-xs text-gray-400 italic mb-1">Нет описания</p>
+            <button @click="emit('describeRef', previewRef!); describingPreview = true"
+              :disabled="describingPreview"
+              class="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium bg-purple-100 dark:bg-purple-900/50 text-purple-600 dark:text-purple-400 hover:bg-purple-200 dark:hover:bg-purple-800 disabled:opacity-50 transition-colors">
+              <Loader2 v-if="describingPreview" :size="10" class="animate-spin" />
+              <Sparkles v-else :size="10" />
+              {{ previewRef.altText ? 'Перегенерировать' : 'Сгенерировать описание' }}
+            </button>
           </div>
           <div class="px-4 pb-4">
             <button @click="previewRef = null; describingPreview = false"

@@ -821,14 +821,15 @@ Available reference tags: ${imageLabels}`
 // POST /api/ai/describe-image — AI Vision описывает фото для референса
 const describeImageSchema = z.object({
   imageUrl: z.string(),
-  type: z.enum(['person', 'mascot', 'avatar', 'object', 'location']).default('person'),
+  type: z.enum(['auto', 'person', 'mascot', 'avatar', 'object', 'location']).default('auto'),
 })
 
 ai.post('/describe-image', async (c) => {
   const data = describeImageSchema.parse(await c.req.json())
 
   const typeHints: Record<string, string> = {
-    person: 'Describe this person: appearance, hair, clothing, distinguishing features. Be specific and concise.',
+    auto: 'Describe what you see in this image: subjects, setting, colors, lighting, mood, key visual details. Be specific.',
+    person: 'Describe this person: appearance, hair, clothing, distinguishing features. Be specific.',
     mascot: 'Describe this mascot/character: visual style, colors, key features, expression.',
     avatar: 'Describe this avatar: visual style, colors, key features.',
     object: 'Describe this object: shape, material, color, size, distinguishing details.',
@@ -840,8 +841,8 @@ ai.post('/describe-image', async (c) => {
     : data.imageUrl
 
   const result = await aiVision({
-    systemPrompt: 'You are a visual description expert for AI video generation. Write descriptions in English, under 100 characters. Focus on visual features only.',
-    userPrompt: typeHints[data.type] || typeHints.person,
+    systemPrompt: 'You are a visual description expert for AI video generation. Write a concise description in English (2-3 sentences). Describe everything visible: subjects, environment, colors, lighting, composition. Never refuse — always describe what you see.',
+    userPrompt: typeHints[data.type] || typeHints.auto,
     imageUrls: [publicUrl],
     model: config.models.vision,
     businessId: null,

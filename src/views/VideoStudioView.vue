@@ -308,7 +308,7 @@ async function describeRefImage(img: { url: string; thumbUrl?: string | null; fi
   try {
     const res = await http.post<{ description: string }>('/ai/describe-image', {
       imageUrl: img.url,
-      type: 'person',
+      type: 'auto',
     })
     img.altText = res.description
     toast.success('Описание сгенерировано')

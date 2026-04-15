@@ -65,7 +65,7 @@ async function describePreviewFile() {
   try {
     const res = await http.post<{ description: string }>('/ai/describe-image', {
       imageUrl: previewFile.value.url,
-      type: 'person',
+      type: 'auto',
     })
     previewFile.value.altText = res.description
     // Also update in the files list
@@ -683,17 +683,15 @@ watch([typeFilter, tagFilter, showUnattached], loadFiles)
               <div class="text-sm font-medium truncate flex-1 mr-2">{{ previewFile.filename }}</div>
               <span class="text-[10px] text-gray-400 shrink-0">{{ formatSize(previewFile.sizeBytes) }}</span>
             </div>
-            <!-- Description -->
-            <div v-if="previewFile.altText" class="mb-2">
-              <p class="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">{{ previewFile.altText }}</p>
-            </div>
-            <div v-else class="flex items-center gap-2 mb-2">
-              <span class="text-xs text-gray-400 italic">Нет описания</span>
+            <!-- Description + Auto button (always visible) -->
+            <div class="mb-2">
+              <p v-if="previewFile.altText" class="text-xs text-gray-500 dark:text-gray-400 leading-relaxed mb-1">{{ previewFile.altText }}</p>
+              <p v-else class="text-xs text-gray-400 italic mb-1">Нет описания</p>
               <button @click="describePreviewFile" :disabled="describingPreviewId === previewFile.id"
                 class="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium bg-purple-100 dark:bg-purple-900/50 text-purple-600 dark:text-purple-400 hover:bg-purple-200 dark:hover:bg-purple-800 disabled:opacity-50 transition-colors">
                 <Loader2 v-if="describingPreviewId === previewFile.id" :size="10" class="animate-spin" />
                 <Sparkles v-else :size="10" />
-                Auto
+                {{ previewFile.altText ? 'Перегенерировать' : 'Сгенерировать описание' }}
               </button>
             </div>
             <!-- Meta -->
