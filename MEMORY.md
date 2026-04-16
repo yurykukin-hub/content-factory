@@ -128,6 +128,12 @@ User, UserBusiness, Business, BrandProfile, PlatformAccount, ContentPlan, Conten
 - [2026-04-16] UI: Dashboard→Обзор, PostType маппинг (useLabels.ts), placeholder'ы на русском, "Upload failed"→"Файл не загружен"
 - [2026-04-16] Режим translate в enhance НЕ менялся — его задача явный RU→EN перевод
 
+## Fix: MIME-тип MOV-файлов (2026-04-16)
+- [2026-04-16] Баг: MOV-файлы загружались с mimeType='application/octet-stream' (браузер не передаёт blob.type для MOV). Фильтр "Видео" исключал их, админ не видел файлы Светы
+- [2026-04-16] Fix backend (media.ts): extensionToMime() — определение MIME по расширению файла когда blob.type пустой/octet-stream. Поддержка: mov/mp4/webm/avi/mkv/m4v/wmv/3gp + image + audio
+- [2026-04-16] Fix frontend (MediaLibraryView.vue): isImage()/isVideo() + displayType() — fallback на расширение файла. Бейдж показывает "MOV" вместо "OCTET-STREAM"
+- [2026-04-16] Миграция: fix-mime-types.ts — исправлены 16 существующих файлов в проде (15 MOV → video/quicktime, 1 MP4 → video/mp4)
+
 ## Паттерны
 - HTTP client: fetch + httpOnly cookie + X-Tab-ID (из nawode-erp)
 - Auth: JWT в httpOnly cookie, requireAuth middleware

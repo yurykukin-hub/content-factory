@@ -116,8 +116,8 @@ async function save() {
   saving.value = true
   try {
     // Find MediaFile ID for main photo
-    const allMedia = await http.get<any[]>(`/media/library/${props.businessId}`)
-    const mediaFile = allMedia.find((m: any) => m.url === mainPhoto.value!.url)
+    const res = await http.get<{ files: any[] }>(`/media/library/${props.businessId}`)
+    const mediaFile = res.files.find((m: any) => m.url === mainPhoto.value!.url)
 
     const payload = {
       name: name.value.trim(),

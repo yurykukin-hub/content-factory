@@ -41,9 +41,13 @@ media.post('/upload', async (c) => {
     return c.json({ error: 'Файл слишком большой (макс. 100 MB)' }, 400)
   }
 
-  // Determine file type
-  const mimeType = blob.type || 'application/octet-stream'
-  const ext = extname(blob.name || '.bin') || mimeExtension(mimeType)
+  // Determine file type (prefer extension-based detection when blob.type is missing/generic)
+  const rawExt = extname(blob.name || '.bin').toLowerCase()
+  const rawMime = blob.type || ''
+  const mimeType = (rawMime && rawMime !== 'application/octet-stream')
+    ? rawMime
+    : extensionToMime(rawExt) || 'application/octet-stream'
+  const ext = rawExt || mimeExtension(mimeType)
   const fileId = nanoid(12)
   const filename = `${fileId}${ext}`
   const thumbFilename = `${fileId}_thumb.webp`
@@ -95,7 +99,7 @@ media.post('/upload', async (c) => {
   return c.json(mediaFile, 201)
 })
 
-// GET /api/media/library/:bizId — медиа-библиотека бизнеса
+// GET /api/media/library/:bizId — медиа-библиотека бизнеса (cursor pagination)
 media.get('/library/:bizId', async (c) => {
   const { bizId } = c.req.param()
   const type = c.req.query('type') // 'image' | 'video' | undefined (all)
@@ -103,6 +107,8 @@ media.get('/library/:bizId', async (c) => {
   const search = c.req.query('search')
   const unattached = c.req.query('unattached') === 'true'
   const folderId = c.req.query('folderId') // filter by folder (null = root, specific id = folder)
+  const cursor = c.req.query('cursor') // cursor pagination (id of last item)
+  const limit = Math.min(Number(c.req.query('limit')) || 40, 100)
 
   const where: Record<string, unknown> = { businessId: bizId }
 
@@ -124,14 +130,21 @@ media.get('/library/:bizId', async (c) => {
   const files = await db.mediaFile.findMany({
     where,
     orderBy: { createdAt: 'desc' },
-    take: 200,
+    take: limit + 1, // fetch one extra to detect hasMore
+    ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
     include: {
       post: { select: { id: true, title: true, status: true } },
       folder: { select: { id: true, name: true } },
     },
   })
 
-  return c.json(files)
+  const hasMore = files.length > limit
+  if (hasMore) files.pop()
+
+  // Total count only on first page (no cursor) to avoid extra query on "load more"
+  const totalCount = cursor ? undefined : await db.mediaFile.count({ where })
+
+  return c.json({ files, hasMore, ...(totalCount !== undefined ? { totalCount } : {}) })
 })
 
 // GET /api/media/tags/:bizId — все уникальные теги бизнеса
@@ -244,10 +257,24 @@ media.post('/:id/attach', async (c) => {
 function mimeExtension(mime: string): string {
   const map: Record<string, string> = {
     'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp',
-    'image/gif': '.gif', 'video/mp4': '.mp4', 'video/webm': '.webm',
-    'audio/mpeg': '.mp3', 'audio/ogg': '.ogg',
+    'image/gif': '.gif', 'image/svg+xml': '.svg', 'image/heic': '.heic',
+    'video/mp4': '.mp4', 'video/webm': '.webm', 'video/quicktime': '.mov',
+    'video/x-msvideo': '.avi', 'video/x-matroska': '.mkv',
+    'audio/mpeg': '.mp3', 'audio/ogg': '.ogg', 'audio/wav': '.wav',
   }
   return map[mime] || '.bin'
+}
+
+function extensionToMime(ext: string): string | null {
+  const map: Record<string, string> = {
+    '.mov': 'video/quicktime', '.mp4': 'video/mp4', '.webm': 'video/webm',
+    '.avi': 'video/x-msvideo', '.mkv': 'video/x-matroska', '.m4v': 'video/x-m4v',
+    '.wmv': 'video/x-ms-wmv', '.3gp': 'video/3gpp',
+    '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png',
+    '.webp': 'image/webp', '.gif': 'image/gif', '.heic': 'image/heic',
+    '.mp3': 'audio/mpeg', '.ogg': 'audio/ogg', '.wav': 'audio/wav',
+  }
+  return map[ext.toLowerCase()] || null
 }
 
 export { media }

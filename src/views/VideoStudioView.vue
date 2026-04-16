@@ -354,8 +354,8 @@ async function loadCharacters() {
 async function loadVideos() {
   if (!selectedBizId.value) return
   try {
-    const all = await http.get<any[]>(`/media/library/${selectedBizId.value}`)
-    generatedVideos.value = all
+    const res = await http.get<{ files: any[] }>(`/media/library/${selectedBizId.value}`)
+    generatedVideos.value = res.files
       .filter((f: any) => f.mimeType?.startsWith('video/') && f.aiModel)
       .map((f: any) => ({ id: f.id, url: f.url, filename: f.filename, durationSec: f.durationSec, aiModel: f.aiModel, aiCostUsd: f.aiCostUsd, altText: f.altText, createdAt: f.createdAt }))
   } catch { generatedVideos.value = [] }

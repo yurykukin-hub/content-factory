@@ -52,6 +52,8 @@ const files = ref<MediaFile[]>([])
 const folders = ref<MediaFolder[]>([])
 const allTags = ref<string[]>([])
 const loading = ref(true)
+const loadingMore = ref(false)
+const hasMore = ref(false)
 const uploading = ref(false)
 const removingBgId = ref<string | null>(null)
 const editingFile = ref<MediaFile | null>(null)
@@ -131,25 +133,51 @@ const isSmall = computed(() => cardSize.value === 'S')
 // When searching — show all files across folders
 const isSearching = computed(() => !!searchQuery.value || !!tagFilter.value || showUnattached.value)
 
+function buildMediaParams(cursor?: string) {
+  const params = new URLSearchParams()
+  if (typeFilter.value) params.set('type', typeFilter.value)
+  if (tagFilter.value) params.set('tag', tagFilter.value)
+  if (searchQuery.value) params.set('search', searchQuery.value)
+  if (showUnattached.value) params.set('unattached', 'true')
+  if (!isSearching.value) params.set('folderId', currentFolderId.value || 'root')
+  if (cursor) params.set('cursor', cursor)
+  return params
+}
+
 async function loadFiles() {
   if (!businesses.currentBusiness) return
   loading.value = true
   try {
-    const params = new URLSearchParams()
-    if (typeFilter.value) params.set('type', typeFilter.value)
-    if (tagFilter.value) params.set('tag', tagFilter.value)
-    if (searchQuery.value) params.set('search', searchQuery.value)
-    if (showUnattached.value) params.set('unattached', 'true')
-    // When searching, don't filter by folder (search across all)
-    if (!isSearching.value) {
-      params.set('folderId', currentFolderId.value || 'root')
-    }
-    const qs = params.toString() ? `?${params}` : ''
-    files.value = await http.get<MediaFile[]>(`/media/library/${businesses.currentBusiness.id}${qs}`)
+    const qs = buildMediaParams().toString()
+    const res = await http.get<{ files: MediaFile[]; hasMore: boolean; totalCount?: number }>(
+      `/media/library/${businesses.currentBusiness.id}?${qs}`
+    )
+    files.value = res.files
+    hasMore.value = res.hasMore
+    if (res.totalCount !== undefined) totalCount.value = res.totalCount
   } catch (e: any) {
     toast.error('Ошибка загрузки медиа')
   } finally {
     loading.value = false
+  }
+}
+
+async function loadMore() {
+  if (!businesses.currentBusiness || !hasMore.value || loadingMore.value) return
+  const lastFile = files.value[files.value.length - 1]
+  if (!lastFile) return
+  loadingMore.value = true
+  try {
+    const qs = buildMediaParams(lastFile.id).toString()
+    const res = await http.get<{ files: MediaFile[]; hasMore: boolean }>(
+      `/media/library/${businesses.currentBusiness.id}?${qs}`
+    )
+    files.value.push(...res.files)
+    hasMore.value = res.hasMore
+  } catch (e: any) {
+    toast.error('Ошибка загрузки')
+  } finally {
+    loadingMore.value = false
   }
 }
 
@@ -366,12 +394,32 @@ function formatSize(bytes: number) {
   return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
 }
 
-const isImage = (mime: string) => mime.startsWith('image/')
-const isVideo = (mime: string) => mime.startsWith('video/')
+// MIME helpers with filename-extension fallback (for octet-stream files like MOV)
+const VIDEO_EXTS = new Set(['.mov', '.mp4', '.webm', '.avi', '.mkv', '.m4v', '.wmv', '.3gp'])
+const IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif', '.svg', '.heic'])
+
+const getExt = (fn: string) => fn.slice(fn.lastIndexOf('.')).toLowerCase()
+
+const isImage = (mime: string, filename?: string) =>
+  mime.startsWith('image/') ||
+  !!(filename && mime === 'application/octet-stream' && IMAGE_EXTS.has(getExt(filename)))
+
+const isVideo = (mime: string, filename?: string) =>
+  mime.startsWith('video/') ||
+  !!(filename && mime === 'application/octet-stream' && VIDEO_EXTS.has(getExt(filename)))
+
+const displayType = (mime: string, filename?: string) => {
+  if (mime !== 'application/octet-stream') return mime.split('/')[1]?.toUpperCase() || 'FILE'
+  if (filename) { const e = getExt(filename).slice(1).toUpperCase(); if (e) return e }
+  return 'FILE'
+}
+
+const totalCount = ref(0)
 const stats = computed(() => ({
-  total: files.value.length,
-  images: files.value.filter(f => isImage(f.mimeType)).length,
-  videos: files.value.filter(f => f.mimeType.startsWith('video/')).length,
+  total: totalCount.value || files.value.length,
+  loaded: files.value.length,
+  images: files.value.filter(f => isImage(f.mimeType, f.filename)).length,
+  videos: files.value.filter(f => isVideo(f.mimeType, f.filename)).length,
   unattached: files.value.filter(f => !f.postId).length,
 }))
 
@@ -492,6 +540,7 @@ watch([typeFilter, tagFilter, showUnattached], loadFiles)
     <!-- Stats -->
     <div class="flex gap-4 mb-3 text-sm text-gray-500">
       <span>{{ stats.total }} файлов</span>
+      <span v-if="hasMore" class="text-gray-400">({{ stats.loaded }} загружено)</span>
       <span>{{ stats.images }} фото</span>
       <span>{{ stats.videos }} видео</span>
       <span>{{ stats.unattached }} без поста</span>
@@ -583,14 +632,20 @@ watch([typeFilter, tagFilter, showUnattached], loadFiles)
 
           <!-- Thumbnail -->
           <div class="aspect-square bg-gray-100 dark:bg-gray-800 relative">
-            <img v-if="isImage(file.mimeType)"
+            <img v-if="isImage(file.mimeType, file.filename)"
               :src="file.thumbUrl || file.url"
               :alt="file.filename"
-              class="w-full h-full object-cover" />
-            <video v-else-if="isVideo(file.mimeType)"
-              :src="file.url"
-              class="w-full h-full object-cover"
-              muted preload="metadata" />
+              class="w-full h-full object-cover" loading="lazy" />
+            <!-- Video: show thumbUrl if available, otherwise placeholder (no <video> in grid — saves bandwidth) -->
+            <img v-else-if="isVideo(file.mimeType, file.filename) && file.thumbUrl"
+              :src="file.thumbUrl"
+              :alt="file.filename"
+              class="w-full h-full object-cover" loading="lazy" />
+            <div v-else-if="isVideo(file.mimeType, file.filename)"
+              class="w-full h-full flex flex-col items-center justify-center gap-1.5 text-gray-400">
+              <Video :size="isSmall ? 24 : 32" />
+              <span v-if="!isSmall" class="text-[10px]">{{ formatSize(file.sizeBytes) }}</span>
+            </div>
             <div v-else class="w-full h-full flex items-center justify-center">
               <Video :size="32" class="text-gray-400" />
             </div>
@@ -626,7 +681,7 @@ watch([typeFilter, tagFilter, showUnattached], loadFiles)
 
             <!-- Type badge -->
             <div v-if="!isSmall" class="absolute top-1.5 right-1.5 px-1.5 py-0.5 bg-black/50 text-white rounded text-[9px]">
-              {{ file.mimeType.split('/')[1]?.toUpperCase() }}
+              {{ displayType(file.mimeType, file.filename) }}
             </div>
           </div>
 
@@ -661,6 +716,15 @@ watch([typeFilter, tagFilter, showUnattached], loadFiles)
           </div>
         </div>
       </div>
+
+      <!-- Load more -->
+      <div v-if="hasMore" class="flex justify-center mt-6">
+        <button @click="loadMore" :disabled="loadingMore"
+          class="flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-50 transition-colors">
+          <Loader2 v-if="loadingMore" :size="16" class="animate-spin" />
+          {{ loadingMore ? 'Загрузка...' : `Показать ещё` }}
+        </button>
+      </div>
     </template>
 
     <!-- Preview Modal -->
@@ -668,12 +732,12 @@ watch([typeFilter, tagFilter, showUnattached], loadFiles)
       <div v-if="previewFile" class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" @click.self="previewFile = null">
         <div class="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
           <!-- Image preview -->
-          <img v-if="isImage(previewFile.mimeType)"
+          <img v-if="isImage(previewFile.mimeType, previewFile.filename)"
             :src="previewFile.url"
             :alt="previewFile.altText || previewFile.filename"
             class="w-full max-h-[50vh] object-contain bg-black rounded-t-2xl" />
           <!-- Video preview -->
-          <video v-else-if="isVideo(previewFile.mimeType)"
+          <video v-else-if="isVideo(previewFile.mimeType, previewFile.filename)"
             :src="previewFile.url"
             controls autoplay loop playsinline
             class="w-full max-h-[50vh] bg-black rounded-t-2xl" />
@@ -696,17 +760,17 @@ watch([typeFilter, tagFilter, showUnattached], loadFiles)
             </div>
             <!-- Meta -->
             <div class="flex items-center gap-2 text-[10px] text-gray-400 mb-3">
-              <span>{{ previewFile.mimeType.split('/')[1]?.toUpperCase() }}</span>
+              <span>{{ displayType(previewFile.mimeType, previewFile.filename) }}</span>
               <span v-if="previewFile.aiModel" class="px-1.5 py-0.5 bg-purple-100 dark:bg-purple-900/50 text-purple-600 dark:text-purple-400 rounded font-medium">{{ previewFile.aiModel }}</span>
               <span>{{ formatDate(previewFile.createdAt) }}</span>
             </div>
             <!-- Actions -->
             <div class="flex flex-wrap gap-2 mb-3">
-              <button v-if="isImage(previewFile.mimeType)" @click="editingFile = previewFile; previewFile = null"
+              <button v-if="isImage(previewFile.mimeType, previewFile.filename)" @click="editingFile = previewFile; previewFile = null"
                 class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-purple-100 dark:bg-purple-900/50 text-purple-600 dark:text-purple-400 hover:bg-purple-200 dark:hover:bg-purple-800 transition-colors">
                 <Wand2 :size="12" /> AI-редактор
               </button>
-              <button v-if="isImage(previewFile.mimeType)" @click="removeBg(previewFile!); previewFile = null"
+              <button v-if="isImage(previewFile.mimeType, previewFile.filename)" @click="removeBg(previewFile!); previewFile = null"
                 class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">
                 <Eraser :size="12" /> Убрать фон
               </button>

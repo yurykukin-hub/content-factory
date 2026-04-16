@@ -32,7 +32,8 @@ async function loadMedia() {
   try {
     const params = new URLSearchParams({ type: 'image' })
     if (search.value.trim()) params.set('search', search.value.trim())
-    files.value = await http.get<MediaFile[]>(`/media/library/${props.businessId}?${params}`)
+    const res = await http.get<{ files: MediaFile[] }>(`/media/library/${props.businessId}?${params}`)
+    files.value = res.files
   } catch {
     files.value = []
   } finally {
