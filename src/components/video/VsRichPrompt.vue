@@ -96,7 +96,7 @@ function onKeydown(e: KeyboardEvent) {
   }
 }
 
-// --- Drag and Drop ---
+// --- Drag and Drop (Desktop) ---
 
 let draggedBadge: HTMLElement | null = null
 
@@ -148,6 +148,101 @@ function onDrop(e: DragEvent) {
 
   clone.style.opacity = '1'
   draggedBadge = null
+  onInput()
+}
+
+// --- Touch Drag (Mobile) ---
+
+let touchBadge: HTMLElement | null = null
+let touchClone: HTMLElement | null = null
+let touchStarted = false
+
+function onTouchStart(e: TouchEvent) {
+  const target = (e.target as HTMLElement).closest('.badge-chip') as HTMLElement | null
+  if (!target || !editorRef.value) return
+
+  // Long-press detection: wait 200ms to distinguish from scroll
+  touchBadge = target
+  touchStarted = false
+
+  const startX = e.touches[0].clientX
+  const startY = e.touches[0].clientY
+
+  const timer = setTimeout(() => {
+    if (!touchBadge) return
+    touchStarted = true
+    touchBadge.style.opacity = '0.3'
+
+    // Create floating clone
+    touchClone = touchBadge.cloneNode(true) as HTMLElement
+    touchClone.style.cssText = `
+      position: fixed; z-index: 9999; pointer-events: none;
+      opacity: 0.9; transform: scale(1.1);
+      left: ${startX - 30}px; top: ${startY - 15}px;
+    `
+    document.body.appendChild(touchClone)
+  }, 200)
+
+  // If finger moves significantly before 200ms — it's a scroll, cancel
+  const cancelHandler = (ev: TouchEvent) => {
+    const dx = Math.abs(ev.touches[0].clientX - startX)
+    const dy = Math.abs(ev.touches[0].clientY - startY)
+    if (!touchStarted && (dx > 10 || dy > 10)) {
+      clearTimeout(timer)
+      touchBadge = null
+    }
+  }
+  target.addEventListener('touchmove', cancelHandler, { once: true, passive: true })
+}
+
+function onTouchMove(e: TouchEvent) {
+  if (!touchStarted || !touchClone) return
+  e.preventDefault()
+  const touch = e.touches[0]
+  touchClone.style.left = `${touch.clientX - 30}px`
+  touchClone.style.top = `${touch.clientY - 15}px`
+}
+
+function onTouchEnd(e: TouchEvent) {
+  if (!touchStarted || !touchBadge || !editorRef.value) {
+    touchBadge = null
+    return
+  }
+
+  const touch = e.changedTouches[0]
+
+  // Remove floating clone
+  if (touchClone) {
+    touchClone.remove()
+    touchClone = null
+  }
+
+  // Get drop position
+  let range: Range | null = null
+  if (document.caretRangeFromPoint) {
+    range = document.caretRangeFromPoint(touch.clientX, touch.clientY)
+  }
+
+  // Clone badge, remove original
+  const badgeCopy = touchBadge.cloneNode(true) as HTMLElement
+  touchBadge.remove()
+
+  // Insert at drop position
+  if (range && editorRef.value.contains(range.startContainer)) {
+    range.insertNode(badgeCopy)
+    const newRange = document.createRange()
+    newRange.setStartAfter(badgeCopy)
+    newRange.collapse(true)
+    const sel = window.getSelection()
+    sel?.removeAllRanges()
+    sel?.addRange(newRange)
+  } else {
+    editorRef.value.appendChild(badgeCopy)
+  }
+
+  badgeCopy.style.opacity = '1'
+  touchBadge = null
+  touchStarted = false
   onInput()
 }
 
@@ -257,6 +352,8 @@ onMounted(() => {
   if (props.modelValue) {
     setContent(props.modelValue)
   }
+  // touchmove needs {passive: false} to allow preventDefault during badge drag
+  editorRef.value?.addEventListener('touchmove', onTouchMove, { passive: false })
 })
 
 defineExpose({ insertBadge, setContentWithBadges })
@@ -282,6 +379,8 @@ defineExpose({ insertBadge, setContentWithBadges })
       @dragend="onDragEnd"
       @dragover="onDragOver"
       @drop="onDrop"
+      @touchstart="onTouchStart"
+      @touchend="onTouchEnd"
     />
     <!-- Placeholder -->
     <div v-if="isEmpty && !isFocused"
