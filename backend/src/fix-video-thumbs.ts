@@ -4,13 +4,15 @@
  */
 
 import { db } from './db'
-import { join } from 'path'
+import { join, resolve } from 'path'
 import { existsSync } from 'fs'
 import { extractVideoThumbnail } from './utils/video-thumbnail'
 import { getModuleDir } from './utils/paths'
 import { nanoid } from 'nanoid'
 
-const UPLOAD_DIR = join(getModuleDir(import.meta), '../../uploads')
+// Support both dev (../../uploads) and Docker (/app/uploads)
+const devPath = join(getModuleDir(import.meta), '../../uploads')
+const UPLOAD_DIR = existsSync('/app/uploads') ? '/app/uploads' : devPath
 
 async function main() {
   const videos = await db.mediaFile.findMany({
