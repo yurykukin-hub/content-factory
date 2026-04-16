@@ -3,7 +3,7 @@ import {
   Wand2, Loader2, PenTool, ChevronLeft, ChevronRight, ChevronDown, ChevronUp,
   Image, Trash2, Plus, Sparkles, Upload, FolderOpen, X,
 } from 'lucide-vue-next'
-import { ref, watch } from 'vue'
+import { ref, computed, watch } from 'vue'
 import VsRichPrompt from './VsRichPrompt.vue'
 import type { BadgeData } from './VsRichPrompt.vue'
 import VsEnhanceMenu from './VsEnhanceMenu.vue'
@@ -81,6 +81,25 @@ watch(showTemplates, (val) => {
     emit('loadTemplates')
   }
 })
+
+// Показывать кнопку "Вставить референсы" когда есть картинки, но их @ImageN нет в тексте
+const missingRefs = computed(() => {
+  if (props.inputMode !== 'references' || !props.refImages.length) return []
+  return props.refImages
+    .map((img, i) => ({ img, tag: `@Image${i + 1}`, index: i }))
+    .filter(r => !props.modelValue.includes(r.tag))
+})
+
+function insertAllMissingRefs() {
+  for (const r of missingRefs.value) {
+    richPromptRef.value?.insertBadge({
+      badgeType: 'image',
+      id: `ref-${r.index}`,
+      name: `Image${r.index + 1}`,
+      thumbUrl: r.img.thumbUrl || r.img.url,
+    })
+  }
+}
 
 function insertBadge(badge: BadgeData) {
   richPromptRef.value?.insertBadge(badge)
@@ -219,6 +238,13 @@ defineExpose({ insertBadge, openPreview, setContentWithBadges })
       ref="richPromptRef"
       :model-value="modelValue"
       @update:model-value="emit('update:modelValue', $event)" />
+
+    <!-- Missing refs hint -->
+    <button v-if="missingRefs.length" @click="insertAllMissingRefs"
+      class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 hover:bg-amber-100 dark:hover:bg-amber-900/50 transition-colors w-fit">
+      <Image :size="12" />
+      Вставить референсы ({{ missingRefs.length }})
+    </button>
 
     <!-- 3. ACTION ROW -->
     <div class="flex items-center gap-2 flex-wrap">
