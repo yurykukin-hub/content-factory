@@ -2,6 +2,7 @@
 import { ref, computed, reactive, nextTick } from 'vue'
 import { Play, Download, Video, Sparkles } from 'lucide-vue-next'
 import { formatDate } from '@/composables/useFormatters'
+import { useRates } from '@/composables/useRates'
 
 interface GeneratedVideo {
   id: string; url: string; filename: string; durationSec: number | null
@@ -12,6 +13,8 @@ interface PromptEntry {
   id: string; prompt: string; resultUrl: string | null; rating: number | null
   tags: string[]; metadata: any; createdAt: string
 }
+
+const { usdToRub } = useRates()
 
 const props = defineProps<{
   videos: GeneratedVideo[]
@@ -154,7 +157,7 @@ const showVideos = computed(() => activeFilter.value === 'all' || activeFilter.v
             </p>
             <div class="flex items-center justify-between">
               <div class="flex items-center gap-2 text-[10px] text-gray-400">
-                <span v-if="v.aiCostUsd">{{ Math.round(v.aiCostUsd * 95) }} &#8381;</span>
+                <span v-if="v.aiCostUsd">{{ usdToRub(v.aiCostUsd) }} &#8381;</span>
                 <span>{{ formatDate(v.createdAt) }}</span>
               </div>
               <div class="flex items-center gap-0.5">
@@ -186,7 +189,7 @@ const showVideos = computed(() => activeFilter.value === 'all' || activeFilter.v
             </div>
             <div class="flex items-center gap-1.5 text-[9px] text-gray-400">
               <span v-if="entry.metadata?.duration">{{ entry.metadata.duration }}с</span>
-              <span v-if="entry.metadata?.cost">{{ Math.round(entry.metadata.cost * 95) }} &#8381;</span>
+              <span v-if="entry.metadata?.cost">{{ usdToRub(entry.metadata.cost) }} &#8381;</span>
             </div>
           </div>
         </div>

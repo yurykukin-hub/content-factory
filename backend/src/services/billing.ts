@@ -8,8 +8,20 @@
 
 import { db } from '../db'
 
-const USD_RUB = 95
+const DEFAULT_USD_RUB = 95
 const DEFAULT_MARKUP_PERCENT = 50
+
+/** Получить курс USD/RUB из AppConfig (default 95) */
+export async function getUsdRubRate(): Promise<number> {
+  try {
+    const config = await db.appConfig.findUnique({ where: { key: 'usd_rub_rate' } })
+    if (config?.value) {
+      const val = parseFloat(config.value)
+      if (!isNaN(val) && val > 0) return val
+    }
+  } catch { /* fallback */ }
+  return DEFAULT_USD_RUB
+}
 
 /** Получить текущую наценку % из AppConfig */
 export async function getMarkupPercent(): Promise<number> {
@@ -24,15 +36,15 @@ export async function getMarkupPercent(): Promise<number> {
 }
 
 /** Рассчитать стоимость с наценкой в рублях (копейки) */
-export function calculateChargedKopecks(costUsd: number, markupPercent: number): number {
-  const costRub = costUsd * USD_RUB
+export function calculateChargedKopecks(costUsd: number, markupPercent: number, usdRubRate = DEFAULT_USD_RUB): number {
+  const costRub = costUsd * usdRubRate
   const withMarkup = costRub * (1 + markupPercent / 100)
   return Math.ceil(withMarkup * 100) // ceil — округляем в пользу владельца
 }
 
 /** Рассчитать стоимость с наценкой в рублях (float) */
-export function calculateChargedRub(costUsd: number, markupPercent: number): number {
-  return calculateChargedKopecks(costUsd, markupPercent) / 100
+export function calculateChargedRub(costUsd: number, markupPercent: number, usdRubRate = DEFAULT_USD_RUB): number {
+  return calculateChargedKopecks(costUsd, markupPercent, usdRubRate) / 100
 }
 
 /** Проверить, хватает ли баланса (ADMIN всегда true) */
@@ -128,4 +140,4 @@ export async function topUpBalance(params: {
   return { newBalanceKopecks: updated.balanceKopecks }
 }
 
-export { USD_RUB }
+export { DEFAULT_USD_RUB }

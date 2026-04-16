@@ -2,6 +2,9 @@
 import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { http } from '@/api/client'
 import { Coins, TrendingUp, Zap, Video, ImageIcon, MessageSquare } from 'lucide-vue-next'
+import { useRates } from '@/composables/useRates'
+
+const { usdToRub } = useRates()
 
 interface AiStats {
   openrouter: { balanceUsd: number; limitUsd: number | null } | null
@@ -110,7 +113,7 @@ const monthName = computed(() => {
             </span>
             <span class="text-gray-600 dark:text-gray-300 font-medium">
               ${{ fmt(stats.month.breakdown.text) }}
-              <span class="text-gray-400 ml-1">{{ Math.round(stats.month.breakdown.text * 95) }}₽</span>
+              <span class="text-gray-400 ml-1">{{ usdToRub(stats.month.breakdown.text) }}₽</span>
             </span>
           </div>
 
@@ -120,7 +123,7 @@ const monthName = computed(() => {
             </span>
             <span class="text-gray-600 dark:text-gray-300 font-medium">
               ${{ fmt(stats.month.breakdown.image) }}
-              <span class="text-gray-400 ml-1">{{ Math.round(stats.month.breakdown.image * 95) }}₽</span>
+              <span class="text-gray-400 ml-1">{{ usdToRub(stats.month.breakdown.image) }}₽</span>
             </span>
           </div>
 
@@ -130,7 +133,7 @@ const monthName = computed(() => {
             </span>
             <span class="text-gray-600 dark:text-gray-300 font-medium">
               ${{ fmt(stats.month.breakdown.video) }}
-              <span class="text-gray-400 ml-1">{{ Math.round(stats.month.breakdown.video * 95) }}₽</span>
+              <span class="text-gray-400 ml-1">{{ usdToRub(stats.month.breakdown.video) }}₽</span>
             </span>
           </div>
         </div>

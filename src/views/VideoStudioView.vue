@@ -4,6 +4,7 @@ import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import { http, TAB_ID } from '@/api/client'
 import { useToast } from '@/composables/useToast'
 import { formatDate } from '@/composables/useFormatters'
+import { useRates } from '@/composables/useRates'
 import { useBusinessesStore } from '@/stores/businesses'
 import VsModeTabs from '@/components/video/VsModeTabs.vue'
 import VsCharacterCarousel from '@/components/video/VsCharacterCarousel.vue'
@@ -269,7 +270,7 @@ const PRICING = {
 } as const
 const CREDIT_PRICE = 0.005
 const AUDIO_MULT = 2.0
-const USD_RUB = 95
+const { USD_RUB } = useRates()
 
 async function loadSessions() {
   if (!selectedBizId.value) return

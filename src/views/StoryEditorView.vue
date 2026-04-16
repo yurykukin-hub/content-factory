@@ -6,6 +6,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useBusinessesStore } from '@/stores/businesses'
 import { useToast } from '@/composables/useToast'
 import { formatDate } from '@/composables/useFormatters'
+import { useRates } from '@/composables/useRates'
 import {
   ArrowLeft, Upload, Sparkles, Loader2, Send, CheckCircle,
   ExternalLink, AlertCircle, Image, Images, Link, Trash2, ZoomIn, ZoomOut, Eye, Wand2, Eraser,
@@ -138,7 +139,7 @@ function openVideoModal() {
 const VIDEO_CREDITS_PER_SEC = 41
 const VIDEO_CREDIT_PRICE = 0.005
 const VIDEO_AUDIO_MULTIPLIER = 2.0
-const USD_TO_RUB = 95
+const { USD_RUB: USD_TO_RUB } = useRates()
 
 const videoFirstFrame = ref<{ url: string; thumbUrl?: string | null; filename: string } | null>(null)
 const videoLastFrame = ref<{ url: string; thumbUrl?: string | null; filename: string } | null>(null)

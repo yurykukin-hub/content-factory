@@ -4,6 +4,7 @@ import { http } from '@/api/client'
 import { useAuthStore } from '@/stores/auth'
 import { useBusinessesStore } from '@/stores/businesses'
 import { formatDate, formatNumber } from '@/composables/useFormatters'
+import { useRates } from '@/composables/useRates'
 import {
   Activity, DollarSign, Zap, AlertTriangle, Wallet, Coins,
   Download, ChevronLeft, ChevronRight, X,
@@ -37,7 +38,7 @@ const model = ref('')
 const status = ref('')
 const users = ref<{ id: string; name: string }[]>([])
 
-const USD_RUB = 95
+const { USD_RUB } = useRates()
 
 // --- Constants (duplicated from backend shared/ai-actions.ts) ---
 const ACTION_CATEGORIES: Record<string, string[]> = {

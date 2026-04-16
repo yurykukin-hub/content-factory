@@ -2,8 +2,18 @@ import { Hono } from 'hono'
 import { db } from '../db'
 import { config } from '../config'
 import type { AuthUser } from '../middleware/auth'
+import { getUsdRubRate, getMarkupPercent } from '../services/billing'
 
 const settings = new Hono()
+
+// GET /api/settings/public — non-sensitive config for all authenticated users
+settings.get('/public', async (c) => {
+  const [usdRubRate, markupPercent] = await Promise.all([
+    getUsdRubRate(),
+    getMarkupPercent(),
+  ])
+  return c.json({ usdRubRate, markupPercent })
+})
 
 function maskSecret(value: string): string {
   if (!value || value.length < 14) return value ? '***' : ''

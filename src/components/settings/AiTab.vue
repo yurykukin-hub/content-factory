@@ -2,9 +2,11 @@
 import { ref, onMounted } from 'vue'
 import { http } from '@/api/client'
 import { useToast } from '@/composables/useToast'
+import { useRates } from '@/composables/useRates'
 import { Sparkles, Key, Save, Loader2, CheckCircle, Eye, EyeOff, BarChart3, Cpu, Sliders, Percent } from 'lucide-vue-next'
 
 const toast = useToast()
+const { USD_RUB } = useRates()
 const apiKey = ref('')
 const maskedKey = ref('')
 const hasKey = ref(false)
@@ -172,7 +174,7 @@ onMounted(loadConfig)
         </span>
       </div>
       <div class="mt-3 text-xs text-gray-400">
-        Пример: себестоимость $0.06 × наценка {{ markupPercent }}% = пользователь платит {{ (0.06 * 95 * (1 + markupPercent / 100)).toFixed(2) }} ₽
+        Пример: себестоимость $0.06 × наценка {{ markupPercent }}% = пользователь платит {{ (0.06 * USD_RUB * (1 + markupPercent / 100)).toFixed(2) }} ₽
       </div>
     </div>
   </div>
