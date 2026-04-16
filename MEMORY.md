@@ -21,10 +21,24 @@ User, UserBusiness, Business, BrandProfile, PlatformAccount, ContentPlan, Conten
 - [2026-04-16] **AI Logs API** (5 endpoints): GET /ai-logs (paginated list), /ai-logs/stats, /ai-logs/summary (groupBy), /ai-logs/error-count, /ai-logs/export (CSV)
 
 ## SaaS-Ready (2026-04-11)
-- Split app.ts + index.ts, Vitest 48 тестов, health endpoint
+- Split app.ts + index.ts, health endpoint
 - Error handler, RBAC (UserBusiness), refresh tokens (1h+30d)
 - Security: resource-access checks на 30+ endpoints
 - Section Access: **12 секций** × 3 уровня (full/view/none), requireSection middleware. `aiLogs` в ADMIN_SECTIONS
+
+## Security Hardening + Code Review (2026-04-16)
+- [2026-04-16] **96 тестов** (7 файлов): auth, users, security, security-hardening, prompt-builder, posts, routes-rbac
+- [2026-04-16] Path traversal fix: `/uploads/*` — `resolve()` + `startsWith(uploadsRoot)` check
+- [2026-04-16] Zod validation: все PUT endpoints валидируют (platforms, brand-profile)
+- [2026-04-16] Business access: GET /businesses/:id + brand-profile проверяют `getUserBusinessIds`
+- [2026-04-16] CSRF: X-Tab-ID header required на POST/PUT/DELETE/PATCH (auth/webhooks exempt)
+- [2026-04-16] Rate limiting: login — 5 attempts / 15 min per IP (in-memory Map, x-real-ip от Caddy)
+- [2026-04-16] Billing race condition: `$transaction` + `updateMany WHERE balanceKopecks >= cost`
+- [2026-04-16] Graceful shutdown: SIGTERM/SIGINT → clearInterval schedulers + db.$disconnect()
+- [2026-04-16] Frontend 401 race: shared promise pattern (concurrent refreshes don't logout)
+- [2026-04-16] Docker limits: backend 1G/1.5cpu, postgres 512M/0.5cpu
+- [2026-04-16] Backup verification: `gunzip -t` after each backup
+- [2026-04-16] USD/RUB: AppConfig `usd_rub_rate` (default 95), `getUsdRubRate()`, `useRates` composable, `GET /api/settings/public`
 
 ## Русификация AI-промптов (2026-04-16)
 - [2026-04-16] Стратегия: "Русский UI + автоперевод перед генерацией" через translatePrompt()
@@ -53,9 +67,10 @@ User, UserBusiness, Business, BrandProfile, PlatformAccount, ContentPlan, Conten
 - SSE: eventBus → ReadableStream. Типы: post_*, plan_*, business_*, settings_*, **session_updated**
 - AI prompts: system prompt = base + brandContext. Русский UI + auto-translate при генерации
 - RBAC: UserBusiness join table, getUserBusinessIds()
-- Testing: Vitest + vitest-setup.ts, mock Prisma via vi.hoisted()
+- Testing: Vitest + vitest-setup.ts, mock Prisma via vi.hoisted(). **7 test files, 96 tests**
 - Mobile sidebar: Pinia store + Teleport + Transition (slide + backdrop)
 - Media library API: `{ files, hasMore, totalCount }` — НЕ массив. Все консьюмеры → `res.files`
 - Video generation: async (video-poller) — никогда не блокировать HTTP-запрос на минуты
 - AI logging: все AI-вызовы логируют userId, prompt, durationMs, status, markupPercent, chargedRub. ADMIN видит всех, user — только свои
-- Billing: AppConfig `ai_markup_percent` (default 50%). Auto-charge на каждый AI-вызов. ADMIN exempt. Balance check middleware в /api/ai/* (402 при нулевом балансе). Top-up через Settings → Users
+- Billing: AppConfig `ai_markup_percent` (default 50%), `usd_rub_rate` (default 95). Auto-charge с $transaction + WHERE guard (race-safe). ADMIN exempt. Balance check middleware в /api/ai/* (402). Top-up через Settings → Users
+- Security: path traversal → resolve+startsWith, CSRF → X-Tab-ID, rate limit → in-memory Map, graceful shutdown → SIGTERM handler

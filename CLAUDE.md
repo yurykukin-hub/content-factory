@@ -14,7 +14,7 @@ AI-контент-фабрика для автоматизации SMM. Гене
 - **Frontend:** Vue 3 + Tailwind CSS + Lucide Icons + Pinia
 - **ORM/DB:** Prisma + PostgreSQL 16
 - **AI:** OpenRouter (Haiku для адаптации, Sonnet для генерации, Gemini Flash для vision) + KIE.ai (Nano Banana 2 для text2img/img2img, FLUX Kontext Pro для img2img, recraft для удаления фона, Seedance 2 для видео)
-- **Testing:** Vitest (48 тестов)
+- **Testing:** Vitest (96 тестов — 7 файлов)
 - **Deploy:** Docker Compose + Caddy (SSL auto)
 
 ## Порты
@@ -32,7 +32,7 @@ content-factory/
 │   ├── prisma/schema.prisma    # 23 модели, 8 enums
 │   ├── src/
 │   │   ├── app.ts              # Hono app (routes, middleware, error handler)
-│   │   ├── index.ts            # Server start + scheduler
+│   │   ├── index.ts            # Server start + scheduler + graceful shutdown
 │   │   ├── db.ts               # PrismaClient singleton
 │   │   ├── config.ts           # Env validation (zod)
 │   │   ├── eventBus.ts         # SSE events
@@ -83,7 +83,7 @@ content-factory/
 │   ├── api/client.ts           # HTTP client (auto-refresh on 401)
 │   ├── router/index.ts         # 15 routes + auth guard + section access guard
 │   ├── stores/                 # auth (+ sectionAccess), businesses, theme, sidebar
-│   ├── composables/            # useToast, useFormatters, useStatus, usePlatform, useSectionAccess
+│   ├── composables/            # useToast, useFormatters, useStatus, usePlatform, useSectionAccess, useRates
 │   ├── views/
 │   │   ├── BusinessesView      # Grid карточек проектов (клик → detail)
 │   │   ├── BusinessDetailView  # Хаб проекта: 3 таба (профиль/каналы/обзор+доступы)
@@ -155,7 +155,7 @@ cd backend && bunx prisma studio        # DB GUI
 cd backend && bun src/seed.ts           # Seed demo data
 
 # Tests
-cd backend && bun run test              # 48 tests
+cd backend && bun run test              # 96 tests (7 files)
 cd backend && bun run test:watch        # Watch mode
 
 # Deploy
@@ -187,7 +187,8 @@ API keys: OpenRouter — из БД (AppConfig) или .env. FAL — из .env (F
 ## Billing
 - **Наценка**: AppConfig `ai_markup_percent` (default 50%), configurable in Settings → AI
 - **User.balanceKopecks**: баланс в копейках (integer). ADMIN exempt (безлимит)
-- **Auto-charge**: каждый AI-вызов списывает `costUsd × USD_RUB × (1 + markup%)` из баланса
+- **USD/RUB курс**: AppConfig `usd_rub_rate` (default 95), `getUsdRubRate()`, `GET /api/settings/public`
+- **Auto-charge**: каждый AI-вызов списывает `costUsd × usdRubRate × (1 + markup%)` из баланса. Атомарная транзакция: `$transaction` + `updateMany WHERE balanceKopecks >= cost` (race condition safe)
 - **Balance check**: middleware в /api/ai/* → 402 при балансе ≤ 0 (non-ADMIN)
 - **BalanceTransaction**: audit trail (topup/charge/refund), связь с AiUsageLog
 - **Top-up**: Settings → Users → кнопка ⊕ → модалка с суммой
@@ -218,6 +219,17 @@ API keys: OpenRouter — из БД (AppConfig) или .env. FAL — из .env (F
 - **Frontend helpers**: `isImage(mime, filename?)` / `isVideo(mime, filename?)` — fallback to file extension for octet-stream files
 - **Consumers**: MediaLibraryView, MediaPickerModal, VsRefModal, VideoStudioView — all must use `res.files` from response
 - **Migration script**: `bun src/fix-mime-types.ts` — one-time fix for existing octet-stream files
+
+## Security Hardening (16.04.2026)
+- **Path traversal**: `/uploads/*` — `path.resolve()` + `startsWith(uploadsRoot)` check
+- **Zod validation**: все PUT endpoints валидируют через schema (platforms, brand-profile)
+- **Business access**: GET /businesses/:id + brand-profile проверяют `getUserBusinessIds`
+- **CSRF**: X-Tab-ID header required на POST/PUT/DELETE/PATCH (auth routes exempt)
+- **Rate limiting**: login — 5 attempts / 15 min per IP (in-memory Map)
+- **Graceful shutdown**: SIGTERM/SIGINT → clearInterval schedulers + db.$disconnect()
+- **Frontend 401**: shared promise pattern (concurrent refreshes don't logout)
+- **Docker limits**: backend 1G RAM / 1.5 CPU, postgres 512M / 0.5 CPU
+- **Backup verification**: `gunzip -t` after each backup
 
 ## Conventions
 - Паттерны из nawode-erp: Hono routes, JWT httpOnly, Prisma, SSE eventBus
