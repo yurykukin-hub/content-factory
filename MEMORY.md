@@ -12,7 +12,8 @@
 ## Schema (23 модели, 8 enums)
 User, UserBusiness, Business, BrandProfile, PlatformAccount, ContentPlan, ContentPlanItem, Post, PostVersion, PublishLog, MediaFile, MediaFolder, AiUsageLog, WebhookRule, AppConfig, Idea, StoryTemplate, Character, CharacterBusiness, Scenario, PromptEntry, PromptTemplate, GenerationSession
 
-- [2026-04-16] **AiUsageLog расширена:** +userId, +status ("success"/"error"), +errorMessage, +prompt (truncated 2000), +durationMs. Relation на User, index на userId
+- [2026-04-16] **AiUsageLog расширена:** +userId, +status, +errorMessage, +prompt, +durationMs, +markupPercent, +chargedRub
+- [2026-04-16] **User.balanceKopecks** — баланс в копейках. **BalanceTransaction** — история пополнений/списаний (24-я модель)
 
 ## Endpoints (~18 route-файлов)
 - auth, users, businesses, platforms, posts, content-plans, ai, publish, media, settings, vk-oauth, ideas, characters, scenarios, sessions, dashboard, sse, **ai-logs**
@@ -55,4 +56,5 @@ User, UserBusiness, Business, BrandProfile, PlatformAccount, ContentPlan, Conten
 - Mobile sidebar: Pinia store + Teleport + Transition (slide + backdrop)
 - Media library API: `{ files, hasMore, totalCount }` — НЕ массив. Все консьюмеры → `res.files`
 - Video generation: async (video-poller) — никогда не блокировать HTTP-запрос на минуты
-- AI logging: все AI-вызовы логируют userId, prompt (2000 chars), durationMs, status+errorMessage. ADMIN видит всех, user — только свои
+- AI logging: все AI-вызовы логируют userId, prompt, durationMs, status, markupPercent, chargedRub. ADMIN видит всех, user — только свои
+- Billing: AppConfig `ai_markup_percent` (default 50%). Auto-charge на каждый AI-вызов. ADMIN exempt. Balance check middleware в /api/ai/* (402 при нулевом балансе). Top-up через Settings → Users
