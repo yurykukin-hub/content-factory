@@ -58,9 +58,9 @@ function scheduleAutoSave() {
 async function saveSession() {
   if (!selectedBizId.value || autoSavePaused) return
   if (!currentSessionId.value) return
-  // Only auto-save draft sessions (don't overwrite completed/failed)
+  // Only auto-save draft/generating sessions (don't overwrite completed/failed)
   const current = sessions.value.find(s => s.id === currentSessionId.value)
-  if (current && current.status !== 'draft') return
+  if (current && current.status !== 'draft' && current.status !== 'generating') return
   // Auto-generate title from first 40 chars of prompt
   const autoTitle = prompt.value.trim().slice(0, 40) || 'Новая сессия'
   const payload: any = {
@@ -490,6 +490,9 @@ async function generate() {
   }
   generatedPromptIndices.value.add(promptHistory.value.length - 1)
   historyIndex.value = promptHistory.value.length - 1
+
+  // Save prompt history immediately (don't wait for debounce)
+  saveSession()
 
   // Fire and forget — don't block the UI
   runGeneration(sessionId, capturedState, sessionTitle)
