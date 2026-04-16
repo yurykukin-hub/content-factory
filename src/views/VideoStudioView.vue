@@ -194,6 +194,11 @@ const generating = computed(() => {
   const s = sessions.value.find(s => s.id === currentSessionId.value)
   return s?.status === 'generating'
 })
+// Реальное время начала генерации (для таймера)
+const generatingStartedAt = computed(() => {
+  const s = sessions.value.find(s => s.id === currentSessionId.value)
+  return s?.status === 'generating' ? (s.kieTaskCreatedAt || s.updatedAt) : null
+})
 const promptHistory = ref<string[]>([])
 const historyIndex = ref(-1)
 const generatedPromptIndices = ref<Set<number>>(new Set())
@@ -234,6 +239,7 @@ interface Session {
   resolution: string; generateAudio: boolean; inputMode: string
   referenceImages: any; firstFrameUrl: string | null; lastFrameUrl: string | null
   status: string; resultUrl: string | null; costUsd: number | null
+  kieTaskCreatedAt: string | null
   mediaFile?: { url: string; thumbUrl: string | null; filename: string; durationSec: number | null } | null
   createdAt: string; updatedAt: string
 }
@@ -782,6 +788,7 @@ onBeforeUnmount(() => {
           :aspect-ratio="aspectRatio"
           :cost-rub="costRub"
           :generating="generating"
+          :generating-started-at="generatingStartedAt"
           :can-generate="!!prompt.trim() && !!selectedBizId"
           @update:duration="duration = $event"
           @update:audio="audio = $event"

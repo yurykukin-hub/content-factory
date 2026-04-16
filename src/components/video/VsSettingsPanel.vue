@@ -12,6 +12,7 @@ const props = defineProps<{
   aspectRatio: AspectRatio
   costRub: number
   generating: boolean
+  generatingStartedAt: string | null  // ISO timestamp начала генерации
   canGenerate: boolean
 }>()
 
@@ -31,19 +32,25 @@ const ratios: { id: AspectRatio; label: string; icon: any }[] = [
   { id: '16:9', label: '16:9', icon: Monitor },
 ]
 
-// Generation timer
+// Generation timer — считает от реального времени начала, не с нуля
 const elapsedSec = ref(0)
 let timerInterval: ReturnType<typeof setInterval> | null = null
 
+function updateElapsed() {
+  if (props.generatingStartedAt) {
+    elapsedSec.value = Math.max(0, Math.floor((Date.now() - new Date(props.generatingStartedAt).getTime()) / 1000))
+  }
+}
+
 watch(() => props.generating, (val) => {
   if (val) {
-    elapsedSec.value = 0
-    timerInterval = setInterval(() => { elapsedSec.value++ }, 1000)
+    updateElapsed()
+    timerInterval = setInterval(updateElapsed, 1000)
   } else {
     if (timerInterval) clearInterval(timerInterval)
     timerInterval = null
   }
-})
+}, { immediate: true })
 
 function formatTime(sec: number): string {
   const m = Math.floor(sec / 60)
