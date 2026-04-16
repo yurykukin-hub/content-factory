@@ -35,12 +35,20 @@ User, UserBusiness, Business, BrandProfile, PlatformAccount, ContentPlan, Conten
 - [2026-04-16] isImage()/isVideo() + displayType() — fallback на расширение файла
 - [2026-04-16] **4 консьюмера API:** MediaLibraryView, MediaPickerModal, VsRefModal, VideoStudioView — все используют `res.files`
 
+## Архитектурные решения
+- [2026-04-16] **Async video generation:** POST создаёт задачу в KIE (2-5 сек, 202), video-poller.ts каждые 10 сек проверяет pending, скачивает готовые, шлёт SSE. Deploy-safe: kieTaskId в PostgreSQL
+- [2026-04-16] **generating из БД:** computed от session.status, НЕ in-memory Set. Переживает F5/навигацию
+- [2026-04-16] **SSE session_updated:** синхронизация сессий между вкладками/устройствами
+- [2026-04-16] **Русификация AI:** enhance промпты отвечают на языке ввода, describe-image на русском, PromptConstructor.label (рус) вместо .en, translatePrompt() с Seedance-словарём при генерации
+- [2026-04-16] **Timer от kieTaskCreatedAt:** не сбрасывается при переключении сессий
+
 ## Паттерны
 - HTTP client: fetch + httpOnly cookie + X-Tab-ID (из nawode-erp)
 - Auth: JWT в httpOnly cookie, requireAuth middleware
-- SSE: eventBus → ReadableStream
+- SSE: eventBus → ReadableStream. Типы: post_*, plan_*, business_*, settings_*, **session_updated**
 - AI prompts: system prompt = base + brandContext. Русский UI + auto-translate при генерации
 - RBAC: UserBusiness join table, getUserBusinessIds()
 - Testing: Vitest + vitest-setup.ts, mock Prisma via vi.hoisted()
 - Mobile sidebar: Pinia store + Teleport + Transition (slide + backdrop)
 - Media library API: `{ files, hasMore, totalCount }` — НЕ массив. Все консьюмеры → `res.files`
+- Video generation: async (video-poller) — никогда не блокировать HTTP-запрос на минуты

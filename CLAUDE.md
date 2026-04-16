@@ -61,6 +61,7 @@ content-factory/
 │   │   │   └── sse.ts          # Server-Sent Events
 │   │   ├── services/
 │   │   │   ├── scheduler.ts    # Отложенная публикация
+│   │   │   ├── video-poller.ts # Background poller: KIE tasks → download → SSE (10 сек)
 │   │   │   ├── vk-oauth.ts     # VK OAuth service (PKCE, auto-refresh)
 │   │   │   ├── ai/
 │   │   │   │   ├── openrouter.ts      # OpenRouter + cost calculation
@@ -172,8 +173,8 @@ cp backend/.env.example backend/.env
 5. **Stories** → canvas WYSIWYG (drag, zoom, text overlay, шаблоны, export JPEG без кнопки — VK рисует нативную)
 6. **Редактирование фото** (FAL.ai FLUX Kontext Pro) → img2img по промпту (смена фона, стилизация)
 7. **Удаление фона** (FAL.ai rembg) → PNG с прозрачностью, одна кнопка
-8. **Видео-генерация** (KIE.ai Seedance 2) → 480p/720p, 4-15 сек, 9:16/1:1/16:9, audio toggle
-9. **AI-описание фото** (Gemini 2.0 Flash Vision) → auto-describe для референсов и медиатеки
+8. **Видео-генерация** (KIE.ai Seedance 2) → **async** (background poller), 480p/720p, 4-15 сек, 9:16/1:1/16:9, audio toggle
+9. **AI-описание фото** (Gemini 2.0 Flash Vision) → auto-describe на русском для референсов и медиатеки
 
 API keys: OpenRouter — из БД (AppConfig) или .env. FAL — из .env (FAL_API_KEY). KIE — из .env (KIE_API_KEY)
 
@@ -187,15 +188,15 @@ API keys: OpenRouter — из БД (AppConfig) или .env. FAL — из .env (F
 - Dark mode supported
 
 ## Video Studio Architecture
-- **GenerationSession** — DB-backed sessions: prompt + refs + settings + results + promptHistory + status (draft/generating/completed/failed)
-- **VsSessionBar** — session list above prompt (flex-1), prompt block pinned to bottom (shrink-0)
-- **VsRichPrompt** — contenteditable + draggable @ImageN badge chips, resize-y
-- **VsEnhanceMenu** — split-button dropdown: 8 режимов enhance (enhance/director/structure/focus/audio/camera/translate/simplify). EDITOR: 2 basic. ADMIN+devMode: все 8 + debug info
-- **Auto-save** — debounced 2sec PUT to /sessions/:id, paused during load/switch
-- **Prompt history** — versions saved per-session with generated:true/false markers, ◀▶ navigation with badge restore
-- **Prompt enhancement** — adaptive: short prompts expanded, long/timeline prompts preserved. Director mode uses Sonnet, others Haiku. analyzeVideoPrompt() detects complexity. Debug info: model/tokens/cost/time (devMode)
-- **Generation flow** — sync POST (backend polls KIE internally). Timer shown on button. Status saved to session
-- **Planned: async tasks** — POST returns taskId, frontend polls, enables parallel + F5-safe generation
+- **GenerationSession** — DB-backed sessions: prompt + refs + settings + results + promptHistory + status (draft/generating/completed/failed) + kieTaskId + kieTaskCreatedAt
+- **Async generation** — POST /generate-video создаёт задачу в KIE (2-5 сек), возвращает 202. Background `video-poller.ts` каждые 10 сек проверяет pending задачи, скачивает готовые видео, шлёт SSE. Deploy-safe: задачи в PostgreSQL, переживают перезапуск
+- **SSE sync** — `session_updated` события для синхронизации между вкладками/устройствами. Фронтенд подключается через `EventSource(/api/sse)`
+- **generating computed** — определяется из `session.status` в БД (не in-memory). Переживает F5, навигацию, смену устройства
+- **Timer** — считает от `kieTaskCreatedAt` (реальное время начала), не сбрасывается при переключении сессий
+- **VsRichPrompt** — contenteditable + draggable @ImageN badge chips (desktop drag + mobile touch drag), resize-y
+- **VsEnhanceMenu** — split-button dropdown: 8 режимов enhance. Промпты на языке ввода (русский/английский), auto-translate при генерации
+- **Auto-save** — debounced 2sec PUT, only for draft sessions
+- **Missing refs hint** — кнопка "Вставить референсы" когда бейджи потеряны из промпта
 - **KeepAlive** — VideoStudioView preserved on navigation (App.vue)
 
 ## Media Library
