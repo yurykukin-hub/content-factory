@@ -43,10 +43,19 @@ platformsByBiz.post('/:bizId/platforms', async (c) => {
 // --- Routes by platform ID (mounted at /api/platforms) ---
 const platformsById = new Hono()
 
+// Zod schema for platform account updates (only allowed fields)
+const updateSchema = z.object({
+  accountName: z.string().min(1).optional(),
+  accountId: z.string().min(1).optional(),
+  accessToken: z.string().min(1).optional(),
+  accountType: z.enum(['GROUP', 'PERSONAL', 'CHANNEL', 'BOT', 'BUSINESS']).optional(),
+  config: z.record(z.unknown()).optional(),
+})
+
 // PUT /api/platforms/:id
 platformsById.put('/:id', async (c) => {
   const { id } = c.req.param()
-  const data = await c.req.json()
+  const data = updateSchema.parse(await c.req.json())
   const account = await db.platformAccount.update({
     where: { id },
     data,

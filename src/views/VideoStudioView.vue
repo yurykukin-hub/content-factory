@@ -47,6 +47,7 @@ const viewedSessionId = ref<string | null>(null)  // tracks which session is hig
 const currentSessionTitle = ref('')
 const showSessionDropdown = ref(false)
 let autoSaveTimer: ReturnType<typeof setTimeout> | null = null
+let sseReconnectTimer: ReturnType<typeof setTimeout> | null = null
 let autoSavePaused = false
 
 function scheduleAutoSave() {
@@ -677,8 +678,8 @@ function connectSSE() {
   }
   sseSource.onerror = () => {
     sseSource?.close()
-    // Переподключение через 5 сек
-    setTimeout(connectSSE, 5000)
+    // Перепо��ключение через 5 сек (сохраняем timer для cleanup)
+    sseReconnectTimer = setTimeout(connectSSE, 5000)
   }
 }
 
@@ -690,6 +691,8 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   sseSource?.close()
+  if (sseReconnectTimer) clearTimeout(sseReconnectTimer)
+  if (autoSaveTimer) clearTimeout(autoSaveTimer)
 })
 </script>
 

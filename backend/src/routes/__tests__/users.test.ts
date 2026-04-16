@@ -104,7 +104,7 @@ describe('POST /api/users', () => {
 
     const res = await app.request('/api/users', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Cookie: `token=${token}` },
+      headers: { 'Content-Type': 'application/json', Cookie: `token=${token}`, 'X-Tab-ID': 'test' },
       body: JSON.stringify({ login: 'sveta', password: 'pass123', name: 'Света', role: 'EDITOR' }),
     })
     expect(res.status).toBe(201)
@@ -116,7 +116,7 @@ describe('POST /api/users', () => {
 
     const res = await app.request('/api/users', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Cookie: `token=${token}` },
+      headers: { 'Content-Type': 'application/json', Cookie: `token=${token}`, 'X-Tab-ID': 'test' },
       body: JSON.stringify({ login: 'sveta', password: 'pass123', name: 'Света' }),
     })
     expect(res.status).toBe(409)

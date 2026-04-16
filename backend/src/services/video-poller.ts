@@ -88,12 +88,12 @@ async function pollPendingVideos() {
   )
 }
 
-export function startVideoPoller() {
+export function startVideoPoller(): ReturnType<typeof setInterval> {
   log.info('[VideoPoller] started (interval: 10s)')
   // Run immediately on startup to pick up tasks from before restart
   pollPendingVideos().catch(e => log.error('[VideoPoller] initial poll error', { error: e.message }))
   // Then every 10 seconds
-  setInterval(() => {
+  return setInterval(() => {
     pollPendingVideos().catch(e => log.error('[VideoPoller] poll error', { error: e.message }))
   }, POLL_INTERVAL)
 }

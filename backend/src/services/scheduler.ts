@@ -7,10 +7,10 @@ const CHECK_INTERVAL = 60_000 // каждую минуту
  * Scheduler: проверяет PostVersions со статусом SCHEDULED
  * и публикует те, у которых scheduledAt <= now.
  */
-export function startPublishScheduler(): void {
+export function startPublishScheduler(): ReturnType<typeof setInterval> {
   console.log('[Scheduler] Started — checking every 60s for scheduled posts')
 
-  setInterval(async () => {
+  return setInterval(async () => {
     try {
       const now = new Date()
       const dueVersions = await db.postVersion.findMany({

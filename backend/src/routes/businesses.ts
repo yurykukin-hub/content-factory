@@ -25,11 +25,24 @@ businesses.get('/', async (c) => {
   return c.json(list)
 })
 
-// GET /api/businesses/:id
+// GET /api/businesses/:id — with business access check
 businesses.get('/:id', async (c) => {
   const { id } = c.req.param()
+  const user = c.get('user') as AuthUser
+  const accessibleIds = await getUserBusinessIds(user)
+
+  // EDITOR/VIEWER can only see businesses they have access to
+  if (accessibleIds && !accessibleIds.includes(id)) {
+    return c.json({ error: 'Нет доступа' }, 403)
+  }
+
+  const isAdmin = user.role === 'ADMIN'
   const biz = await db.business.findUnique({
-    where: { id },
+    where: {
+      id,
+      // EDITOR/VIEWER cannot see inactive businesses
+      ...(!isAdmin ? { isActive: true } : {}),
+    },
     include: {
       brandProfile: true,
       platformAccounts: { where: { isActive: true } },
@@ -90,10 +103,29 @@ businesses.delete('/:id', async (c) => {
   return c.json({ success: true })
 })
 
-// PUT /api/businesses/:id/brand-profile
+// Zod schema for brand profile updates (only allowed fields)
+const brandProfileSchema = z.object({
+  tone: z.string().max(500).optional(),
+  targetAudience: z.string().max(500).optional(),
+  brandVoice: z.string().max(1000).optional(),
+  hashtags: z.array(z.string()).optional(),
+  keyTopics: z.array(z.string()).optional(),
+  doNotMention: z.array(z.string()).optional(),
+  examplePosts: z.unknown().optional(),
+  postsPerWeek: z.number().min(1).max(14).optional(),
+  links: z.unknown().optional(),
+})
+
+// PUT /api/businesses/:id/brand-profile — with business access check
 businesses.put('/:id/brand-profile', async (c) => {
   const { id } = c.req.param()
-  const data = await c.req.json()
+  const user = c.get('user') as AuthUser
+  const accessibleIds = await getUserBusinessIds(user)
+  if (accessibleIds && !accessibleIds.includes(id)) {
+    return c.json({ error: 'Нет доступа' }, 403)
+  }
+
+  const data = brandProfileSchema.parse(await c.req.json())
   const profile = await db.brandProfile.upsert({
     where: { businessId: id },
     update: data,
@@ -102,9 +134,15 @@ businesses.put('/:id/brand-profile', async (c) => {
   return c.json(profile)
 })
 
-// GET /api/businesses/:id/brand-profile
+// GET /api/businesses/:id/brand-profile — with business access check
 businesses.get('/:id/brand-profile', async (c) => {
   const { id } = c.req.param()
+  const user = c.get('user') as AuthUser
+  const accessibleIds = await getUserBusinessIds(user)
+  if (accessibleIds && !accessibleIds.includes(id)) {
+    return c.json({ error: 'Нет доступа' }, 403)
+  }
+
   const profile = await db.brandProfile.findUnique({ where: { businessId: id } })
   return c.json(profile)
 })

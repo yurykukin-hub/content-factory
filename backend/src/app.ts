@@ -3,7 +3,7 @@ import { cors } from 'hono/cors'
 import { logger } from 'hono/logger'
 import { HTTPException } from 'hono/http-exception'
 import { ZodError } from 'zod'
-import { join } from 'path'
+import { join, resolve } from 'path'
 import { config } from './config'
 import { getModuleDir } from './utils/paths'
 import { db } from './db'
@@ -81,6 +81,22 @@ app.post('/api/webhooks/erp', async (c) => {
 // --- Protected routes (require auth) ---
 app.use('/api/*', requireAuth)
 
+// --- CSRF protection: require X-Tab-ID header on mutating requests ---
+// Browsers block custom headers in cross-origin form submissions.
+// Auth routes excluded: login/refresh/logout are protected by SameSite=Lax cookies.
+app.use('/api/*', async (c, next) => {
+  const path = new URL(c.req.url).pathname
+  const isAuthRoute = path.startsWith('/api/auth/')
+  const isWebhook = path.startsWith('/api/webhooks/')
+
+  if (!isAuthRoute && !isWebhook && ['POST', 'PUT', 'DELETE', 'PATCH'].includes(c.req.method)) {
+    if (!c.req.header('X-Tab-ID')) {
+      return c.json({ error: 'Missing required header' }, 403)
+    }
+  }
+  await next()
+})
+
 // --- Admin-only routes ---
 app.use('/api/users/*', requireRole('ADMIN'))
 app.route('/api/users', users)
@@ -116,8 +132,19 @@ app.route('/api/dashboard', dashboard)
 app.route('/api/sse', sse)
 
 // --- Static file serving for uploads ---
+// Security: path traversal protection — resolve and verify path stays within uploads root
+const uploadsRoot = resolve(getModuleDir(import.meta), '..', 'uploads')
+
 app.get('/uploads/*', async (c) => {
-  const filePath = join(getModuleDir(import.meta), '..', c.req.path)
+  // Extract relative path after /uploads/ and resolve against uploads root
+  const requestedPath = c.req.path.replace(/^\/uploads\/?/, '')
+  const filePath = resolve(uploadsRoot, requestedPath)
+
+  // Block path traversal: resolved path must start with uploads root
+  if (!filePath.startsWith(uploadsRoot + '/') && filePath !== uploadsRoot) {
+    return c.json({ error: 'Forbidden' }, 403)
+  }
+
   const file = Bun.file(filePath)
   if (await file.exists()) {
     return new Response(file)

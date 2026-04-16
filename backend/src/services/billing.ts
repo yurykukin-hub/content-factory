@@ -65,22 +65,33 @@ export async function chargeUser(params: {
     return { chargedRub, chargedKopecks }
   }
 
-  // Atomic: decrement balance + create transaction
-  const updated = await db.user.update({
-    where: { id: params.userId },
-    data: { balanceKopecks: { decrement: chargedKopecks } },
-    select: { balanceKopecks: true },
-  })
+  // Atomic transaction: conditional decrement + audit log
+  // Uses updateMany with WHERE guard to prevent race condition (negative balance)
+  await db.$transaction(async (tx) => {
+    const result = await tx.user.updateMany({
+      where: { id: params.userId, balanceKopecks: { gte: chargedKopecks } },
+      data: { balanceKopecks: { decrement: chargedKopecks } },
+    })
 
-  await db.balanceTransaction.create({
-    data: {
-      userId: params.userId,
-      amountKopecks: -chargedKopecks,
-      type: 'charge',
-      description: params.description,
-      aiUsageLogId: params.aiUsageLogId,
-      balanceAfter: updated.balanceKopecks,
-    },
+    if (result.count === 0) {
+      throw new Error('Недостаточно средств на балансе')
+    }
+
+    const updated = await tx.user.findUnique({
+      where: { id: params.userId },
+      select: { balanceKopecks: true },
+    })
+
+    await tx.balanceTransaction.create({
+      data: {
+        userId: params.userId,
+        amountKopecks: -chargedKopecks,
+        type: 'charge',
+        description: params.description,
+        aiUsageLogId: params.aiUsageLogId,
+        balanceAfter: updated?.balanceKopecks ?? 0,
+      },
+    })
   })
 
   return { chargedRub, chargedKopecks }

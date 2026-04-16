@@ -7,6 +7,36 @@ import type { AuthUser } from '../middleware/auth'
 
 const auth = new Hono()
 
+// --- Rate limiting for login (in-memory, per IP) ---
+const LOGIN_MAX_ATTEMPTS = 5
+const LOGIN_WINDOW_MS = 15 * 60 * 1000 // 15 minutes
+const loginAttempts = new Map<string, { count: number; resetAt: number }>()
+
+function checkLoginRateLimit(ip: string): boolean {
+  const now = Date.now()
+  const entry = loginAttempts.get(ip)
+
+  if (!entry || now > entry.resetAt) {
+    loginAttempts.set(ip, { count: 1, resetAt: now + LOGIN_WINDOW_MS })
+    return true // allowed
+  }
+
+  if (entry.count >= LOGIN_MAX_ATTEMPTS) {
+    return false // blocked
+  }
+
+  entry.count++
+  return true // allowed
+}
+
+// Cleanup stale entries every 30 minutes
+setInterval(() => {
+  const now = Date.now()
+  for (const [ip, entry] of loginAttempts) {
+    if (now > entry.resetAt) loginAttempts.delete(ip)
+  }
+}, 30 * 60 * 1000)
+
 const ACCESS_TOKEN_TTL = '1h'     // Short-lived access token
 const REFRESH_TOKEN_TTL = '30d'   // Long-lived refresh token
 const ACCESS_COOKIE_MAX_AGE = 60 * 60          // 1 hour
@@ -43,8 +73,17 @@ async function issueTokens(c: any, user: { id: string; name: string; login: stri
   return { accessToken, refreshToken }
 }
 
-// POST /api/auth/login
+// POST /api/auth/login (rate-limited: 5 attempts per 15 minutes per IP)
 auth.post('/login', async (c) => {
+  // Prefer x-real-ip set by Caddy (cannot be spoofed by client)
+  const ip = c.req.header('x-real-ip')
+    || c.req.header('x-forwarded-for')?.split(',')[0]?.trim()
+    || 'unknown'
+
+  if (!checkLoginRateLimit(ip)) {
+    return c.json({ error: 'Слишком много попыток входа. Попробуйте через 15 минут.' }, 429)
+  }
+
   const { login, password } = await c.req.json<{ login: string; password: string }>()
 
   const user = await db.user.findUnique({ where: { login } })

@@ -9,11 +9,20 @@ export const TAB_ID = typeof crypto.randomUUID === 'function'
   ? crypto.randomUUID()
   : Math.random().toString(36).slice(2) + Date.now().toString(36)
 
-let isRefreshing = false
+// Shared promise pattern: concurrent 401s share a single refresh request
+// instead of failing immediately when another refresh is in progress
+let refreshPromise: Promise<boolean> | null = null
 
 async function tryRefresh(): Promise<boolean> {
-  if (isRefreshing) return false
-  isRefreshing = true
+  // If a refresh is already in progress, wait for it instead of returning false
+  if (refreshPromise) return refreshPromise
+
+  // Use finally to ensure cleanup even if doRefresh throws unexpectedly
+  refreshPromise = doRefresh().finally(() => { refreshPromise = null })
+  return refreshPromise
+}
+
+async function doRefresh(): Promise<boolean> {
   try {
     const res = await fetch('/api/auth/refresh', {
       method: 'POST',
@@ -22,8 +31,6 @@ async function tryRefresh(): Promise<boolean> {
     return res.ok
   } catch {
     return false
-  } finally {
-    isRefreshing = false
   }
 }
 
