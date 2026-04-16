@@ -805,14 +805,14 @@ ai.post('/generate-video', async (c) => {
     throw e
   }
 
-  // Atomic lock: разрешить генерацию если сессия НЕ generating ИЛИ зависла >3 мин
+  // Atomic lock: разрешить генерацию если сессия НЕ generating ИЛИ зависла >15 мин
   if (data.sessionId) {
     const locked = await db.generationSession.updateMany({
       where: {
         id: data.sessionId,
         OR: [
           { status: { not: 'generating' } },
-          { updatedAt: { lt: new Date(Date.now() - 3 * 60 * 1000) } },
+          { updatedAt: { lt: new Date(Date.now() - 15 * 60 * 1000) } },
         ],
       },
       data: { status: 'generating' },

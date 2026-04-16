@@ -93,14 +93,15 @@ async function saveSession() {
   } catch (e) { console.error('[VS] saveSession failed:', e) }
 }
 
-// Сбросить зависшие генерации (>3 мин) — бэкенд уже обновил бы если успешно
+// Сбросить зависшие генерации (>15 мин = макс. время KIE polling).
+// Бэкенд сам ставит completed/failed, но если упал — фронтенд подчищает.
 async function fixStuckSessions() {
   let fixed = false
   for (const s of sessions.value) {
     if (s.status !== 'generating') continue
     const age = Date.now() - new Date(s.updatedAt).getTime()
-    if (age > 3 * 60 * 1000) {
-      await http.put(`/sessions/${s.id}`, { status: 'draft' }).catch(() => {})
+    if (age > 15 * 60 * 1000) {
+      await http.put(`/sessions/${s.id}`, { status: 'failed', errorMessage: 'Таймаут генерации (>15 мин)' }).catch(() => {})
       fixed = true
     }
   }
