@@ -528,8 +528,12 @@ model GenerationSession {
   firstFrameUrl    String?  @map("first_frame_url")
   lastFrameUrl     String?  @map("last_frame_url")
 
-  // Результат
+  // Генерация (async task)
   status           String   @default("draft")         // draft | generating | completed | failed
+  kieTaskId        String?  @map("kie_task_id")       // taskId от KIE.ai для async polling
+  kieTaskCreatedAt DateTime? @map("kie_task_created_at")
+
+  // Результат
   mediaFileId      String?  @map("media_file_id")
   resultUrl        String?  @map("result_url")
   errorMessage     String?  @map("error_message")

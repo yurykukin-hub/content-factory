@@ -545,12 +545,22 @@ async function downloadAndSaveVideo(
   return { filename, videoBuffer }
 }
 
-export async function generateVideo(params: GenerateVideoParams): Promise<GenerateVideoResult> {
-  const { prompt: rawPrompt, businessId, postId, duration = 5, aspectRatio = '9:16', resolution = '720p', generateAudio = true, firstFrameUrl, lastFrameUrl, referenceImageUrls } = params
+// =====================
+// Async Video Generation — Step 1: Create task (fast, 2-5 sec)
+// =====================
+
+export interface CreateVideoTaskResult {
+  kieTaskId: string
+  translatedPrompt: string
+  costUsd: number
+  model: string
+}
+
+export async function createVideoTask(params: GenerateVideoParams): Promise<CreateVideoTaskResult> {
+  const { prompt: rawPrompt, businessId, duration = 5, aspectRatio = '9:16', resolution = '720p', generateAudio = true, firstFrameUrl, lastFrameUrl, referenceImageUrls } = params
   const model = 'bytedance/seedance-2'
 
   const hasImageInput = !!firstFrameUrl || (referenceImageUrls && referenceImageUrls.length > 0)
-  // Ценообразование per resolution: 480p cheaper, 720p standard
   const PRICING: Record<string, { withImage: number; textOnly: number }> = {
     '480p': { withImage: 11.5, textOnly: 19 },
     '720p': { withImage: 25,   textOnly: 41 },
@@ -558,98 +568,115 @@ export async function generateVideo(params: GenerateVideoParams): Promise<Genera
   const tier = PRICING[resolution] || PRICING['720p']
   const creditsPerSec = hasImageInput ? tier.withImage : tier.textOnly
   const audioMultiplier = generateAudio ? 2.0 : 1.0
-  const videoCostUsd = creditsPerSec * duration * 0.005 * audioMultiplier
+  const costUsd = creditsPerSec * duration * 0.005 * audioMultiplier
 
   const prompt = await translatePrompt(rawPrompt, businessId)
 
-  // Resolve image URLs to public
-  const resolvedFirstFrame = firstFrameUrl ? resolvePublicUrl(firstFrameUrl) : undefined
-  const resolvedLastFrame = lastFrameUrl ? resolvePublicUrl(lastFrameUrl) : undefined
-
-  log.info('[KIE] generateVideo', { businessId, model, duration, generateAudio, hasFirstFrame: !!resolvedFirstFrame, hasLastFrame: !!resolvedLastFrame, prompt: prompt.slice(0, 80) })
+  log.info('[KIE] createVideoTask', { businessId, model, duration, prompt: prompt.slice(0, 80) })
 
   const input: any = {
-    prompt,
-    duration,
+    prompt, duration,
     aspect_ratio: aspectRatio,
     resolution: resolution || '720p',
     output_format: 'mp4',
     generate_audio: generateAudio,
   }
 
-  // Multimodal references (до 9 изображений, @Image1 @Image2 в промпте)
   if (referenceImageUrls && referenceImageUrls.length > 0) {
     input.reference_image_urls = referenceImageUrls.map(u => resolvePublicUrl(u))
-  }
-  // Image-to-video: first frame (+ optional last frame) — взаимоисключающе с references
-  else if (resolvedFirstFrame) {
-    input.first_frame_url = resolvedFirstFrame
-    if (resolvedLastFrame) {
-      input.last_frame_url = resolvedLastFrame
-    }
+  } else if (firstFrameUrl) {
+    input.first_frame_url = resolvePublicUrl(firstFrameUrl)
+    if (lastFrameUrl) input.last_frame_url = resolvePublicUrl(lastFrameUrl)
   }
 
-  const response = await kiePost('/api/v1/jobs/createTask', {
-    model,
-    input,
-  })
+  const response = await kiePost('/api/v1/jobs/createTask', { model, input })
+  const kieTaskId = response?.data?.taskId || response?.taskId
+  if (!kieTaskId) throw new Error('KIE.ai не вернул taskId для видео')
 
-  const taskId = response?.data?.taskId || response?.taskId
-  if (!taskId) throw new Error('KIE.ai не вернул taskId для видео')
+  log.info('[KIE] task created', { kieTaskId })
+  return { kieTaskId, translatedPrompt: prompt, costUsd, model }
+}
 
-  log.info('[KIE] generateVideo polling', { taskId })
+// =====================
+// Async Video Generation — Step 2: Check result + download (called by poller)
+// =====================
 
-  // Видео дольше — увеличиваем таймаут (120 попыток × 5с = 10 мин)
-  const result = await pollTask(taskId, 120, 5000)
+/** Check KIE task status. Returns 'pending' | 'success' | 'fail' */
+export async function checkVideoTaskStatus(kieTaskId: string): Promise<{ state: string; data?: any }> {
+  const result = await kieGet(`/api/v1/jobs/recordInfo?taskId=${kieTaskId}`)
+  const d = result?.data || result
+  const state = d?.state || d?.status || 'pending'
+  return { state, data: d }
+}
 
+/** Download completed video, save to disk, create MediaFile + AiUsageLog */
+export async function processVideoTaskResult(
+  kieData: any,
+  params: { businessId: string; postId?: string | null; prompt: string; duration: number; costUsd: number; model: string },
+): Promise<{ mediaFileId: string; resultUrl: string }> {
   let outputUrl: string | undefined
-  if (result?.resultJson) {
+  if (kieData?.resultJson) {
     try {
-      const parsed = typeof result.resultJson === 'string' ? JSON.parse(result.resultJson) : result.resultJson
+      const parsed = typeof kieData.resultJson === 'string' ? JSON.parse(kieData.resultJson) : kieData.resultJson
       outputUrl = parsed?.resultUrls?.[0] || parsed?.resultVideoUrl || parsed?.resultImageUrl
     } catch {}
   }
   if (!outputUrl) {
-    outputUrl = result?.resultVideoUrl || result?.resultImageUrl || result?.video_url || result?.output?.video_url
+    outputUrl = kieData?.resultVideoUrl || kieData?.resultImageUrl || kieData?.video_url || kieData?.output?.video_url
   }
-  if (!outputUrl) throw new Error('KIE.ai не вернул видео')
+  if (!outputUrl) throw new Error('KIE.ai не вернул видео URL')
 
-  const { filename, videoBuffer } = await downloadAndSaveVideo(outputUrl, businessId, 'kie_video')
+  const { filename, videoBuffer } = await downloadAndSaveVideo(outputUrl, params.businessId, 'kie_video')
 
   const mediaFile = await db.mediaFile.create({
     data: {
-      businessId,
-      postId: postId || null,
-      filename: `AI Video: ${prompt.slice(0, 50).replace(/[\r\n\t]/g, ' ')}`,
-      url: `/uploads/${businessId}/${filename}`,
+      businessId: params.businessId,
+      postId: params.postId || null,
+      filename: `AI Video: ${params.prompt.slice(0, 50).replace(/[\r\n\t]/g, ' ')}`,
+      url: `/uploads/${params.businessId}/${filename}`,
       thumbUrl: null,
       mimeType: 'video/mp4',
       sizeBytes: videoBuffer.length,
-      durationSec: duration,
-      altText: prompt,
-      aiModel: model,
-      aiCostUsd: videoCostUsd,
+      durationSec: params.duration,
+      altText: params.prompt,
+      aiModel: params.model,
+      aiCostUsd: params.costUsd,
     },
   })
 
   await db.aiUsageLog.create({
     data: {
-      businessId,
+      businessId: params.businessId,
       action: 'generate_video',
-      model,
+      model: params.model,
       tokensIn: 0, tokensOut: 0, cachedTokens: 0,
-      costUsd: videoCostUsd,
+      costUsd: params.costUsd,
     },
   })
 
-  log.info('[KIE] generateVideo complete', { businessId, mediaId: mediaFile.id })
+  log.info('[KIE] video saved', { businessId: params.businessId, mediaId: mediaFile.id })
+  return { mediaFileId: mediaFile.id, resultUrl: mediaFile.url }
+}
 
+// Legacy sync wrapper (kept for generateImage compatibility)
+export async function generateVideo(params: GenerateVideoParams): Promise<GenerateVideoResult> {
+  const task = await createVideoTask(params)
+  const result = await pollTask(task.kieTaskId, 120, 5000)
+  const { mediaFileId, resultUrl } = await processVideoTaskResult(result, {
+    businessId: params.businessId,
+    postId: params.postId,
+    prompt: task.translatedPrompt,
+    duration: params.duration || 5,
+    costUsd: task.costUsd,
+    model: task.model,
+  })
+  const mediaFile = await db.mediaFile.findUniqueOrThrow({ where: { id: mediaFileId } })
   return {
     mediaFile: {
       id: mediaFile.id, url: mediaFile.url, thumbUrl: mediaFile.thumbUrl,
       filename: mediaFile.filename, mimeType: mediaFile.mimeType,
       sizeBytes: mediaFile.sizeBytes, durationSec: mediaFile.durationSec,
     },
-    usage: { tokensIn: 0, tokensOut: 0, model },
+    usage: { tokensIn: 0, tokensOut: 0, model: task.model },
   }
 }

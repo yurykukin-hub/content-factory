@@ -93,20 +93,7 @@ async function saveSession() {
   } catch (e) { console.error('[VS] saveSession failed:', e) }
 }
 
-// Сбросить зависшие генерации (>15 мин = макс. время KIE polling).
-// Бэкенд сам ставит completed/failed, но если упал — фронтенд подчищает.
-async function fixStuckSessions() {
-  let fixed = false
-  for (const s of sessions.value) {
-    if (s.status !== 'generating') continue
-    const age = Date.now() - new Date(s.updatedAt).getTime()
-    if (age > 15 * 60 * 1000) {
-      await http.put(`/sessions/${s.id}`, { status: 'failed', errorMessage: 'Таймаут генерации (>15 мин)' }).catch(() => {})
-      fixed = true
-    }
-  }
-  if (fixed) loadSessions()
-}
+// fixStuckSessions не нужен — video-poller на бэкенде сам обрабатывает таймауты
 
 async function loadDraftSession() {
   if (!selectedBizId.value) return
@@ -495,7 +482,7 @@ async function generate() {
   runGeneration(sessionId, capturedState, sessionTitle)
 }
 
-/** Background generation — runs without blocking, supports parallel calls */
+/** Submit video generation — returns in 2-5 sec, poller handles the rest via SSE */
 async function runGeneration(sessionId: string, state: {
   businessId: string; prompt: string; duration: number; aspectRatio: string
   resolution: string; generateAudio: boolean; inputMode: string
@@ -514,31 +501,17 @@ async function runGeneration(sessionId: string, state: {
       payload.referenceImageUrls = state.referenceImageUrls
     }
 
-    const result = await http.post<{ mediaFile: GeneratedVideo }>('/ai/generate-video', { ...payload, sessionId })
-    generatedVideos.value.unshift(result.mediaFile)
-
-    // Бэкенд сам обновил статус сессии на 'completed' + отправил SSE
-
-    // Save to prompt library
-    const hasImg = state.firstFrameUrl || state.referenceImageUrls.length > 0
-    const tier = PRICING[state.resolution as keyof typeof PRICING] || PRICING['480p']
-    const cps = hasImg ? tier.withImage : tier.textOnly
-    const baseCost = cps * state.duration * CREDIT_PRICE
-    const costUsd = state.generateAudio ? baseCost * AUDIO_MULT : baseCost
-    http.post('/prompt-library', {
-      businessId: state.businessId, type: 'video', prompt: state.prompt,
-      resultUrl: result.mediaFile.url,
-      metadata: { duration: state.duration, model: 'bytedance/seedance-2', resolution: state.resolution, cost: costUsd, audio: state.generateAudio, inputMode: state.inputMode },
-    }).catch(() => {})
-
-    toast.success(`Видео готово: ${sessionTitle} (${state.duration}с)`, 7000)
+    // Возвращается за 2-5 сек (только создаёт задачу в KIE)
+    // Результат придёт через SSE от video-poller
+    await http.post('/ai/generate-video', { ...payload, sessionId })
+    loadSessions() // обновить статус в UI
+    toast.success(`Генерация запущена: ${sessionTitle}`, 3000)
   } catch (e: any) {
-    // Бэкенд сам обновил статус на 'failed' + отправил SSE
-    const msg = e.message || 'Ошибка генерации'
-    toast.error(`Ошибка: ${sessionTitle} — ${msg}`, 8000)
-  } finally {
-    loadSessions()
-    loadVideos()
+    const msg = e.message || 'Ошибка запуска генерации'
+    toast.error(`Ошибка: ${msg}`, 8000)
+    // Сбросить оптимистичный статус
+    const s = sessions.value.find(s => s.id === sessionId)
+    if (s) s.status = 'draft'
   }
 }
 
@@ -706,7 +679,6 @@ function connectSSE() {
 onMounted(async () => {
   loadCharacters(); loadVideos(); loadSavedPrompts(); loadDraftSession()
   await loadSessions()
-  fixStuckSessions()
   connectSSE()
 })
 

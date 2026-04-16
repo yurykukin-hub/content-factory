@@ -4,7 +4,7 @@ import { db } from '../db'
 import { config } from '../config'
 import { aiComplete, aiVision } from '../services/ai/openrouter'
 import { buildBrandContext, buildPlanPrompt, buildPostPrompt, buildAdaptPrompt, buildHashtagPrompt, buildImageEnhancerPrompt, buildEditEnhancerPrompt, buildStoryTitlePrompt, buildScenarioPrompt, buildVideoPromptEnhancer, buildVideoPromptEnhancerAdaptive, buildVideoPromptDirector, buildVideoPromptStructure, buildVideoPromptFocus, buildVideoPromptAudio, buildVideoPromptCamera, buildVideoPromptTranslate, buildVideoPromptSimplify, analyzeVideoPrompt } from '../services/ai/prompt-builder'
-import { generateImage, editImage, removeBackground, generateVideo, EDIT_MODELS } from '../services/ai/kie'
+import { generateImage, editImage, removeBackground, createVideoTask, EDIT_MODELS } from '../services/ai/kie'
 import { emitEvent } from '../eventBus'
 import type { AuthUser } from '../middleware/auth'
 import { verifyPostAccess, assertBusinessAccess } from '../middleware/resource-access'
@@ -822,43 +822,35 @@ ai.post('/generate-video', async (c) => {
     }
   }
 
-  const tabId = c.req.header('X-Tab-ID') || ''
+  // Async: создать задачу в KIE (2-5 сек) → сохранить taskId → ответить сразу
+  // Background poller (video-poller.ts) подхватит и скачает результат
+  const task = await createVideoTask({
+    prompt: data.prompt,
+    businessId: data.businessId,
+    postId: data.postId || null,
+    duration: data.duration,
+    aspectRatio: data.aspectRatio,
+    resolution: data.resolution,
+    generateAudio: data.generateAudio,
+    firstFrameUrl: data.firstFrameUrl || null,
+    lastFrameUrl: data.lastFrameUrl || null,
+    referenceImageUrls: data.referenceImageUrls || undefined,
+  })
 
-  try {
-    const result = await generateVideo({
-      prompt: data.prompt,
-      businessId: data.businessId,
-      postId: data.postId || null,
-      duration: data.duration,
-      aspectRatio: data.aspectRatio,
-      resolution: data.resolution,
-      generateAudio: data.generateAudio,
-      firstFrameUrl: data.firstFrameUrl || null,
-      lastFrameUrl: data.lastFrameUrl || null,
-      referenceImageUrls: data.referenceImageUrls || undefined,
+  // Сохранить kieTaskId в сессию — poller найдёт по нему
+  if (data.sessionId) {
+    await db.generationSession.update({
+      where: { id: data.sessionId },
+      data: {
+        kieTaskId: task.kieTaskId,
+        kieTaskCreatedAt: new Date(),
+        costUsd: task.costUsd,
+      },
     })
-
-    // Бэкенд сам обновляет сессию — source of truth
-    if (data.sessionId) {
-      await db.generationSession.update({
-        where: { id: data.sessionId },
-        data: { status: 'completed', resultUrl: result.mediaFile.url, mediaFileId: result.mediaFile.id },
-      }).catch(() => {})
-      emitEvent({ type: 'session_updated', tabId, sessionId: data.sessionId, status: 'completed' })
-    }
-
-    return c.json(result, 201)
-  } catch (err: any) {
-    // Генерация упала — бэкенд обновляет статус
-    if (data.sessionId) {
-      await db.generationSession.update({
-        where: { id: data.sessionId },
-        data: { status: 'failed', errorMessage: err.message?.slice(0, 500) || 'Unknown error' },
-      }).catch(() => {})
-      emitEvent({ type: 'session_updated', tabId, sessionId: data.sessionId, status: 'failed' })
-    }
-    throw err
   }
+
+  // Ответить мгновенно — не ждать генерации
+  return c.json({ sessionId: data.sessionId, status: 'generating', kieTaskId: task.kieTaskId }, 202)
 })
 
 // POST /api/ai/merge-references — AI распознаёт фотки и вставляет @ImageN теги в промпт
