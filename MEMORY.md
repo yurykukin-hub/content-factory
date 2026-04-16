@@ -9,8 +9,8 @@
 ## Блокеры
 - [2026-04-05] VK OAuth: заявка подана, ожидаем. До получения — фото в VK не публикуются
 
-## Schema (23 модели, 8 enums)
-User, UserBusiness, Business, BrandProfile, PlatformAccount, ContentPlan, ContentPlanItem, Post, PostVersion, PublishLog, MediaFile, MediaFolder, AiUsageLog, WebhookRule, AppConfig, Idea, StoryTemplate, Character, CharacterBusiness, Scenario, PromptEntry, PromptTemplate, GenerationSession
+## Schema (24 модели, 8 enums)
+User, UserBusiness, Business, BrandProfile, PlatformAccount, ContentPlan, ContentPlanItem, Post, PostVersion, PublishLog, MediaFile, MediaFolder, AiUsageLog, WebhookRule, AppConfig, Idea, StoryTemplate, Character, CharacterBusiness, Scenario, PromptEntry, PromptTemplate, GenerationSession, **BalanceTransaction**
 
 - [2026-04-16] **AiUsageLog расширена:** +userId, +status, +errorMessage, +prompt, +durationMs, +markupPercent, +chargedRub
 - [2026-04-16] **User.balanceKopecks** — баланс в копейках. **BalanceTransaction** — история пополнений/списаний (24-я модель)
@@ -35,7 +35,8 @@ User, UserBusiness, Business, BrandProfile, PlatformAccount, ContentPlan, Conten
 - [2026-04-16] MIME: MOV-файлы загружались как octet-stream → extensionToMime() fallback по расширению
 - [2026-04-16] Миграция: fix-mime-types.ts — исправлены 16 файлов в проде
 - [2026-04-16] Пагинация: cursor-based, 40/page, кнопка "Показать ещё" (было 200 за раз)
-- [2026-04-16] Grid: видео-плейсхолдеры (без `<video>` тегов), images `loading="lazy"`
+- [2026-04-16] Grid: images `loading="lazy"`, видео показывают thumbUrl (ffmpeg first frame → WebP)
+- [2026-04-16] **Video thumbnails:** ffmpeg в Dockerfile, extractVideoThumbnail() утилита (1сек → sharp WebP 400×400). Auto при upload + KIE generation. fix-video-thumbs.ts — 89/90 существующих видео обновлены
 - [2026-04-16] isImage()/isVideo() + displayType() — fallback на расширение файла
 - [2026-04-16] **4 консьюмера API:** MediaLibraryView, MediaPickerModal, VsRefModal, VideoStudioView — все используют `res.files`
 

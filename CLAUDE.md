@@ -120,8 +120,8 @@ content-factory/
 └── scripts/deploy.sh, backup-db.sh
 ```
 
-## Schema (23 модели, 8 enums)
-User, UserBusiness, Business, BrandProfile, PlatformAccount, ContentPlan, ContentPlanItem, Post, PostVersion, PublishLog, MediaFolder, MediaFile, AiUsageLog, WebhookRule, AppConfig, Idea, StoryTemplate, Character, CharacterBusiness, Scenario, PromptEntry, PromptTemplate, **GenerationSession**
+## Schema (24 модели, 8 enums)
+User, UserBusiness, Business, BrandProfile, PlatformAccount, ContentPlan, ContentPlanItem, Post, PostVersion, PublishLog, MediaFolder, MediaFile, AiUsageLog, WebhookRule, AppConfig, Idea, StoryTemplate, Character, CharacterBusiness, Scenario, PromptEntry, PromptTemplate, GenerationSession, **BalanceTransaction**
 
 Enums: UserRole, Platform, AccountType, PostType, PostStatus, ContentPlanStatus, PublishStatus
 
@@ -184,6 +184,16 @@ API keys: OpenRouter — из БД (AppConfig) или .env. FAL — из .env (F
 - Refresh token: 30 дней (httpOnly cookie `refresh_token`, path `/api/auth`)
 - Frontend: автоматический refresh при 401
 
+## Billing
+- **Наценка**: AppConfig `ai_markup_percent` (default 50%), configurable in Settings → AI
+- **User.balanceKopecks**: баланс в копейках (integer). ADMIN exempt (безлимит)
+- **Auto-charge**: каждый AI-вызов списывает `costUsd × USD_RUB × (1 + markup%)` из баланса
+- **Balance check**: middleware в /api/ai/* → 402 при балансе ≤ 0 (non-ADMIN)
+- **BalanceTransaction**: audit trail (topup/charge/refund), связь с AiUsageLog
+- **Top-up**: Settings → Users → кнопка ⊕ → модалка с суммой
+- **AiUsageLog**: +markupPercent (snapshot), +chargedRub (итого с наценкой)
+- **UI**: баланс в header (badge), admin видит Себестоимость/С наценкой/Профит в AI Логах
+
 ## Brand Colors
 - Primary: Fuchsia/Magenta (#d946ef)
 - Dark mode supported
@@ -203,7 +213,8 @@ API keys: OpenRouter — из БД (AppConfig) или .env. FAL — из .env (F
 ## Media Library
 - **Upload MIME detection**: extensionToMime() fallback when blob.type is empty/octet-stream (MOV, AVI, MKV etc.)
 - **Cursor pagination**: GET /media/library/:bizId returns `{ files, hasMore, totalCount }` (NOT a plain array). Limit 40/page, cursor-based
-- **Grid**: video files show placeholder icon (no `<video>` tags — saves bandwidth), images use `loading="lazy"`
+- **Grid**: video files show WebP thumbnail (ffmpeg first frame), images use `loading="lazy"`. Placeholder icon only if thumbUrl is null
+- **Video thumbnails**: ffmpeg in Dockerfile, `extractVideoThumbnail()` (1s frame → sharp WebP 400×400). Auto on upload + KIE generation. `fix-video-thumbs.ts` for migration
 - **Frontend helpers**: `isImage(mime, filename?)` / `isVideo(mime, filename?)` — fallback to file extension for octet-stream files
 - **Consumers**: MediaLibraryView, MediaPickerModal, VsRefModal, VideoStudioView — all must use `res.files` from response
 - **Migration script**: `bun src/fix-mime-types.ts` — one-time fix for existing octet-stream files
