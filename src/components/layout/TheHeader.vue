@@ -43,6 +43,17 @@ async function handleLogout() {
       <!-- AI Usage badge (ADMIN only) -->
       <UsageBadge v-if="auth.user?.role === 'ADMIN'" />
 
+      <!-- Balance -->
+      <div
+        v-if="auth.user?.balanceKopecks !== undefined && auth.user?.role !== 'ADMIN'"
+        class="hidden sm:flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium"
+        :class="(auth.user.balanceKopecks ?? 0) > 0
+          ? 'bg-green-50 text-green-700 dark:bg-green-950 dark:text-green-400'
+          : 'bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-400'"
+      >
+        {{ ((auth.user.balanceKopecks ?? 0) / 100).toFixed(0) }} ₽
+      </div>
+
       <span class="hidden sm:inline text-sm text-gray-500 dark:text-gray-400">{{ auth.user?.name }}</span>
 
       <button

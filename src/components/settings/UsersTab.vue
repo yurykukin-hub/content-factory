@@ -4,7 +4,7 @@ import { http } from '@/api/client'
 import { useToast } from '@/composables/useToast'
 import { useBusinessesStore } from '@/stores/businesses'
 import { SECTIONS, SECTION_LABELS, getDefault, type Section, type AccessLevel } from '@/composables/useSectionAccess'
-import { Save, UserPlus, Pencil, X, RotateCcw } from 'lucide-vue-next'
+import { Save, UserPlus, Pencil, X, RotateCcw, Plus, Wallet } from 'lucide-vue-next'
 
 const toast = useToast()
 const businesses = useBusinessesStore()
@@ -16,8 +16,15 @@ interface UserItem {
   role: 'ADMIN' | 'EDITOR' | 'VIEWER'
   isActive: boolean
   sectionAccess: Record<string, AccessLevel> | null
+  balanceKopecks?: number
   businesses: { businessId: string; role: string; business: { id: string; name: string } }[]
 }
+
+// Top-up modal
+const topupUserId = ref<string | null>(null)
+const topupUserName = ref('')
+const topupAmount = ref(500)
+const topupSaving = ref(false)
 
 const users = ref<UserItem[]>([])
 const loading = ref(true)
@@ -174,6 +181,27 @@ function levelColor(level: AccessLevel) {
   }[level]
 }
 
+function openTopup(user: UserItem) {
+  topupUserId.value = user.id
+  topupUserName.value = user.name
+  topupAmount.value = 500
+}
+
+async function doTopup() {
+  if (!topupUserId.value || topupAmount.value <= 0) return
+  topupSaving.value = true
+  try {
+    await http.post(`/users/${topupUserId.value}/topup`, { amountRub: topupAmount.value })
+    toast.success(`Баланс ${topupUserName.value} пополнен на ${topupAmount.value} ₽`)
+    topupUserId.value = null
+    await loadUsers()
+  } catch (e: any) {
+    toast.error(e.message || 'Ошибка пополнения')
+  } finally {
+    topupSaving.value = false
+  }
+}
+
 onMounted(loadUsers)
 </script>
 
@@ -214,10 +242,23 @@ onMounted(loadUsers)
             </span>
           </div>
           <div v-else-if="user.role !== 'ADMIN'" class="mt-1 text-xs text-gray-400">Нет привязанных проектов</div>
+          <!-- Balance -->
+          <div v-if="user.role !== 'ADMIN' && user.balanceKopecks !== undefined" class="mt-1 flex items-center gap-2">
+            <span class="flex items-center gap-1 text-xs"
+              :class="(user.balanceKopecks ?? 0) > 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'">
+              <Wallet :size="12" />
+              {{ ((user.balanceKopecks ?? 0) / 100).toFixed(0) }} ₽
+            </span>
+          </div>
         </div>
-        <button @click="startEdit(user)" class="p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 shrink-0">
-          <Pencil class="w-4 h-4" />
-        </button>
+        <div class="flex items-center gap-1 shrink-0">
+          <button v-if="user.role !== 'ADMIN'" @click="openTopup(user)" class="p-1.5 text-green-500 hover:text-green-700 dark:hover:text-green-300" title="Пополнить баланс">
+            <Plus class="w-4 h-4" />
+          </button>
+          <button @click="startEdit(user)" class="p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+            <Pencil class="w-4 h-4" />
+          </button>
+        </div>
       </div>
     </div>
 
@@ -348,6 +389,38 @@ onMounted(loadUsers)
           <button @click="saveUser" class="flex items-center gap-1.5 px-4 py-2 bg-brand-600 text-white rounded-lg text-sm hover:bg-brand-700">
             <Save class="w-4 h-4" />
             {{ editingId ? 'Сохранить' : 'Создать' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Top-up modal -->
+    <div v-if="topupUserId" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div class="bg-white dark:bg-gray-800 rounded-xl shadow-xl max-w-sm w-full p-6">
+        <h3 class="text-lg font-semibold mb-4 text-gray-900 dark:text-white">
+          Пополнение баланса
+        </h3>
+        <p class="text-sm text-gray-500 mb-4">{{ topupUserName }}</p>
+        <div class="mb-4">
+          <label class="block text-sm font-medium mb-1">Сумма, ₽</label>
+          <input v-model.number="topupAmount" type="number" min="1" step="100"
+            class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-lg font-mono" />
+          <div class="flex gap-2 mt-2">
+            <button v-for="a in [200, 500, 1000, 2000]" :key="a" @click="topupAmount = a"
+              :class="['px-3 py-1 rounded-lg text-xs font-medium transition-colors',
+                topupAmount === a ? 'bg-green-600 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400']">
+              {{ a }} ₽
+            </button>
+          </div>
+        </div>
+        <div class="flex gap-2 justify-end">
+          <button @click="topupUserId = null"
+            class="px-4 py-2 rounded-lg text-sm text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700">
+            Отмена
+          </button>
+          <button @click="doTopup" :disabled="topupSaving || topupAmount <= 0"
+            class="px-4 py-2 rounded-lg bg-green-600 hover:bg-green-700 text-white text-sm font-medium disabled:opacity-50">
+            {{ topupSaving ? 'Пополняю...' : `Пополнить ${topupAmount} ₽` }}
           </button>
         </div>
       </div>

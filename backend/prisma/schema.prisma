@@ -66,20 +66,22 @@ enum PublishStatus {
 
 /// Оператор системы (логин/пароль, JWT auth)
 model User {
-  id           String   @id @default(cuid())
-  login        String   @unique
-  passwordHash String   @map("password_hash")
-  name         String
-  role          UserRole @default(EDITOR)
-  isActive      Boolean  @default(true) @map("is_active")
-  sectionAccess Json?    @map("section_access")
-  createdAt     DateTime @default(now()) @map("created_at")
-  updatedAt     DateTime @updatedAt @map("updated_at")
+  id             String   @id @default(cuid())
+  login          String   @unique
+  passwordHash   String   @map("password_hash")
+  name           String
+  role           UserRole @default(EDITOR)
+  isActive       Boolean  @default(true) @map("is_active")
+  sectionAccess  Json?    @map("section_access")
+  balanceKopecks Int      @default(0) @map("balance_kopecks") // баланс в копейках (рубли * 100)
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
 
-  businesses UserBusiness[]
-  ideas      Idea[]
-  sessions   GenerationSession[]
-  aiUsageLogs AiUsageLog[]
+  businesses          UserBusiness[]
+  ideas               Idea[]
+  sessions            GenerationSession[]
+  aiUsageLogs         AiUsageLog[]
+  balanceTransactions BalanceTransaction[]
 
   @@map("users")
 }
@@ -362,8 +364,10 @@ model AiUsageLog {
   tokensIn     Int      @map("tokens_in")
   tokensOut    Int      @map("tokens_out")
   cachedTokens Int      @default(0) @map("cached_tokens")
-  costUsd      Float    @default(0) @map("cost_usd")
-  status       String   @default("success") // "success" | "error"
+  costUsd        Float    @default(0) @map("cost_usd")
+  markupPercent  Float?   @map("markup_percent")   // наценка % на момент вызова (snapshot)
+  chargedRub     Float?   @map("charged_rub")      // списано с пользователя в рублях (с наценкой)
+  status         String   @default("success") // "success" | "error"
   errorMessage String?  @map("error_message")
   prompt       String?  // отправленный промпт (truncated до 2000 символов)
   durationMs   Int?     @map("duration_ms") // время выполнения в мс
@@ -564,4 +568,23 @@ model GenerationSession {
   @@index([userId])
   @@index([status])
   @@map("generation_sessions")
+}
+
+/// История пополнений и списаний баланса пользователя
+model BalanceTransaction {
+  id             String   @id @default(cuid())
+  userId         String   @map("user_id")
+  amountKopecks  Int      @map("amount_kopecks") // положительный = пополнение, отрицательный = списание
+  type           String   // "topup" | "charge" | "refund" | "adjustment"
+  description    String?  // "Пополнение от 16.04" или "Генерация поста"
+  aiUsageLogId   String?  @map("ai_usage_log_id") // связь с конкретным AI-вызовом (для charge)
+  adminId        String?  @map("admin_id") // кто пополнил (для topup)
+  balanceAfter   Int      @map("balance_after") // баланс ПОСЛЕ транзакции (snapshot)
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([createdAt])
+  @@map("balance_transactions")
 }

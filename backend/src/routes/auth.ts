@@ -124,7 +124,7 @@ auth.get('/me', async (c) => {
 
     const dbUser = await db.user.findUnique({
       where: { id: payload.userId as string },
-      select: { id: true, name: true, login: true, role: true, sectionAccess: true },
+      select: { id: true, name: true, login: true, role: true, sectionAccess: true, balanceKopecks: true },
     })
 
     return c.json(dbUser)
@@ -140,7 +140,7 @@ auth.get('/me', async (c) => {
 
       const user = await db.user.findUnique({
         where: { id: payload.userId as string },
-        select: { id: true, name: true, login: true, role: true, isActive: true, sectionAccess: true },
+        select: { id: true, name: true, login: true, role: true, isActive: true, sectionAccess: true, balanceKopecks: true },
       })
       if (!user || !user.isActive) return c.json(null)
 
@@ -148,7 +148,7 @@ auth.get('/me', async (c) => {
       await issueTokens(c, user)
       return c.json({
         id: user.id, name: user.name, login: user.login, role: user.role,
-        sectionAccess: user.sectionAccess,
+        sectionAccess: user.sectionAccess, balanceKopecks: user.balanceKopecks,
       })
     } catch {
       return c.json(null)

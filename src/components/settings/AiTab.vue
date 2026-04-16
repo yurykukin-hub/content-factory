@@ -2,7 +2,7 @@
 import { ref, onMounted } from 'vue'
 import { http } from '@/api/client'
 import { useToast } from '@/composables/useToast'
-import { Sparkles, Key, Save, Loader2, CheckCircle, Eye, EyeOff, BarChart3, Cpu, Sliders } from 'lucide-vue-next'
+import { Sparkles, Key, Save, Loader2, CheckCircle, Eye, EyeOff, BarChart3, Cpu, Sliders, Percent } from 'lucide-vue-next'
 
 const toast = useToast()
 const apiKey = ref('')
@@ -12,6 +12,9 @@ const showKey = ref(false)
 const saving = ref(false)
 const saved = ref(false)
 const loading = ref(true)
+const markupPercent = ref(50)
+const savingMarkup = ref(false)
+const savedMarkup = ref(false)
 
 async function loadConfig() {
   loading.value = true
@@ -19,6 +22,7 @@ async function loadConfig() {
     const config = await http.get<Record<string, string>>('/settings/config')
     maskedKey.value = config.openrouter_api_key || ''
     hasKey.value = !!maskedKey.value
+    if (config.ai_markup_percent) markupPercent.value = parseFloat(config.ai_markup_percent) || 50
   } catch (e) {
     toast.error('Ошибка загрузки настроек AI')
   } finally {
@@ -44,6 +48,20 @@ async function saveApiKey() {
     toast.error(e.message || 'Произошла ошибка')
   } finally {
     saving.value = false
+  }
+}
+
+async function saveMarkup() {
+  savingMarkup.value = true
+  savedMarkup.value = false
+  try {
+    await http.put('/settings/config', { key: 'ai_markup_percent', value: String(markupPercent.value) })
+    savedMarkup.value = true
+    setTimeout(() => { savedMarkup.value = false }, 3000)
+  } catch (e: any) {
+    toast.error(e.message || 'Ошибка')
+  } finally {
+    savingMarkup.value = false
   }
 }
 
@@ -121,28 +139,40 @@ onMounted(loadConfig)
       </div>
     </div>
 
-    <!-- Future features -->
+    <!-- Markup -->
     <div class="bg-white dark:bg-gray-900 rounded-xl p-6 border border-gray-200 dark:border-gray-800">
       <h2 class="font-semibold mb-4 flex items-center gap-2">
-        <Sparkles :size="18" class="text-gray-400" />
-        Скоро
+        <Percent :size="18" class="text-green-500" />
+        Наценка на AI-генерации
       </h2>
-      <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div class="p-4 rounded-lg bg-gray-50 dark:bg-gray-800 text-center">
-          <Cpu :size="24" class="mx-auto text-gray-400 mb-2" />
-          <div class="text-sm font-medium">Выбор моделей</div>
-          <div class="text-xs text-gray-400 mt-1">Sonnet / Haiku / Flux</div>
+      <p class="text-sm text-gray-500 mb-4">Наценка добавляется к себестоимости AI-вызова. Пользователи видят цену с наценкой, вы — себестоимость + профит в AI Логах.</p>
+      <div class="flex items-center gap-3">
+        <div class="relative">
+          <input
+            v-model.number="markupPercent"
+            type="number"
+            min="0"
+            max="500"
+            step="5"
+            class="w-24 px-3 py-2 pr-8 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm font-mono"
+          />
+          <span class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">%</span>
         </div>
-        <div class="p-4 rounded-lg bg-gray-50 dark:bg-gray-800 text-center">
-          <BarChart3 :size="24" class="mx-auto text-gray-400 mb-2" />
-          <div class="text-sm font-medium">Статистика</div>
-          <div class="text-xs text-gray-400 mt-1">Токены, стоимость</div>
-        </div>
-        <div class="p-4 rounded-lg bg-gray-50 dark:bg-gray-800 text-center">
-          <Sliders :size="24" class="mx-auto text-gray-400 mb-2" />
-          <div class="text-sm font-medium">Промпт-шаблоны</div>
-          <div class="text-xs text-gray-400 mt-1">Настройка генерации</div>
-        </div>
+        <button
+          @click="saveMarkup"
+          :disabled="savingMarkup"
+          class="flex items-center gap-2 px-4 py-2 rounded-lg bg-green-600 hover:bg-green-700 text-white text-sm font-medium disabled:opacity-50"
+        >
+          <Loader2 v-if="savingMarkup" :size="16" class="animate-spin" />
+          <Save v-else :size="16" />
+          Сохранить
+        </button>
+        <span v-if="savedMarkup" class="flex items-center gap-1 text-xs text-green-600">
+          <CheckCircle :size="14" /> Сохранено!
+        </span>
+      </div>
+      <div class="mt-3 text-xs text-gray-400">
+        Пример: себестоимость $0.06 × наценка {{ markupPercent }}% = пользователь платит {{ (0.06 * 95 * (1 + markupPercent / 100)).toFixed(2) }} ₽
       </div>
     </div>
   </div>

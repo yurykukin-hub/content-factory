@@ -444,17 +444,19 @@ onMounted(async () => {
               <th class="px-4 py-3 text-left">Действие</th>
               <th class="px-4 py-3 text-left">Модель</th>
               <th class="px-4 py-3 text-right">Токены</th>
-              <th class="px-4 py-3 text-right">Стоимость</th>
+              <th v-if="isAdmin" class="px-4 py-3 text-right">Себест.</th>
+              <th class="px-4 py-3 text-right">{{ isAdmin ? 'С наценкой' : 'Стоимость' }}</th>
+              <th v-if="isAdmin" class="px-4 py-3 text-right">Профит</th>
               <th class="px-4 py-3 text-center w-8">⬤</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-gray-100 dark:divide-gray-800">
             <template v-if="loading && logs.length === 0">
-              <tr><td :colspan="isAdmin ? 8 : 7" class="px-4 py-12 text-center text-gray-400">Загрузка...</td></tr>
+              <tr><td :colspan="isAdmin ? 11 : 7" class="px-4 py-12 text-center text-gray-400">Загрузка...</td></tr>
             </template>
             <template v-else-if="logs.length === 0">
               <tr>
-                <td :colspan="isAdmin ? 8 : 7" class="px-4 py-12 text-center">
+                <td :colspan="isAdmin ? 11 : 7" class="px-4 py-12 text-center">
                   <Activity :size="48" class="mx-auto text-gray-300 dark:text-gray-600 mb-3" />
                   <p class="text-gray-500">Нет данных за выбранный период</p>
                 </td>
@@ -479,7 +481,13 @@ onMounted(async () => {
                   <template v-if="log.tokensIn || log.tokensOut">{{ formatNumber(log.tokensIn) }}/{{ formatNumber(log.tokensOut) }}</template>
                   <template v-else>—</template>
                 </td>
-                <td class="px-4 py-3 whitespace-nowrap text-right text-xs font-mono" :class="costColor(log.costUsd)">{{ formatCost(log.costUsd) }}</td>
+                <td v-if="isAdmin" class="px-4 py-3 whitespace-nowrap text-right text-xs font-mono text-gray-400">{{ formatCost(log.costUsd) }}</td>
+                <td class="px-4 py-3 whitespace-nowrap text-right text-xs font-mono" :class="costColor(log.chargedRub ? log.chargedRub / USD_RUB : log.costUsd)">
+                  {{ log.chargedRub ? log.chargedRub.toFixed(2) + ' ₽' : formatCost(log.costUsd) }}
+                </td>
+                <td v-if="isAdmin" class="px-4 py-3 whitespace-nowrap text-right text-xs font-mono text-green-600 dark:text-green-400">
+                  {{ log.chargedRub ? '+' + (log.chargedRub - log.costUsd * USD_RUB).toFixed(2) + ' ₽' : '—' }}
+                </td>
                 <td class="px-4 py-3 text-center">
                   <span v-if="log.status === 'success'" class="inline-block w-2 h-2 rounded-full bg-green-500" title="Успешно" />
                   <span v-else class="inline-block w-2 h-2 rounded-full bg-red-500" title="Ошибка" />
@@ -487,7 +495,7 @@ onMounted(async () => {
               </tr>
               <!-- Expanded detail row -->
               <tr v-if="selectedLog?.id === log.id" class="bg-gray-50 dark:bg-gray-800/30">
-                <td :colspan="isAdmin ? 8 : 7" class="px-6 py-4">
+                <td :colspan="isAdmin ? 11 : 7" class="px-6 py-4">
                   <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm mb-3">
                     <div><span class="text-gray-500 text-xs">Модель</span><br><span class="font-mono text-gray-900 dark:text-white">{{ log.model }}</span></div>
                     <div><span class="text-gray-500 text-xs">Длительность</span><br><span class="text-gray-900 dark:text-white">{{ log.durationMs ? (log.durationMs / 1000).toFixed(1) + ' сек' : '—' }}</span></div>

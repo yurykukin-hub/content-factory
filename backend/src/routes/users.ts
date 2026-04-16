@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { db } from '../db'
 import type { AuthUser } from '../middleware/auth'
 import { SECTIONS } from '../shared/section-access'
+import { topUpBalance } from '../services/billing'
 
 const users = new Hono()
 
@@ -19,6 +20,7 @@ users.get('/', async (c) => {
       role: true,
       isActive: true,
       sectionAccess: true,
+      balanceKopecks: true,
       createdAt: true,
       businesses: {
         select: {
@@ -141,6 +143,50 @@ users.put('/:id', async (c) => {
   }
 
   return c.json(user)
+})
+
+// POST /api/users/:id/topup — пополнить баланс пользователя
+const topupSchema = z.object({
+  amountRub: z.number().min(1).max(100000),
+  description: z.string().max(200).optional(),
+})
+
+users.post('/:id/topup', async (c) => {
+  const id = c.req.param('id')
+  const body = topupSchema.parse(await c.req.json())
+  const admin = c.get('user') as AuthUser
+
+  const { newBalanceKopecks } = await topUpBalance({
+    userId: id,
+    amountRub: body.amountRub,
+    adminId: admin.userId,
+    description: body.description,
+  })
+
+  return c.json({ balanceKopecks: newBalanceKopecks, balanceRub: newBalanceKopecks / 100 })
+})
+
+// GET /api/users/:id/balance — баланс + история транзакций
+users.get('/:id/balance', async (c) => {
+  const id = c.req.param('id')
+
+  const user = await db.user.findUnique({
+    where: { id },
+    select: { id: true, name: true, balanceKopecks: true },
+  })
+  if (!user) return c.json({ error: 'Не найден' }, 404)
+
+  const transactions = await db.balanceTransaction.findMany({
+    where: { userId: id },
+    orderBy: { createdAt: 'desc' },
+    take: 50,
+  })
+
+  return c.json({
+    balanceKopecks: user.balanceKopecks,
+    balanceRub: user.balanceKopecks / 100,
+    transactions,
+  })
 })
 
 export { users }

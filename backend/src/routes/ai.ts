@@ -8,8 +8,23 @@ import { generateImage, editImage, removeBackground, createVideoTask, EDIT_MODEL
 import { emitEvent } from '../eventBus'
 import type { AuthUser } from '../middleware/auth'
 import { verifyPostAccess, assertBusinessAccess } from '../middleware/resource-access'
+import { canAfford } from '../services/billing'
 
 const ai = new Hono()
+
+// Middleware: проверка баланса перед любым AI-вызовом (ADMIN exempt)
+ai.use('*', async (c, next) => {
+  if (c.req.method !== 'POST') return next()
+  const user = c.get('user') as AuthUser
+  const { allowed, balanceKopecks } = await canAfford(user.userId, user.role)
+  if (!allowed) {
+    return c.json({
+      error: 'Недостаточно средств на балансе. Пополните баланс для использования AI.',
+      balanceRub: balanceKopecks / 100,
+    }, 402)
+  }
+  return next()
+})
 
 // POST /api/ai/generate-plan — AI-генерация контент-плана
 const generatePlanSchema = z.object({

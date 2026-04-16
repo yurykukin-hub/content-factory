@@ -1,6 +1,7 @@
 import { config } from '../../config'
 import { db } from '../../db'
 import { calculateCost, getApiKey } from './openrouter'
+import { getMarkupPercent, calculateChargedRub, chargeUser } from '../billing'
 import { nanoid } from 'nanoid'
 import sharp from 'sharp'
 import { join } from 'path'
@@ -157,8 +158,10 @@ export async function generateImage(params: GenerateImageParams): Promise<Genera
     },
   })
 
-  // 5. Log AI usage
-  await db.aiUsageLog.create({
+  // 5. Log AI usage + charge
+  const imgCost = calculateCost(model, usage.prompt_tokens || 0, usage.completion_tokens || 0)
+  const imgMarkup = await getMarkupPercent()
+  const imgLog = await db.aiUsageLog.create({
     data: {
       businessId,
       action: 'generate_image',
@@ -166,13 +169,19 @@ export async function generateImage(params: GenerateImageParams): Promise<Genera
       tokensIn: usage.prompt_tokens || 0,
       tokensOut: usage.completion_tokens || 0,
       cachedTokens: 0,
-      costUsd: calculateCost(model, usage.prompt_tokens || 0, usage.completion_tokens || 0),
+      costUsd: imgCost,
+      markupPercent: imgMarkup,
+      chargedRub: calculateChargedRub(imgCost, imgMarkup),
       userId: params.userId || null,
       status: 'success',
       prompt: (prompt || '').slice(0, 2000),
       durationMs: Date.now() - start,
     },
   })
+  if (params.userId && imgCost > 0) {
+    const u = await db.user.findUnique({ where: { id: params.userId }, select: { role: true } })
+    if (u) await chargeUser({ userId: params.userId, role: u.role, costUsd: imgCost, markupPercent: imgMarkup, aiUsageLogId: imgLog.id, description: 'generate_image' })
+  }
 
   return {
     mediaFile: {

@@ -8,6 +8,7 @@ export interface User {
   login: string
   role: 'ADMIN' | 'EDITOR' | 'VIEWER'
   sectionAccess?: Record<string, 'full' | 'view' | 'none'> | null
+  balanceKopecks?: number
 }
 
 export const useAuthStore = defineStore('auth', () => {

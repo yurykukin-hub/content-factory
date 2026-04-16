@@ -1,5 +1,6 @@
 import { config } from '../../config'
 import { db } from '../../db'
+import { getMarkupPercent, calculateChargedRub, chargeUser } from '../billing'
 
 /**
  * Получить OpenRouter API key: сначала из БД (AppConfig), потом fallback на .env
@@ -113,9 +114,12 @@ export async function aiComplete(params: AiCompleteParams): Promise<AiCompleteRe
     model,
   }
 
-  // Log usage
+  // Log usage + charge
   if (params.action) {
-    await db.aiUsageLog.create({
+    const markup = await getMarkupPercent()
+    const chargedRub = calculateChargedRub(result.costUsd, markup)
+
+    const log = await db.aiUsageLog.create({
       data: {
         businessId: params.businessId || null,
         userId: params.userId || null,
@@ -125,11 +129,24 @@ export async function aiComplete(params: AiCompleteParams): Promise<AiCompleteRe
         tokensOut: result.tokensOut,
         cachedTokens: result.cachedTokens,
         costUsd: result.costUsd,
+        markupPercent: markup,
+        chargedRub,
         status: 'success',
         prompt: (params.userPrompt || '').slice(0, 2000),
         durationMs: Date.now() - start,
       },
     })
+
+    // Charge user balance (ADMIN exempt)
+    if (params.userId && result.costUsd > 0) {
+      const user = await db.user.findUnique({ where: { id: params.userId }, select: { role: true } })
+      if (user) {
+        await chargeUser({
+          userId: params.userId, role: user.role, costUsd: result.costUsd,
+          markupPercent: markup, aiUsageLogId: log.id, description: params.action,
+        })
+      }
+    }
   }
 
   return result
@@ -198,7 +215,10 @@ export async function aiVision(params: {
   }
 
   if (params.action) {
-    await db.aiUsageLog.create({
+    const markup = await getMarkupPercent()
+    const chargedRub = calculateChargedRub(result.costUsd, markup)
+
+    const log = await db.aiUsageLog.create({
       data: {
         businessId: params.businessId || null,
         userId: params.userId || null,
@@ -208,11 +228,23 @@ export async function aiVision(params: {
         tokensOut: result.tokensOut,
         cachedTokens: result.cachedTokens,
         costUsd: result.costUsd,
+        markupPercent: markup,
+        chargedRub,
         status: 'success',
         prompt: (params.userPrompt || '').slice(0, 2000),
         durationMs: Date.now() - start,
       },
     })
+
+    if (params.userId && result.costUsd > 0) {
+      const user = await db.user.findUnique({ where: { id: params.userId }, select: { role: true } })
+      if (user) {
+        await chargeUser({
+          userId: params.userId, role: user.role, costUsd: result.costUsd,
+          markupPercent: markup, aiUsageLogId: log.id, description: params.action,
+        })
+      }
+    }
   }
 
   return result

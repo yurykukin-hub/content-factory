@@ -1,6 +1,7 @@
 import { config } from '../../config'
 import { db } from '../../db'
 import { aiComplete } from './openrouter'
+import { getMarkupPercent, calculateChargedRub, chargeUser } from '../billing'
 import { nanoid } from 'nanoid'
 import sharp from 'sharp'
 import { join } from 'path'
@@ -265,7 +266,8 @@ export async function generateImage(params: GenerateImageParams): Promise<Genera
     },
   })
 
-  await db.aiUsageLog.create({
+  const markup = await getMarkupPercent()
+  const imgLog = await db.aiUsageLog.create({
     data: {
       businessId,
       userId: params.userId || null,
@@ -273,11 +275,17 @@ export async function generateImage(params: GenerateImageParams): Promise<Genera
       model,
       tokensIn: 0, tokensOut: 0, cachedTokens: 0,
       costUsd: 0.06,
+      markupPercent: markup,
+      chargedRub: calculateChargedRub(0.06, markup),
       status: 'success',
       prompt: (prompt || '').slice(0, 2000),
       durationMs: Date.now() - start,
     },
   })
+  if (params.userId) {
+    const u = await db.user.findUnique({ where: { id: params.userId }, select: { role: true } })
+    if (u) await chargeUser({ userId: params.userId, role: u.role, costUsd: 0.06, markupPercent: markup, aiUsageLogId: imgLog.id, description: 'generate_image' })
+  }
 
   log.info('[KIE] generateImage complete', { businessId, mediaId: mediaFile.id })
 
@@ -398,21 +406,26 @@ export async function editImage(params: EditImageParams): Promise<KieImageResult
     },
   })
 
-  await db.aiUsageLog.create({
+  const editMarkup = await getMarkupPercent()
+  const editLog = await db.aiUsageLog.create({
     data: {
       businessId,
       userId: params.userId || null,
       action: 'edit_image',
       model,
-      tokensIn: 0,
-      tokensOut: 0,
-      cachedTokens: 0,
+      tokensIn: 0, tokensOut: 0, cachedTokens: 0,
       costUsd: modelInfo.cost,
+      markupPercent: editMarkup,
+      chargedRub: calculateChargedRub(modelInfo.cost, editMarkup),
       status: 'success',
       prompt: (prompt || '').slice(0, 2000),
       durationMs: Date.now() - start,
     },
   })
+  if (params.userId) {
+    const u = await db.user.findUnique({ where: { id: params.userId }, select: { role: true } })
+    if (u) await chargeUser({ userId: params.userId, role: u.role, costUsd: modelInfo.cost, markupPercent: editMarkup, aiUsageLogId: editLog.id, description: 'edit_image' })
+  }
 
   log.info('[KIE] editImage complete', { businessId, mediaId: mediaFile.id })
 
@@ -489,21 +502,26 @@ export async function removeBackground(params: RemoveBgParams): Promise<KieImage
     },
   })
 
-  await db.aiUsageLog.create({
+  const bgMarkup = await getMarkupPercent()
+  const bgLog = await db.aiUsageLog.create({
     data: {
       businessId,
       userId: params.userId || null,
       action: 'remove_background',
       model,
-      tokensIn: 0,
-      tokensOut: 0,
-      cachedTokens: 0,
+      tokensIn: 0, tokensOut: 0, cachedTokens: 0,
       costUsd: 0.01,
+      markupPercent: bgMarkup,
+      chargedRub: calculateChargedRub(0.01, bgMarkup),
       status: 'success',
       prompt: null,
       durationMs: Date.now() - start,
     },
   })
+  if (params.userId) {
+    const u = await db.user.findUnique({ where: { id: params.userId }, select: { role: true } })
+    if (u) await chargeUser({ userId: params.userId, role: u.role, costUsd: 0.01, markupPercent: bgMarkup, aiUsageLogId: bgLog.id, description: 'remove_background' })
+  }
 
   log.info('[KIE] removeBackground complete', { businessId, mediaId: mediaFile.id })
 
@@ -664,7 +682,8 @@ export async function processVideoTaskResult(
     },
   })
 
-  await db.aiUsageLog.create({
+  const vidMarkup = await getMarkupPercent()
+  const vidLog = await db.aiUsageLog.create({
     data: {
       businessId: params.businessId,
       userId: params.userId || null,
@@ -672,11 +691,17 @@ export async function processVideoTaskResult(
       model: params.model,
       tokensIn: 0, tokensOut: 0, cachedTokens: 0,
       costUsd: params.costUsd,
+      markupPercent: vidMarkup,
+      chargedRub: calculateChargedRub(params.costUsd, vidMarkup),
       status: 'success',
       prompt: (params.prompt || '').slice(0, 2000),
       durationMs: null,
     },
   })
+  if (params.userId) {
+    const u = await db.user.findUnique({ where: { id: params.userId }, select: { role: true } })
+    if (u) await chargeUser({ userId: params.userId, role: u.role, costUsd: params.costUsd, markupPercent: vidMarkup, aiUsageLogId: vidLog.id, description: 'generate_video' })
+  }
 
   log.info('[KIE] video saved', { businessId: params.businessId, mediaId: mediaFile.id })
   return { mediaFileId: mediaFile.id, resultUrl: mediaFile.url }
