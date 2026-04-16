@@ -21,7 +21,7 @@ const sidebar = useSidebarStore()
 const { canView } = useSectionAccess()
 
 const allNavItems: { name: string; label: string; icon: any; path: string; section: Section }[] = [
-  { name: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, path: '/', section: 'dashboard' },
+  { name: 'dashboard', label: 'Обзор', icon: LayoutDashboard, path: '/', section: 'dashboard' },
   { name: 'posts', label: 'Stories', icon: Film, path: '/posts', section: 'posts' },
   { name: 'ideas', label: 'Идеи', icon: Lightbulb, path: '/ideas', section: 'ideas' },
   { name: 'video-studio', label: 'Видео-студия', icon: Film, path: '/video-studio', section: 'videoStudio' },

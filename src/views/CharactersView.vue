@@ -128,7 +128,7 @@ async function uploadPhoto(event: Event) {
     const res = await fetch('/api/media/upload', {
       method: 'POST', credentials: 'include', body: formData,
     })
-    if (!res.ok) throw new Error('Upload failed')
+    if (!res.ok) throw new Error('Файл не загружен')
     const media = await res.json()
     form.value.referenceMediaId = media.id
     toast.success('Фото загружено')
@@ -297,7 +297,7 @@ onMounted(loadCharacters)
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label class="block text-xs font-medium mb-1">Стиль</label>
-                <input v-model="form.style" class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm outline-none focus:border-brand-500" placeholder="realistic, cartoon, anime..." />
+                <input v-model="form.style" class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm outline-none focus:border-brand-500" placeholder="реалистичный, мультяшный, аниме..." />
               </div>
               <div>
                 <label class="block text-xs font-medium mb-1">Фото-референс</label>

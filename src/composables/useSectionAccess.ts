@@ -26,7 +26,7 @@ const ADMIN_SECTIONS: Section[] = ['scenarios', 'characters', 'videoStudio', 'se
 
 /** Все секции с русскими лейблами */
 export const SECTION_LABELS: Record<Section, string> = {
-  dashboard: 'Dashboard',
+  dashboard: 'Обзор',
   posts: 'Stories / Посты',
   plans: 'Контент-планы',
   media: 'Медиа',

@@ -307,19 +307,19 @@ ${SEEDANCE_BEST_PRACTICES}
 ## Adaptive Rules
 ${lengthRule}
 ${timelineRule}
-- Write in ENGLISH (Seedance works better in English)
-- Use specific camera terms: "slow dolly push" not "beautiful movement"
+- Пиши на том же языке, что и входной промпт. Если вход на русском — отвечай на русском
+- Use specific camera terms: "slow dolly push" not "beautiful movement" (or Russian equivalents: "плавный наезд" not "красивое движение")
 - For audio: weave sound descriptions inline, not as a separate section
 ${IMAGE_REF_RULE}
 
 ## Examples
 
 Input: "SUP на закате"
-Output: "A young athletic man standing on a SUP board, paddling slowly across calm lake water. Steady tracking shot from behind, medium wide, smooth gimbal movement at eye level. Golden hour sunset light reflecting on water surface, warm orange and amber tones, 35mm film grain. Gentle water splashing from paddle strokes, distant birds calling. Smooth motion, high detail, consistent water physics. No text overlays, no watermarks."
+Output: "Молодой атлетичный мужчина стоит на SUP-доске, медленно гребёт по спокойной воде озера. Устойчивый следящий кадр сзади, средне-общий план, плавное движение гимбала на уровне глаз. Золотой час, закатный свет отражается на поверхности воды, тёплые оранжево-янтарные тона, зернистость 35мм плёнки. Мягкий плеск воды от ударов весла, далёкие крики птиц. Плавное движение, высокая детализация, реалистичная физика воды. Без текстовых наложений, без водяных знаков."
 
 Input (advanced, 200+ words with timeline): preserve the timeline structure and length, only fix specific weak spots.
 
-Return ONLY the improved prompt in English, no explanations, no quotes.`
+Return ONLY the improved prompt, no explanations, no quotes. Use the same language as the input.`
 }
 
 /**
@@ -360,7 +360,9 @@ ${SEEDANCE_BEST_PRACTICES}
 
 ${IMAGE_REF_RULE}
 
-Return ONLY the timeline prompt in English, no explanations.`
+Respond in the same language as the input prompt.
+
+Return ONLY the timeline prompt, no explanations.`
 }
 
 /**
@@ -383,7 +385,7 @@ Rewrite the prompt following this order:
 - Do NOT add new creative ideas — only restructure what's already there
 - Do NOT remove any details — preserve everything
 - If a component is missing in the original, add a minimal default (e.g., "medium shot, eye level" if no camera specified)
-- Maintain the original language (English or mixed)
+- Respond in the same language as the input prompt
 - Keep the same word count (±10%)
 ${IMAGE_REF_RULE}
 
@@ -418,6 +420,8 @@ Your task: tighten the prompt by removing fluff and strengthening specifics.
 - Do NOT change the story
 - Do NOT compress long prompts into short ones
 
+Respond in the same language as the input prompt.
+
 Return ONLY the tightened prompt, no explanations.`
 }
 
@@ -450,6 +454,8 @@ The model generates 4 audio layers natively:
 - @ImageN reference tags
 - Camera instructions
 - Overall structure and length
+
+Respond in the same language as the input prompt.
 
 Return ONLY the prompt with added audio, no explanations.`
 }
@@ -490,6 +496,8 @@ Stabilization: gimbal-smooth, steadicam, tripod-locked, handheld
 - NEVER use "fast" camera movements — "swift", "dynamic" instead
 - Preserve ALL non-camera content (subject, action, style, audio, constraints)
 ${IMAGE_REF_RULE}
+
+Respond in the same language as the input prompt.
 
 Return ONLY the prompt with enhanced camera, no explanations.`
 }
@@ -539,7 +547,7 @@ Your task: compress a complex prompt into a simple, clean 80-150 word version.
 - ONE action verb, ONE camera movement
 - Remove timeline markers, simplify multi-shot to single strongest shot
 - Keep the core creative idea
-- Write in English
+- Respond in the same language as the input prompt
 ${IMAGE_REF_RULE}
 - Add standard constraint: "No text overlays, no watermarks"
 

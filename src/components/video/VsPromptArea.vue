@@ -126,7 +126,7 @@ defineExpose({ insertBadge, openPreview, setContentWithBadges })
             </button>
           </div>
           <span class="absolute bottom-0.5 left-0.5 px-1 py-0.5 bg-black/70 text-white text-[7px] rounded font-mono">
-            {{ which === 'first' ? '1st' : 'last' }}
+            {{ which === 'first' ? '1-й' : 'Посл.' }}
           </span>
         </div>
         <label v-else
@@ -146,7 +146,7 @@ defineExpose({ insertBadge, openPreview, setContentWithBadges })
         <button @click="showAddMenu = !showAddMenu"
           class="w-14 h-14 rounded-xl border-2 border-dashed border-gray-300 dark:border-gray-700 flex flex-col items-center justify-center hover:border-emerald-400 transition-colors">
           <Plus :size="16" class="text-gray-400" />
-          <span class="text-[7px] text-gray-400 mt-0.5">Image</span>
+          <span class="text-[7px] text-gray-400 mt-0.5">Фото</span>
         </button>
         <!-- Hidden file input -->
         <input ref="fileInputRef" type="file" accept="image/*" class="hidden"

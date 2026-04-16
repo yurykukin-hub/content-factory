@@ -119,11 +119,20 @@ User, UserBusiness, Business, BrandProfile, PlatformAccount, ContentPlan, Conten
 - [2026-04-15] Debug info bar: модель, токены in/out, стоимость USD, время ms — виден при devMode=on
 - [2026-04-15] Seedance 2.0 best practices зашиты во все промпты: no "fast", no empty adjectives, inline audio, one camera per shot
 
+## Русификация AI-промптов (2026-04-16)
+- [2026-04-16] Стратегия: "Русский UI + автоперевод перед генерацией". Пользователь видит русский, Seedance получает английский через translatePrompt()
+- [2026-04-16] Enhance промпты (7 режимов): убрано "Write in ENGLISH" → "Пиши на том же языке, что и входной промпт"
+- [2026-04-16] describe-image: system prompt + typeHints переведены на русский (было English-only)
+- [2026-04-16] PromptConstructor: assembledPrompt использует .label (рус.) вместо .en (англ.). Поля en оставлены для translate режима
+- [2026-04-16] translatePrompt() в kie.ts усилен: Seedance-специфичный словарь (15 камерных терминов), @Image/@timeline preservation, maxTokens 200→400
+- [2026-04-16] UI: Dashboard→Обзор, PostType маппинг (useLabels.ts), placeholder'ы на русском, "Upload failed"→"Файл не загружен"
+- [2026-04-16] Режим translate в enhance НЕ менялся — его задача явный RU→EN перевод
+
 ## Паттерны
 - HTTP client: fetch + httpOnly cookie + X-Tab-ID (из nawode-erp)
 - Auth: JWT в httpOnly cookie, requireAuth middleware
 - SSE: eventBus → ReadableStream
-- AI prompts: system prompt = base + brandContext
+- AI prompts: system prompt = base + brandContext. Видео/фото описания — на русском, перевод автоматический при генерации
 - RBAC: UserBusiness join table, getUserBusinessIds()
 - Testing: Vitest + vitest-setup.ts, mock Prisma via vi.hoisted()
 - Mobile sidebar: Pinia store + Teleport + Transition (slide + backdrop)

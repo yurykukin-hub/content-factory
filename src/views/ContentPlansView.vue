@@ -11,6 +11,7 @@ import {
 } from 'lucide-vue-next'
 import BusinessFilter from '@/components/BusinessFilter.vue'
 import { useSectionAccess } from '@/composables/useSectionAccess'
+import { postTypeLabel } from '@/composables/useLabels'
 
 const { canEdit: canEditSection } = useSectionAccess()
 
@@ -350,7 +351,7 @@ watch(() => businesses.currentBusiness?.id, loadPlans)
                 <td class="px-4 py-3 font-medium">{{ item.topic }}</td>
                 <td class="px-4 py-3">
                   <span :class="['inline-block w-2 h-2 rounded-full mr-1', typeColor(item.postType)]"></span>
-                  <span class="text-xs text-gray-500">{{ item.postType }}</span>
+                  <span class="text-xs text-gray-500">{{ postTypeLabel(item.postType) }}</span>
                 </td>
                 <td class="px-4 py-3 text-xs text-gray-500 max-w-[200px] truncate">{{ item.description }}</td>
                 <td class="px-4 py-3">

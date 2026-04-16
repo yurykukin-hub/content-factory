@@ -72,7 +72,7 @@ async function uploadFile(file: File) {
       body: formData,
       credentials: 'include',
     })
-    if (!res.ok) throw new Error('Upload failed')
+    if (!res.ok) throw new Error('Файл не загружен')
     const mediaFile = await res.json() as MediaFile
     emit('uploaded', mediaFile)
   } catch (e: any) {

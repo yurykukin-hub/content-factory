@@ -125,10 +125,29 @@ async function translatePrompt(prompt: string, businessId: string): Promise<stri
 
   try {
     const result = await aiComplete({
-      systemPrompt: 'Translate the following image generation prompt to English. Keep it as a prompt for AI image generation - concise, descriptive. Return ONLY the translated prompt, nothing else.',
+      systemPrompt: `Translate the following video generation prompt to English for Seedance 2.0.
+Keep it as a prompt for AI video generation - concise, descriptive.
+Use proper camera terminology:
+  - крупный план → close-up
+  - средний план → medium shot
+  - общий план → wide shot
+  - наезд → dolly in / push forward
+  - отъезд → pull back / dolly out
+  - панорама → pan
+  - следящая → tracking shot
+  - ручная камера → handheld
+  - дрон → aerial
+  - статика → locked-off static camera
+  - гимбал → gimbal stabilized
+  - орбита → orbital movement
+  - золотой час → golden hour
+  - контровый свет → backlit / rim lighting
+Preserve @Image1, @Image2 tags exactly as-is.
+Preserve timeline markers [0s], [3s] etc.
+Return ONLY the translated prompt, nothing else.`,
       userPrompt: prompt,
       model: config.models.haiku,
-      maxTokens: 200,
+      maxTokens: 400,
       businessId,
       action: 'translate_prompt',
     })

@@ -143,7 +143,7 @@ const assembledPrompt = computed(() => {
   // Subject
   const subj = SUBJECTS.find(s => s.id === sections.subject.type)
   if (subj) {
-    let s = subj.en
+    let s = subj.label
     if (sections.subject.detail) s += `, ${sections.subject.detail}`
     parts.push(s)
   }
@@ -151,7 +151,7 @@ const assembledPrompt = computed(() => {
   // Action
   const act = ACTIONS.find(a => a.id === sections.action.type)
   if (act) {
-    let s = act.en
+    let s = act.label
     if (sections.action.detail) s += ` ${sections.action.detail}`
     parts.push(s)
   }
@@ -159,32 +159,32 @@ const assembledPrompt = computed(() => {
   // Camera
   const camParts: string[] = []
   const shot = SHOTS.find(s => s.id === sections.camera.shot)
-  if (shot) camParts.push(shot.en)
+  if (shot) camParts.push(shot.label)
   const mov = MOVEMENTS.find(m => m.id === sections.camera.movement)
-  if (mov) camParts.push(mov.en)
+  if (mov) camParts.push(mov.label)
   const ang = ANGLES.find(a => a.id === sections.camera.angle)
-  if (ang) camParts.push(ang.en)
+  if (ang) camParts.push(ang.label)
   if (camParts.length) parts.push(camParts.join(', '))
 
   // Lighting
   const lightParts: string[] = []
   const light = LIGHTING.find(l => l.id === sections.lighting.type)
-  if (light) lightParts.push(light.en)
+  if (light) lightParts.push(light.label)
   const color = COLORS.find(c => c.id === sections.lighting.color)
-  if (color) lightParts.push(color.en)
+  if (color) lightParts.push(color.label)
   if (lightParts.length) parts.push(lightParts.join(', '))
 
   // Style
   const sty = STYLES.find(s => s.id === sections.style.type)
   if (sty) {
-    let s = sty.en
-    if (sections.style.reference) s += `, inspired by ${sections.style.reference}`
+    let s = sty.label
+    if (sections.style.reference) s += `, вдохновлено ${sections.style.reference}`
     parts.push(s)
   }
 
   // Audio
   if (sections.audio.description) {
-    parts.push(`Sound: ${sections.audio.description}`)
+    parts.push(`Звук: ${sections.audio.description}`)
   }
 
   // Reference images with roles
@@ -194,17 +194,17 @@ const assembledPrompt = computed(() => {
       const tag = `@Image${idx + 1}`
       const role = ROLES.find(r => r.id === ref.role)
       if (role) {
-        refParts.push(`${role.en} ${tag}`)
+        refParts.push(`${role.label} ${tag}`)
       } else {
-        refParts.push(`reference ${tag}`)
+        refParts.push(`референс ${tag}`)
       }
     })
-    if (refParts.length) parts.push('Using ' + refParts.join(', '))
+    if (refParts.length) parts.push('Референсы: ' + refParts.join(', '))
   }
 
   // Quality constraint
   if (parts.length) {
-    parts.push('Smooth motion, high detail, no distortion, maintain consistency with reference images')
+    parts.push('Плавное движение, высокая детализация, без искажений, сохранять консистентность с референсами')
   }
 
   return parts.join('. ') + (parts.length ? '.' : '')
@@ -353,9 +353,9 @@ const sectionConfig = [
 
         <!-- Audio -->
         <template v-if="sec.key === 'audio'">
-          <input v-model="sections.audio.description" placeholder="Звуки: waves crashing, birds singing, upbeat music..."
+          <input v-model="sections.audio.description" placeholder="Звуки: шум волн, пение птиц, энергичная музыка..."
             class="w-full px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-xs outline-none focus:border-emerald-400" />
-          <p class="text-[9px] text-gray-400">Для диалога: используйте кавычки "Hello, welcome!"</p>
+          <p class="text-[9px] text-gray-400">Для диалога: используйте кавычки "Привет, добро пожаловать!"</p>
         </template>
       </div>
     </div>

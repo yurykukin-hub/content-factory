@@ -36,7 +36,7 @@ onMounted(async () => {
 
 <template>
   <div>
-    <h1 class="text-2xl font-bold mb-6">Dashboard</h1>
+    <h1 class="text-2xl font-bold mb-6">Обзор</h1>
 
     <div v-if="loading" class="text-gray-500">Загрузка...</div>
 

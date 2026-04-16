@@ -698,7 +698,7 @@ async function addRefImage(event: Event) {
   formData.append('tags', JSON.stringify(['video-reference']))
   try {
     const res = await fetch('/api/media/upload', { method: 'POST', credentials: 'include', body: formData })
-    if (!res.ok) throw new Error('Upload failed')
+    if (!res.ok) throw new Error('Файл не загружен')
     const media = await res.json()
     videoRefImages.value.push({ url: media.url, thumbUrl: media.thumbUrl, filename: media.filename })
     toast.success(`Референс @Image${videoRefImages.value.length} загружен`)
@@ -719,7 +719,7 @@ async function pickFrame(event: Event, which: 'first' | 'last') {
   formData.append('tags', JSON.stringify(['video-frame']))
   try {
     const res = await fetch('/api/media/upload', { method: 'POST', credentials: 'include', body: formData })
-    if (!res.ok) throw new Error('Upload failed')
+    if (!res.ok) throw new Error('Файл не загружен')
     const media = await res.json()
     const frame = { url: media.url, thumbUrl: media.thumbUrl, filename: media.filename }
     if (which === 'first') videoFirstFrame.value = frame

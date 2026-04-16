@@ -784,6 +784,7 @@ ai.post('/enhance-video-prompt', async (c) => {
 const generateVideoSchema = z.object({
   businessId: z.string(),
   postId: z.string().optional(),
+  sessionId: z.string().optional(), // idempotency guard — block duplicate generation
   prompt: z.string().min(1).max(10000),
   duration: z.number().int().min(4).max(15).default(5),
   aspectRatio: z.enum(['1:1', '16:9', '9:16']).default('9:16'),
@@ -802,6 +803,14 @@ ai.post('/generate-video', async (c) => {
   } catch (e: any) {
     if (e.message === 'FORBIDDEN') return c.json({ error: 'Нет доступа' }, 403)
     throw e
+  }
+
+  // Guard: если сессия уже генерируется — отказать (защита от двойного клика и повтора после F5)
+  if (data.sessionId) {
+    const session = await db.generationSession.findUnique({ where: { id: data.sessionId }, select: { status: true, userId: true } })
+    if (session && session.status === 'generating') {
+      return c.json({ error: 'Генерация уже запущена для этой сессии' }, 409)
+    }
   }
 
   const result = await generateVideo({
@@ -889,12 +898,12 @@ ai.post('/describe-image', async (c) => {
   const data = describeImageSchema.parse(await c.req.json())
 
   const typeHints: Record<string, string> = {
-    auto: 'Describe what you see in this image: subjects, setting, colors, lighting, mood, key visual details. Be specific.',
-    person: 'Describe this person: appearance, hair, clothing, distinguishing features. Be specific.',
-    mascot: 'Describe this mascot/character: visual style, colors, key features, expression.',
-    avatar: 'Describe this avatar: visual style, colors, key features.',
-    object: 'Describe this object: shape, material, color, size, distinguishing details.',
-    location: 'Describe this location/place: setting, atmosphere, key visual elements, lighting.',
+    auto: 'Опиши что видишь на изображении: субъекты, обстановка, цвета, освещение, настроение, ключевые визуальные детали. Будь конкретным.',
+    person: 'Опиши этого человека: внешность, волосы, одежда, отличительные черты. Будь конкретным.',
+    mascot: 'Опиши этого маскота/персонажа: визуальный стиль, цвета, ключевые черты, выражение.',
+    avatar: 'Опиши этот аватар: визуальный стиль, цвета, ключевые черты.',
+    object: 'Опиши этот объект: форма, материал, цвет, размер, отличительные детали.',
+    location: 'Опиши эту локацию/место: обстановка, атмосфера, ключевые визуальные элементы, освещение.',
   }
 
   const publicUrl = data.imageUrl.startsWith('/uploads/')
@@ -902,7 +911,7 @@ ai.post('/describe-image', async (c) => {
     : data.imageUrl
 
   const result = await aiVision({
-    systemPrompt: 'You are a visual description expert for AI video generation. Write a concise description in English (2-3 sentences). Describe everything visible: subjects, environment, colors, lighting, composition. Never refuse — always describe what you see.',
+    systemPrompt: 'Ты эксперт по визуальным описаниям для AI-видеогенерации. Напиши краткое описание на русском (2-3 предложения). Опиши всё видимое: субъекты, окружение, цвета, освещение, композицию. Никогда не отказывай — всегда описывай что видишь.',
     userPrompt: typeHints[data.type] || typeHints.auto,
     imageUrls: [publicUrl],
     model: config.models.vision,
