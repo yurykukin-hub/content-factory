@@ -103,10 +103,10 @@ async function fixStuckSessions() {
       // Video was generated but status wasn't updated (F5 during generation)
       await http.put(`/sessions/${s.id}`, { status: 'completed' }).catch(() => {})
     } else if (s.status === 'generating') {
-      // Stuck in generating without result — check updatedAt, if older than 5 min → mark draft
+      // Stuck in generating without result — check updatedAt, if older than 3 min → mark draft
       const updatedAt = new Date(s.updatedAt).getTime()
-      const fiveMinAgo = Date.now() - 5 * 60 * 1000
-      if (updatedAt < fiveMinAgo) {
+      const threeMinAgo = Date.now() - 3 * 60 * 1000
+      if (updatedAt < threeMinAgo) {
         await http.put(`/sessions/${s.id}`, { status: 'draft' }).catch(() => {})
       }
     }

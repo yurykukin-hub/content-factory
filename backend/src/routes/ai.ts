@@ -805,11 +805,15 @@ ai.post('/generate-video', async (c) => {
     throw e
   }
 
-  // Guard: если сессия уже генерируется — отказать (защита от двойного клика и повтора после F5)
+  // Guard: если сессия уже генерируется менее 3 мин — отказать (защита от двойного клика)
+  // Если >3 мин — считаем зависшей и разрешаем повтор
   if (data.sessionId) {
-    const session = await db.generationSession.findUnique({ where: { id: data.sessionId }, select: { status: true, userId: true } })
+    const session = await db.generationSession.findUnique({ where: { id: data.sessionId }, select: { status: true, updatedAt: true } })
     if (session && session.status === 'generating') {
-      return c.json({ error: 'Генерация уже запущена для этой сессии' }, 409)
+      const staleMs = Date.now() - new Date(session.updatedAt).getTime()
+      if (staleMs < 3 * 60 * 1000) {
+        return c.json({ error: 'Генерация уже запущена для этой сессии' }, 409)
+      }
     }
   }
 
