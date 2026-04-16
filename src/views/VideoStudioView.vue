@@ -58,9 +58,10 @@ function scheduleAutoSave() {
 async function saveSession() {
   if (!selectedBizId.value || autoSavePaused) return
   if (!currentSessionId.value) return
-  // Only auto-save draft/generating sessions (don't overwrite completed/failed)
+  // Only auto-save draft sessions — never touch generating/completed/failed
+  // Note: generating sessions are handled by runGeneration directly
   const current = sessions.value.find(s => s.id === currentSessionId.value)
-  if (current && current.status !== 'draft' && current.status !== 'generating') return
+  if (current && current.status !== 'draft') return
   // Auto-generate title from first 40 chars of prompt
   const autoTitle = prompt.value.trim().slice(0, 40) || 'Новая сессия'
   const payload: any = {
@@ -517,7 +518,7 @@ async function runGeneration(sessionId: string, state: {
       payload.referenceImageUrls = state.referenceImageUrls
     }
 
-    const result = await http.post<{ mediaFile: GeneratedVideo }>('/ai/generate-video', payload)
+    const result = await http.post<{ mediaFile: GeneratedVideo }>('/ai/generate-video', { ...payload, sessionId })
     generatedVideos.value.unshift(result.mediaFile)
 
     // Calculate cost
@@ -527,8 +528,8 @@ async function runGeneration(sessionId: string, state: {
     const baseCost = cps * state.duration * CREDIT_PRICE
     const costUsd = state.generateAudio ? baseCost * AUDIO_MULT : baseCost
 
-    // Update session with result
-    try {
+    // Update session with result — retry once on failure to avoid stuck 'generating' status
+    const updateSessionCompleted = async () => {
       const curr = await http.get<any>(`/sessions/${sessionId}`)
       const existingResults = (curr?.results as any[]) || []
       existingResults.push({
@@ -540,10 +541,15 @@ async function runGeneration(sessionId: string, state: {
         resultUrl: result.mediaFile.url, results: existingResults,
         costUsd: existingResults.reduce((sum: number, r: any) => sum + (r.costUsd || 0), 0),
       })
+    }
+    try {
+      await updateSessionCompleted()
     } catch {
-      http.put(`/sessions/${sessionId}`, {
-        status: 'completed', mediaFileId: result.mediaFile.id, resultUrl: result.mediaFile.url, costUsd,
-      }).catch(() => {})
+      // Retry once after 2s — ensures status is never stuck at 'generating'
+      await new Promise(r => setTimeout(r, 2000))
+      await updateSessionCompleted().catch(err => {
+        console.error('[VS] Failed to update session status to completed after retry:', err)
+      })
     }
 
     // Save to prompt library
