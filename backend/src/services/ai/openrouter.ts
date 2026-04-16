@@ -56,6 +56,7 @@ interface AiCompleteParams {
   maxTokens?: number
   businessId?: string
   action?: string
+  userId?: string
 }
 
 interface AiCompleteResult {
@@ -74,6 +75,7 @@ interface AiCompleteResult {
 export async function aiComplete(params: AiCompleteParams): Promise<AiCompleteResult> {
   const model = params.model || config.models.haiku
   const apiKey = await getApiKey()
+  const start = Date.now()
 
   const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
@@ -112,16 +114,20 @@ export async function aiComplete(params: AiCompleteParams): Promise<AiCompleteRe
   }
 
   // Log usage
-  if (params.businessId && params.action) {
+  if (params.action) {
     await db.aiUsageLog.create({
       data: {
-        businessId: params.businessId,
+        businessId: params.businessId || null,
+        userId: params.userId || null,
         action: params.action,
         model,
         tokensIn: result.tokensIn,
         tokensOut: result.tokensOut,
         cachedTokens: result.cachedTokens,
         costUsd: result.costUsd,
+        status: 'success',
+        prompt: (params.userPrompt || '').slice(0, 2000),
+        durationMs: Date.now() - start,
       },
     })
   }
@@ -139,11 +145,13 @@ export async function aiVision(params: {
   imageUrls: string[]
   model?: string
   maxTokens?: number
-  businessId?: string
+  businessId?: string | null
   action?: string
+  userId?: string
 }): Promise<AiCompleteResult> {
   const model = params.model || config.models.haiku
   const apiKey = await getApiKey()
+  const start = Date.now()
 
   // Собрать multimodal content: текст + картинки
   const userContent: any[] = [
@@ -189,16 +197,20 @@ export async function aiVision(params: {
     model,
   }
 
-  if (params.businessId && params.action) {
+  if (params.action) {
     await db.aiUsageLog.create({
       data: {
-        businessId: params.businessId,
+        businessId: params.businessId || null,
+        userId: params.userId || null,
         action: params.action,
         model,
         tokensIn: result.tokensIn,
         tokensOut: result.tokensOut,
         cachedTokens: result.cachedTokens,
         costUsd: result.costUsd,
+        status: 'success',
+        prompt: (params.userPrompt || '').slice(0, 2000),
+        durationMs: Date.now() - start,
       },
     })
   }

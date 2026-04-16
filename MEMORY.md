@@ -12,15 +12,18 @@
 ## Schema (23 модели, 8 enums)
 User, UserBusiness, Business, BrandProfile, PlatformAccount, ContentPlan, ContentPlanItem, Post, PostVersion, PublishLog, MediaFile, MediaFolder, AiUsageLog, WebhookRule, AppConfig, Idea, StoryTemplate, Character, CharacterBusiness, Scenario, PromptEntry, PromptTemplate, GenerationSession
 
-## Endpoints (~17 route-файлов)
-- auth, users, businesses, platforms, posts, content-plans, ai, publish, media, settings, vk-oauth, ideas, characters, scenarios, sessions, dashboard, sse
+- [2026-04-16] **AiUsageLog расширена:** +userId, +status ("success"/"error"), +errorMessage, +prompt (truncated 2000), +durationMs. Relation на User, index на userId
+
+## Endpoints (~18 route-файлов)
+- auth, users, businesses, platforms, posts, content-plans, ai, publish, media, settings, vk-oauth, ideas, characters, scenarios, sessions, dashboard, sse, **ai-logs**
 - GET /api/media/library/:bizId — **cursor pagination** `{ files, hasMore, totalCount }` (НЕ массив!) (16.04)
+- [2026-04-16] **AI Logs API** (5 endpoints): GET /ai-logs (paginated list), /ai-logs/stats, /ai-logs/summary (groupBy), /ai-logs/error-count, /ai-logs/export (CSV)
 
 ## SaaS-Ready (2026-04-11)
 - Split app.ts + index.ts, Vitest 48 тестов, health endpoint
 - Error handler, RBAC (UserBusiness), refresh tokens (1h+30d)
 - Security: resource-access checks на 30+ endpoints
-- Section Access: 11 секций × 3 уровня (full/view/none), requireSection middleware
+- Section Access: **12 секций** × 3 уровня (full/view/none), requireSection middleware. `aiLogs` в ADMIN_SECTIONS
 
 ## Русификация AI-промптов (2026-04-16)
 - [2026-04-16] Стратегия: "Русский UI + автоперевод перед генерацией" через translatePrompt()
@@ -52,3 +55,4 @@ User, UserBusiness, Business, BrandProfile, PlatformAccount, ContentPlan, Conten
 - Mobile sidebar: Pinia store + Teleport + Transition (slide + backdrop)
 - Media library API: `{ files, hasMore, totalCount }` — НЕ массив. Все консьюмеры → `res.files`
 - Video generation: async (video-poller) — никогда не блокировать HTTP-запрос на минуты
+- AI logging: все AI-вызовы логируют userId, prompt (2000 chars), durationMs, status+errorMessage. ADMIN видит всех, user — только свои

@@ -15,6 +15,7 @@ export const SECTIONS = [
   'videoStudio',
   'settings',
   'publishing',
+  'aiLogs',
 ] as const
 
 export type Section = (typeof SECTIONS)[number]
@@ -22,7 +23,7 @@ export type AccessLevel = 'full' | 'view' | 'none'
 export type SectionAccess = Partial<Record<Section, AccessLevel>>
 
 /** Секции, доступные только ADMIN по умолчанию */
-const ADMIN_SECTIONS: Section[] = ['scenarios', 'characters', 'videoStudio', 'settings']
+const ADMIN_SECTIONS: Section[] = ['scenarios', 'characters', 'videoStudio', 'settings', 'aiLogs']
 
 /**
  * Определяет уровень доступа к разделу.
@@ -81,4 +82,5 @@ export const SECTION_LABELS: Record<Section, string> = {
   videoStudio: 'Видео-студия',
   settings: 'Настройки',
   publishing: 'Публикация',
+  aiLogs: 'AI Логи',
 }

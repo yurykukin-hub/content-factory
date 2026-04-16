@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { computed, watch } from 'vue'
+import { computed, watch, ref, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useSidebarStore } from '@/stores/sidebar'
+import { useAuthStore } from '@/stores/auth'
 import { useSectionAccess, type Section } from '@/composables/useSectionAccess'
+import { http } from '@/api/client'
 import {
   LayoutDashboard,
   Film,
@@ -13,12 +15,35 @@ import {
   Building2,
   Settings,
   Image,
+  Activity,
   X,
 } from 'lucide-vue-next'
 
 const route = useRoute()
 const sidebar = useSidebarStore()
+const auth = useAuthStore()
 const { canView } = useSectionAccess()
+
+// AI Logs error badge
+const aiErrorCount = ref(0)
+let errorPollTimer: ReturnType<typeof setInterval> | null = null
+
+async function fetchErrorCount() {
+  if (!canView('aiLogs')) return
+  try {
+    const res = await http.get<{ count: number }>('/ai-logs/error-count')
+    aiErrorCount.value = res.count
+  } catch { /* ignore */ }
+}
+
+onMounted(() => {
+  fetchErrorCount()
+  errorPollTimer = setInterval(fetchErrorCount, 5 * 60 * 1000) // каждые 5 мин
+})
+
+onUnmounted(() => {
+  if (errorPollTimer) clearInterval(errorPollTimer)
+})
 
 const allNavItems: { name: string; label: string; icon: any; path: string; section: Section }[] = [
   { name: 'dashboard', label: 'Обзор', icon: LayoutDashboard, path: '/', section: 'dashboard' },
@@ -31,6 +56,7 @@ const allNavItems: { name: string; label: string; icon: any; path: string; secti
   { name: 'media', label: 'Медиа', icon: Image, path: '/media', section: 'media' },
   { name: 'businesses', label: 'Проекты', icon: Building2, path: '/businesses', section: 'businesses' },
   { name: 'settings', label: 'Настройки', icon: Settings, path: '/settings', section: 'settings' },
+  { name: 'ai-logs', label: 'AI Логи', icon: Activity, path: '/ai-logs', section: 'aiLogs' },
 ]
 
 const navItems = computed(() => allNavItems.filter(i => canView(i.section)))
@@ -62,7 +88,11 @@ watch(() => route.path, () => sidebar.close())
         ]"
       >
         <component :is="item.icon" :size="20" />
-        {{ item.label }}
+        <span class="flex-1">{{ item.label }}</span>
+        <span
+          v-if="item.name === 'ai-logs' && aiErrorCount > 0"
+          class="ml-auto inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-red-500 text-white text-[10px] font-bold"
+        >{{ aiErrorCount }}</span>
       </router-link>
     </nav>
   </aside>
@@ -103,7 +133,11 @@ watch(() => route.path, () => sidebar.close())
             ]"
           >
             <component :is="item.icon" :size="20" />
-            {{ item.label }}
+            <span class="flex-1">{{ item.label }}</span>
+            <span
+              v-if="item.name === 'ai-logs' && aiErrorCount > 0"
+              class="ml-auto inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-red-500 text-white text-[10px] font-bold"
+            >{{ aiErrorCount }}</span>
           </router-link>
         </nav>
       </aside>

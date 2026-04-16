@@ -53,6 +53,7 @@ ai.post('/generate-plan', async (c) => {
     maxTokens: 4000,
     businessId: data.businessId,
     action: 'generate_plan',
+    userId: user.userId,
   })
 
   // 4. Парсить JSON (защита от markdown ```json```)
@@ -159,6 +160,7 @@ ai.post('/generate-post', async (c) => {
     model: config.models.sonnet,
     businessId: data.businessId,
     action: 'generate_post',
+    userId: user.userId,
   })
 
   // 4. Создать Post в БД
@@ -211,6 +213,7 @@ ai.post('/generate-image', async (c) => {
     postId: data.postId || null,
     aspectRatio: data.aspectRatio,
     characterId: data.characterId || null,
+    userId: user.userId,
   })
 
   return c.json(result, 201)
@@ -249,6 +252,7 @@ ai.post('/enhance-image-prompt', async (c) => {
     maxTokens: data.mode === 'edit' ? 100 : 500,
     businessId: data.businessId,
     action: 'enhance_image_prompt',
+    userId: user.userId,
   })
 
   return c.json({ enhancedPrompt: result.content.trim() })
@@ -294,6 +298,7 @@ ${storyContext}
     maxTokens: 800,
     businessId: data.businessId,
     action: 'suggest_image_templates',
+    userId: user.userId,
   })
 
   try {
@@ -338,6 +343,7 @@ ${storyContext}
     maxTokens: 800,
     businessId: data.businessId,
     action: 'suggest_video_templates',
+    userId: user.userId,
   })
 
   try {
@@ -387,6 +393,7 @@ ai.post('/adapt', async (c) => {
       model: config.models.haiku,
       businessId: post.businessId,
       action: 'adapt_platform',
+      userId: user.userId,
     })
 
     // Сгенерировать хештеги
@@ -397,6 +404,7 @@ ai.post('/adapt', async (c) => {
       model: config.models.haiku,
       businessId: post.businessId,
       action: 'generate_hashtags',
+      userId: user.userId,
     })
     const hashtags = hashtagResult.content
       .split('\n')
@@ -481,6 +489,7 @@ ai.post('/edit-image', async (c) => {
     businessId: data.businessId,
     postId: data.postId || null,
     model: data.model,
+    userId: user.userId,
   })
 
   return c.json(result, 201)
@@ -511,6 +520,7 @@ ai.post('/remove-background', async (c) => {
     imageUrl: sourceMedia.url,
     businessId: data.businessId,
     postId: data.postId || null,
+    userId: user.userId,
   })
 
   return c.json(result, 201)
@@ -540,6 +550,7 @@ ai.post('/generate-edit-prompt', async (c) => {
     maxTokens: 500,
     businessId: data.businessId,
     action: 'generate_edit_prompt',
+    userId: user.userId,
   })
 
   const prompt = result.content.trim()
@@ -598,6 +609,7 @@ ai.post('/generate-story-text', async (c) => {
     maxTokens: 50,
     businessId: data.businessId,
     action: 'generate_story_title',
+    userId: user.userId,
   })
 
   // 2. Body (Haiku — короткий текст, Sonnet overkill)
@@ -608,6 +620,7 @@ ai.post('/generate-story-text', async (c) => {
     maxTokens: 150,
     businessId: data.businessId,
     action: 'generate_story_text',
+    userId: user.userId,
   })
 
   const title = titleResult.content.trim()
@@ -655,6 +668,7 @@ ai.post('/generate-scenario', async (c) => {
     maxTokens: 3000,
     businessId: data.businessId,
     action: 'generate_scenario',
+    userId: user.userId,
   })
 
   // Парсить JSON (защита от markdown ```json```)
@@ -758,6 +772,7 @@ ai.post('/enhance-video-prompt', async (c) => {
     maxTokens,
     businessId: data.businessId,
     action: `enhance_video_prompt_${data.mode}`,
+    userId: user.userId,
   })
 
   const responseMs = Date.now() - startMs
@@ -835,6 +850,7 @@ ai.post('/generate-video', async (c) => {
     firstFrameUrl: data.firstFrameUrl || null,
     lastFrameUrl: data.lastFrameUrl || null,
     referenceImageUrls: data.referenceImageUrls || undefined,
+    userId: user.userId,
   })
 
   // Сохранить kieTaskId в сессию — poller найдёт по нему
@@ -907,6 +923,7 @@ Available reference tags: ${imageLabels}`
     maxTokens: 800,
     businessId: data.businessId,
     action: 'merge_references',
+    userId: user.userId,
   })
 
   return c.json({ mergedPrompt: result.content.trim() })
@@ -920,6 +937,7 @@ const describeImageSchema = z.object({
 
 ai.post('/describe-image', async (c) => {
   const data = describeImageSchema.parse(await c.req.json())
+  const user = c.get('user') as AuthUser
 
   const typeHints: Record<string, string> = {
     auto: 'Опиши что видишь на изображении: субъекты, обстановка, цвета, освещение, настроение, ключевые визуальные детали. Будь конкретным.',
@@ -941,6 +959,7 @@ ai.post('/describe-image', async (c) => {
     model: config.models.vision,
     businessId: null,
     action: 'describe_reference',
+    userId: user.userId,
   })
 
   return c.json({ description: result.content.trim() })

@@ -93,6 +93,12 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/SettingsView.vue'),
     meta: { section: 'settings' },
   },
+  {
+    path: '/ai-logs',
+    name: 'ai-logs',
+    component: () => import('@/views/AiLogsView.vue'),
+    meta: { section: 'aiLogs' },
+  },
 ]
 
 const router = createRouter({

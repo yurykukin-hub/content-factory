@@ -41,7 +41,7 @@ content-factory/
 │   │   │   ├── section-access.ts   # requireSection(section, level) — per-section access control
 │   │   │   ├── business-access.ts  # requireBusinessAccess + getUserBusinessIds
 │   │   │   └── resource-access.ts  # verifyPost/Plan/Media/PostVersionAccess
-│   │   ├── routes/             # API endpoints (~17 файлов)
+│   │   ├── routes/             # API endpoints (~18 файлов)
 │   │   │   ├── auth.ts         # login/logout/me/refresh (access+refresh tokens)
 │   │   │   ├── users.ts        # CRUD пользователей (ADMIN-only)
 │   │   │   ├── businesses.ts   # CRUD + brand profile + isActive toggle (ADMIN sees inactive)
@@ -58,6 +58,7 @@ content-factory/
 │   │   │   ├── scenarios.ts    # CRUD сценариев (scenes JSON, AI-генерация)
 │   │   │   ├── sessions.ts     # CRUD GenerationSession (video generation sessions)
 │   │   │   ├── dashboard.ts    # metrics (scoped by business access)
+│   │   │   ├── ai-logs.ts     # AI usage logs (list, stats, summary, error-count, export CSV)
 │   │   │   └── sse.ts          # Server-Sent Events
 │   │   ├── services/
 │   │   │   ├── scheduler.ts    # Отложенная публикация
@@ -128,7 +129,7 @@ Enums: UserRole, Platform, AccountType, PostType, PostStatus, ContentPlanStatus,
 - **ADMIN** — полный доступ ко всем проектам и настройкам (bypass sectionAccess)
 - **EDITOR** — только привязанные проекты (через UserBusiness), может редактировать бренд-профиль, не может управлять каналами
 - **VIEWER** — только чтение
-- **Section Access** — гранулярный доступ по разделам (User.sectionAccess JSON). 11 секций × 3 уровня (full/view/none). Дефолты по роли, кастомизация через Settings → Пользователи
+- **Section Access** — гранулярный доступ по разделам (User.sectionAccess JSON). 12 секций × 3 уровня (full/view/none). Дефолты по роли, кастомизация через Settings → Пользователи
 - Все routes проверяют доступ через `resource-access.ts` + `section-access.ts`
 
 ## Пользователи (production)

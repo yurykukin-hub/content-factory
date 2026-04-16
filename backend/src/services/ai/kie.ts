@@ -118,7 +118,7 @@ async function downloadAndSave(
 // Auto-translate prompt to English for better image generation
 // =====================
 
-async function translatePrompt(prompt: string, businessId: string): Promise<string> {
+async function translatePrompt(prompt: string, businessId: string, userId?: string): Promise<string> {
   // Skip if already English (simple heuristic: mostly ASCII)
   const nonAscii = prompt.replace(/[\x00-\x7F]/g, '').length
   if (nonAscii < prompt.length * 0.2) return prompt
@@ -150,6 +150,7 @@ Return ONLY the translated prompt, nothing else.`,
       maxTokens: 400,
       businessId,
       action: 'translate_prompt',
+      userId,
     })
     return result.content.trim()
   } catch {
@@ -167,6 +168,7 @@ interface GenerateImageParams {
   postId?: string | null
   aspectRatio?: '1:1' | '16:9' | '9:16'
   characterId?: string | null
+  userId?: string
 }
 
 interface GenerateImageResult {
@@ -178,6 +180,7 @@ interface GenerateImageResult {
 }
 
 export async function generateImage(params: GenerateImageParams): Promise<GenerateImageResult> {
+  const start = Date.now()
   const { prompt: rawPrompt, businessId, postId, aspectRatio = '1:1', characterId } = params
   const model = 'nano-banana-2'
 
@@ -206,7 +209,7 @@ export async function generateImage(params: GenerateImageParams): Promise<Genera
   }
 
   // Auto-translate to English for better quality
-  const prompt = await translatePrompt(enrichedPrompt, businessId)
+  const prompt = await translatePrompt(enrichedPrompt, businessId, params.userId)
 
   log.info('[KIE] generateImage', { businessId, model, prompt: prompt.slice(0, 80), hasCharacter: !!characterId })
 
@@ -265,10 +268,14 @@ export async function generateImage(params: GenerateImageParams): Promise<Genera
   await db.aiUsageLog.create({
     data: {
       businessId,
+      userId: params.userId || null,
       action: 'generate_image',
       model,
       tokensIn: 0, tokensOut: 0, cachedTokens: 0,
       costUsd: 0.06,
+      status: 'success',
+      prompt: (prompt || '').slice(0, 2000),
+      durationMs: Date.now() - start,
     },
   })
 
@@ -301,6 +308,7 @@ interface EditImageParams {
   businessId: string
   postId?: string | null
   model?: EditModelId
+  userId?: string
 }
 
 interface KieImageResult {
@@ -315,12 +323,13 @@ interface KieImageResult {
 }
 
 export async function editImage(params: EditImageParams): Promise<KieImageResult> {
+  const start = Date.now()
   const { imageUrl, prompt: rawPrompt, businessId, postId, model: modelId } = params
   const model = modelId || config.models.kieEditImage
   const modelInfo = EDIT_MODELS[model as EditModelId] || EDIT_MODELS['flux-kontext-pro']
 
   // Auto-translate to English
-  const prompt = await translatePrompt(rawPrompt, businessId)
+  const prompt = await translatePrompt(rawPrompt, businessId, params.userId)
 
   log.info('[KIE] editImage', { businessId, model, prompt: prompt.slice(0, 80) })
 
@@ -392,12 +401,16 @@ export async function editImage(params: EditImageParams): Promise<KieImageResult
   await db.aiUsageLog.create({
     data: {
       businessId,
+      userId: params.userId || null,
       action: 'edit_image',
       model,
       tokensIn: 0,
       tokensOut: 0,
       cachedTokens: 0,
       costUsd: modelInfo.cost,
+      status: 'success',
+      prompt: (prompt || '').slice(0, 2000),
+      durationMs: Date.now() - start,
     },
   })
 
@@ -423,9 +436,11 @@ interface RemoveBgParams {
   imageUrl: string
   businessId: string
   postId?: string | null
+  userId?: string
 }
 
 export async function removeBackground(params: RemoveBgParams): Promise<KieImageResult> {
+  const start = Date.now()
   const { imageUrl, businessId, postId } = params
   const model = config.models.kieRemoveBg
 
@@ -477,12 +492,16 @@ export async function removeBackground(params: RemoveBgParams): Promise<KieImage
   await db.aiUsageLog.create({
     data: {
       businessId,
+      userId: params.userId || null,
       action: 'remove_background',
       model,
       tokensIn: 0,
       tokensOut: 0,
       cachedTokens: 0,
       costUsd: 0.01,
+      status: 'success',
+      prompt: null,
+      durationMs: Date.now() - start,
     },
   })
 
@@ -515,6 +534,7 @@ interface GenerateVideoParams {
   firstFrameUrl?: string | null  // URL первого кадра (image-to-video)
   lastFrameUrl?: string | null   // URL последнего кадра (interpolation)
   referenceImageUrls?: string[] // До 9 reference-изображений (multimodal)
+  userId?: string
 }
 
 interface GenerateVideoResult {
@@ -570,7 +590,7 @@ export async function createVideoTask(params: GenerateVideoParams): Promise<Crea
   const audioMultiplier = generateAudio ? 2.0 : 1.0
   const costUsd = creditsPerSec * duration * 0.005 * audioMultiplier
 
-  const prompt = await translatePrompt(rawPrompt, businessId)
+  const prompt = await translatePrompt(rawPrompt, businessId, params.userId)
 
   log.info('[KIE] createVideoTask', { businessId, model, duration, prompt: prompt.slice(0, 80) })
 
@@ -612,7 +632,7 @@ export async function checkVideoTaskStatus(kieTaskId: string): Promise<{ state: 
 /** Download completed video, save to disk, create MediaFile + AiUsageLog */
 export async function processVideoTaskResult(
   kieData: any,
-  params: { businessId: string; postId?: string | null; prompt: string; duration: number; costUsd: number; model: string },
+  params: { businessId: string; postId?: string | null; prompt: string; duration: number; costUsd: number; model: string; userId?: string },
 ): Promise<{ mediaFileId: string; resultUrl: string }> {
   let outputUrl: string | undefined
   if (kieData?.resultJson) {
@@ -647,10 +667,14 @@ export async function processVideoTaskResult(
   await db.aiUsageLog.create({
     data: {
       businessId: params.businessId,
+      userId: params.userId || null,
       action: 'generate_video',
       model: params.model,
       tokensIn: 0, tokensOut: 0, cachedTokens: 0,
       costUsd: params.costUsd,
+      status: 'success',
+      prompt: (params.prompt || '').slice(0, 2000),
+      durationMs: null,
     },
   })
 
@@ -669,6 +693,7 @@ export async function generateVideo(params: GenerateVideoParams): Promise<Genera
     duration: params.duration || 5,
     costUsd: task.costUsd,
     model: task.model,
+    userId: params.userId,
   })
   const mediaFile = await db.mediaFile.findUniqueOrThrow({ where: { id: mediaFileId } })
   return {

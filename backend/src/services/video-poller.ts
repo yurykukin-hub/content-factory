@@ -40,6 +40,7 @@ async function pollPendingVideos() {
             duration: session.duration,
             costUsd: session.costUsd || 0,
             model: session.model,
+            userId: session.userId || undefined,
           })
 
           // Update session → completed

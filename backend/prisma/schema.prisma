@@ -79,6 +79,7 @@ model User {
   businesses UserBusiness[]
   ideas      Idea[]
   sessions   GenerationSession[]
+  aiUsageLogs AiUsageLog[]
 
   @@map("users")
 }
@@ -355,17 +356,24 @@ model MediaFile {
 model AiUsageLog {
   id           String   @id @default(cuid())
   businessId   String?  @map("business_id")
-  action       String   // "generate_plan", "generate_post", "adapt_platform", "generate_hashtags"
+  userId       String?  @map("user_id")
+  action       String   // "generate_plan", "generate_post", "adapt_platform", etc.
   model        String   // "anthropic/claude-3.5-haiku"
   tokensIn     Int      @map("tokens_in")
   tokensOut    Int      @map("tokens_out")
   cachedTokens Int      @default(0) @map("cached_tokens")
   costUsd      Float    @default(0) @map("cost_usd")
+  status       String   @default("success") // "success" | "error"
+  errorMessage String?  @map("error_message")
+  prompt       String?  // отправленный промпт (truncated до 2000 символов)
+  durationMs   Int?     @map("duration_ms") // время выполнения в мс
   createdAt    DateTime @default(now()) @map("created_at")
 
   business Business? @relation(fields: [businessId], references: [id])
+  user     User?     @relation(fields: [userId], references: [id])
 
   @@index([businessId])
+  @@index([userId])
   @@index([createdAt])
   @@map("ai_usage_logs")
 }

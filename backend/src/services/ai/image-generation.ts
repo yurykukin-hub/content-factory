@@ -14,6 +14,7 @@ interface GenerateImageParams {
   businessId: string
   postId?: string | null
   aspectRatio?: '1:1' | '16:9' | '9:16'
+  userId?: string
 }
 
 interface GenerateImageResult {
@@ -37,6 +38,7 @@ interface GenerateImageResult {
  * Saves result as MediaFile in database and filesystem.
  */
 export async function generateImage(params: GenerateImageParams): Promise<GenerateImageResult> {
+  const start = Date.now()
   const { prompt, businessId, postId, aspectRatio = '1:1' } = params
   const model = config.models.imageGen
 
@@ -165,6 +167,10 @@ export async function generateImage(params: GenerateImageParams): Promise<Genera
       tokensOut: usage.completion_tokens || 0,
       cachedTokens: 0,
       costUsd: calculateCost(model, usage.prompt_tokens || 0, usage.completion_tokens || 0),
+      userId: params.userId || null,
+      status: 'success',
+      prompt: (prompt || '').slice(0, 2000),
+      durationMs: Date.now() - start,
     },
   })
 
