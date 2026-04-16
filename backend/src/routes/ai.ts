@@ -805,15 +805,20 @@ ai.post('/generate-video', async (c) => {
     throw e
   }
 
-  // Guard: если сессия уже генерируется менее 3 мин — отказать (защита от двойного клика)
-  // Если >3 мин — считаем зависшей и разрешаем повтор
+  // Atomic lock: разрешить генерацию если сессия НЕ generating ИЛИ зависла >3 мин
   if (data.sessionId) {
-    const session = await db.generationSession.findUnique({ where: { id: data.sessionId }, select: { status: true, updatedAt: true } })
-    if (session && session.status === 'generating') {
-      const staleMs = Date.now() - new Date(session.updatedAt).getTime()
-      if (staleMs < 3 * 60 * 1000) {
-        return c.json({ error: 'Генерация уже запущена для этой сессии' }, 409)
-      }
+    const locked = await db.generationSession.updateMany({
+      where: {
+        id: data.sessionId,
+        OR: [
+          { status: { not: 'generating' } },
+          { updatedAt: { lt: new Date(Date.now() - 3 * 60 * 1000) } },
+        ],
+      },
+      data: { status: 'generating' },
+    })
+    if (locked.count === 0) {
+      return c.json({ error: 'Генерация уже запущена для этой сессии' }, 409)
     }
   }
 

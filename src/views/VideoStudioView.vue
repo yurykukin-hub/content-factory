@@ -480,9 +480,8 @@ async function generate() {
     referenceImageUrls: inputMode.value === 'references' ? refImages.value.map(r => r.url) : [],
   }
 
-  // Mark as generating (UI updates immediately)
+  // Mark as generating in UI (backend sets DB status atomically in /ai/generate-video)
   generatingSessions.value = new Set([...generatingSessions.value, sessionId])
-  await http.put(`/sessions/${sessionId}`, { status: 'generating' }).catch(() => {})
   loadSessions()
 
   // Save prompt to history
