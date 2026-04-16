@@ -198,6 +198,14 @@ API keys: OpenRouter — из БД (AppConfig) или .env. FAL — из .env (F
 - **Planned: async tasks** — POST returns taskId, frontend polls, enables parallel + F5-safe generation
 - **KeepAlive** — VideoStudioView preserved on navigation (App.vue)
 
+## Media Library
+- **Upload MIME detection**: extensionToMime() fallback when blob.type is empty/octet-stream (MOV, AVI, MKV etc.)
+- **Cursor pagination**: GET /media/library/:bizId returns `{ files, hasMore, totalCount }` (NOT a plain array). Limit 40/page, cursor-based
+- **Grid**: video files show placeholder icon (no `<video>` tags — saves bandwidth), images use `loading="lazy"`
+- **Frontend helpers**: `isImage(mime, filename?)` / `isVideo(mime, filename?)` — fallback to file extension for octet-stream files
+- **Consumers**: MediaLibraryView, MediaPickerModal, VsRefModal, VideoStudioView — all must use `res.files` from response
+- **Migration script**: `bun src/fix-mime-types.ts` — one-time fix for existing octet-stream files
+
 ## Conventions
 - Паттерны из nawode-erp: Hono routes, JWT httpOnly, Prisma, SSE eventBus
 - AI-промпты включают BrandProfile (тон, ЦА, стиль, примеры)

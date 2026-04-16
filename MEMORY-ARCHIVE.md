@@ -33,3 +33,43 @@
 - [x] AI-генерация контент-плана, постов, адаптация
 - [x] VK/TG Publishers подключены и протестированы
 - [x] Frontend: PostsView, PostEditorView, BusinessesView, ContentPlansView
+
+---
+
+## Архив: UI Refactoring 2026-04-11
+
+- Mobile sidebar (overlay+backdrop), hamburger menu, Stories-first nav
+- PostsView → только STORIES, BusinessFilter pills, StoryEditor fixes
+- IdeasView (inline edit, auto-save), Idea модель + CRUD route
+- VK Stories: кнопка-ссылка НЕ рисуется в JPEG (VK рисует нативную)
+- Lock after publish, Business isActive toggle, BusinessDetailView доступы
+- AI Image: gemini-2.5-flash-image, шаблоны промптов, FAL.ai SDK (FLUX Kontext Pro, rembg)
+
+## Архив: Content Factory v2 AI-воркспейс 2026-04-13
+
+- Character (person/mascot/avatar) + Scenario модели, AI-генерация сценариев
+- KIE.ai: Nano Banana 2 (img2img), Seedance 2 (видео), generateVideo()
+- AI Video modal: шаблоны, enhance, история промптов, slider 4-15 сек
+- MediaFolder, AI metadata (aiModel/aiCostUsd), Scenario→Stories pipeline
+- Characters: глобальные (CharacterBusiness M2M), отдельная страница
+
+## Архив: Content Factory v2 продолжение 2026-04-14
+
+- Видео-студия (VideoStudioView): 3 режима (Референсы/Кадры/Текст), 2/3+1/3 layout
+- PromptConstructor (6 секций), PromptEntry (auto-save, рейтинг), PromptTemplate (БД per-business)
+- AI Vision merge (Gemini Flash), динамическая стоимость видео, Image-to-video
+- Референсы с ролями, ADMIN-only разделы, Schema +PromptEntry +PromptTemplate (22 модели)
+
+## Архив: Section Access + Hybrid Templates 2026-04-14
+
+- Section Access: 11 секций × 3 уровня, requireSection middleware, UsersTab radio-таблица
+- Canvas preview race condition fix, UI rename "Бизнесы"→"Проекты"
+- Hybrid AI prompt templates: БД + "Подобрать" (Haiku + brandContext)
+- SMMER.RU бизнес добавлен (Антон Григорьев)
+
+## Архив: Video Studio Pro Enhancement 2026-04-15
+
+- 8 режимов enhance (enhance/director/structure/focus/audio/camera/translate/simplify)
+- analyzeVideoPrompt() — анализ сложности, адаптивный enhance
+- Director mode (Sonnet, timeline), VsEnhanceMenu split-button, debug info bar
+- Seedance 2.0 best practices в промптах
