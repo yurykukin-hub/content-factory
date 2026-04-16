@@ -101,6 +101,13 @@ app.use('/api/*', async (c, next) => {
 app.use('/api/users/*', requireRole('ADMIN'))
 app.route('/api/users', users)
 
+// --- Public settings (before section guards, available to all authenticated users) ---
+app.get('/api/settings/public', async (c) => {
+  const { getUsdRubRate, getMarkupPercent } = await import('./services/billing')
+  const [usdRubRate, markupPercent] = await Promise.all([getUsdRubRate(), getMarkupPercent()])
+  return c.json({ usdRubRate, markupPercent })
+})
+
 // --- Section-level access guards ---
 app.use('/api/scenarios/*', requireSection('scenarios'))
 app.use('/api/settings/*', requireSection('settings'))
