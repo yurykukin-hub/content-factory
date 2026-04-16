@@ -1,6 +1,6 @@
 FROM oven/bun:1-alpine
 
-RUN apk add --no-cache vips-dev
+RUN apk add --no-cache vips-dev ffmpeg
 
 WORKDIR /app
 

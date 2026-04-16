@@ -7,6 +7,7 @@ import { mkdir, unlink, stat } from 'fs/promises'
 import { getModuleDir } from '../utils/paths'
 import type { AuthUser } from '../middleware/auth'
 import { verifyMediaAccess, assertBusinessAccess } from '../middleware/resource-access'
+import { extractVideoThumbnail } from '../utils/video-thumbnail'
 
 const media = new Hono()
 
@@ -76,9 +77,10 @@ media.post('/upload', async (c) => {
     }
   }
 
-  // Generate thumbnail for videos (first frame placeholder)
+  // Generate thumbnail for videos (first frame via ffmpeg)
   if (mimeType.startsWith('video/')) {
-    thumbUrl = null // TODO: ffmpeg for video thumbnails
+    const thumbFile = await extractVideoThumbnail(filePath, bizDir, fileId)
+    if (thumbFile) thumbUrl = `/uploads/${businessId}/${thumbFile}`
   }
 
   // Create DB record

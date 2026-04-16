@@ -567,7 +567,7 @@ async function downloadAndSaveVideo(
   videoUrl: string,
   businessId: string,
   prefix: string,
-): Promise<{ filename: string; videoBuffer: Buffer }> {
+): Promise<{ filename: string; thumbFilename: string | null; videoBuffer: Buffer }> {
   const response = await fetch(videoUrl)
   if (!response.ok) throw new Error(`Ошибка загрузки видео с KIE CDN: ${response.status}`)
   const arrayBuffer = await response.arrayBuffer()
@@ -578,9 +578,14 @@ async function downloadAndSaveVideo(
 
   const bizDir = join(UPLOAD_DIR, businessId)
   await mkdir(bizDir, { recursive: true })
-  await Bun.write(join(bizDir, filename), videoBuffer)
+  const videoPath = join(bizDir, filename)
+  await Bun.write(videoPath, videoBuffer)
 
-  return { filename, videoBuffer }
+  // Extract thumbnail from first frame
+  const { extractVideoThumbnail } = await import('../../utils/video-thumbnail')
+  const thumbFilename = await extractVideoThumbnail(videoPath, bizDir, `${prefix}_${fileId}`)
+
+  return { filename, thumbFilename, videoBuffer }
 }
 
 // =====================
@@ -664,7 +669,7 @@ export async function processVideoTaskResult(
   }
   if (!outputUrl) throw new Error('KIE.ai не вернул видео URL')
 
-  const { filename, videoBuffer } = await downloadAndSaveVideo(outputUrl, params.businessId, 'kie_video')
+  const { filename, thumbFilename, videoBuffer } = await downloadAndSaveVideo(outputUrl, params.businessId, 'kie_video')
 
   const mediaFile = await db.mediaFile.create({
     data: {
@@ -672,7 +677,7 @@ export async function processVideoTaskResult(
       postId: params.postId || null,
       filename: `AI Video: ${params.prompt.slice(0, 50).replace(/[\r\n\t]/g, ' ')}`,
       url: `/uploads/${params.businessId}/${filename}`,
-      thumbUrl: null,
+      thumbUrl: thumbFilename ? `/uploads/${params.businessId}/${thumbFilename}` : null,
       mimeType: 'video/mp4',
       sizeBytes: videoBuffer.length,
       durationSec: params.duration,
