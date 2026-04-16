@@ -476,7 +476,9 @@ async function generate() {
     referenceImageUrls: inputMode.value === 'references' ? refImages.value.map(r => r.url) : [],
   }
 
-  // Backend sets status atomically — loadSessions обновит UI после вызова
+  // Мгновенный фидбек: обновить статус локально → кнопка сразу покажет таймер
+  const s = sessions.value.find(s => s.id === sessionId)
+  if (s) s.status = 'generating'
 
   // Save prompt to history
   if (!promptHistory.value.length || promptHistory.value[promptHistory.value.length - 1] !== capturedState.prompt) {
