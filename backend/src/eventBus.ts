@@ -6,6 +6,7 @@ export type ContentEvent =
   | { type: 'plan_created' | 'plan_updated'; tabId: string; planId: string }
   | { type: 'business_updated'; tabId: string; businessId: string }
   | { type: 'settings_changed'; tabId: string; entity: string }
+  | { type: 'session_updated'; tabId: string; sessionId: string; status: string }
 
 class ContentEventBus extends EventEmitter {}
 export const eventBus = new ContentEventBus()

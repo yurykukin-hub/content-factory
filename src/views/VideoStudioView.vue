@@ -1,7 +1,7 @@
 <script setup lang="ts">
 defineOptions({ name: 'VideoStudioView' })
-import { ref, computed, onMounted, nextTick, watch } from 'vue'
-import { http } from '@/api/client'
+import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
+import { http, TAB_ID } from '@/api/client'
 import { useToast } from '@/composables/useToast'
 import { formatDate } from '@/composables/useFormatters'
 import { useBusinessesStore } from '@/stores/businesses'
@@ -93,25 +93,18 @@ async function saveSession() {
   } catch (e) { console.error('[VS] saveSession failed:', e) }
 }
 
-// Check for stuck "generating" sessions and fix them
+// Сбросить зависшие генерации (>3 мин) — бэкенд уже обновил бы если успешно
 async function fixStuckSessions() {
-  const stuck = sessions.value.filter(s =>
-    s.status === 'generating' || (s.status === 'failed' && s.resultUrl)
-  )
-  for (const s of stuck) {
-    if (s.resultUrl) {
-      // Video was generated but status wasn't updated (F5 during generation)
-      await http.put(`/sessions/${s.id}`, { status: 'completed' }).catch(() => {})
-    } else if (s.status === 'generating') {
-      // Stuck in generating without result — check updatedAt, if older than 3 min → mark draft
-      const updatedAt = new Date(s.updatedAt).getTime()
-      const threeMinAgo = Date.now() - 3 * 60 * 1000
-      if (updatedAt < threeMinAgo) {
-        await http.put(`/sessions/${s.id}`, { status: 'draft' }).catch(() => {})
-      }
+  let fixed = false
+  for (const s of sessions.value) {
+    if (s.status !== 'generating') continue
+    const age = Date.now() - new Date(s.updatedAt).getTime()
+    if (age > 3 * 60 * 1000) {
+      await http.put(`/sessions/${s.id}`, { status: 'draft' }).catch(() => {})
+      fixed = true
     }
   }
-  if (stuck.length) loadSessions()
+  if (fixed) loadSessions()
 }
 
 async function loadDraftSession() {
@@ -208,8 +201,11 @@ async function createNewSession() {
 // --- State ---
 const prompt = ref('')
 const enhancing = ref(false)
-const generatingSessions = ref(new Set<string>())
-const generating = computed(() => currentSessionId.value ? generatingSessions.value.has(currentSessionId.value) : false)
+// generating определяется из статуса сессии в БД — не теряется при навигации/F5
+const generating = computed(() => {
+  const s = sessions.value.find(s => s.id === currentSessionId.value)
+  return s?.status === 'generating'
+})
 const promptHistory = ref<string[]>([])
 const historyIndex = ref(-1)
 const generatedPromptIndices = ref<Set<number>>(new Set())
@@ -463,7 +459,7 @@ async function generate() {
   if (!prompt.value.trim() || !selectedBizId.value) return
   const sessionId = currentSessionId.value
   if (!sessionId) return
-  if (generatingSessions.value.has(sessionId)) return // already generating
+  if (generating.value) return // уже генерируется (из БД)
 
   // Capture all state at click time (user may switch sessions)
   const sessionTitle = currentSessionTitle.value || prompt.value.slice(0, 30) || 'Сессия'
@@ -480,9 +476,7 @@ async function generate() {
     referenceImageUrls: inputMode.value === 'references' ? refImages.value.map(r => r.url) : [],
   }
 
-  // Mark as generating in UI (backend sets DB status atomically in /ai/generate-video)
-  generatingSessions.value = new Set([...generatingSessions.value, sessionId])
-  loadSessions()
+  // Backend sets status atomically — loadSessions обновит UI после вызова
 
   // Save prompt to history
   if (!promptHistory.value.length || promptHistory.value[promptHistory.value.length - 1] !== capturedState.prompt) {
@@ -520,38 +514,14 @@ async function runGeneration(sessionId: string, state: {
     const result = await http.post<{ mediaFile: GeneratedVideo }>('/ai/generate-video', { ...payload, sessionId })
     generatedVideos.value.unshift(result.mediaFile)
 
-    // Calculate cost
+    // Бэкенд сам обновил статус сессии на 'completed' + отправил SSE
+
+    // Save to prompt library
     const hasImg = state.firstFrameUrl || state.referenceImageUrls.length > 0
     const tier = PRICING[state.resolution as keyof typeof PRICING] || PRICING['480p']
     const cps = hasImg ? tier.withImage : tier.textOnly
     const baseCost = cps * state.duration * CREDIT_PRICE
     const costUsd = state.generateAudio ? baseCost * AUDIO_MULT : baseCost
-
-    // Update session with result — retry once on failure to avoid stuck 'generating' status
-    const updateSessionCompleted = async () => {
-      const curr = await http.get<any>(`/sessions/${sessionId}`)
-      const existingResults = (curr?.results as any[]) || []
-      existingResults.push({
-        resultUrl: result.mediaFile.url, prompt: state.prompt, costUsd,
-        createdAt: new Date().toISOString(), mediaFileId: result.mediaFile.id,
-      })
-      await http.put(`/sessions/${sessionId}`, {
-        status: 'completed', mediaFileId: result.mediaFile.id,
-        resultUrl: result.mediaFile.url, results: existingResults,
-        costUsd: existingResults.reduce((sum: number, r: any) => sum + (r.costUsd || 0), 0),
-      })
-    }
-    try {
-      await updateSessionCompleted()
-    } catch {
-      // Retry once after 2s — ensures status is never stuck at 'generating'
-      await new Promise(r => setTimeout(r, 2000))
-      await updateSessionCompleted().catch(err => {
-        console.error('[VS] Failed to update session status to completed after retry:', err)
-      })
-    }
-
-    // Save to prompt library
     http.post('/prompt-library', {
       businessId: state.businessId, type: 'video', prompt: state.prompt,
       resultUrl: result.mediaFile.url,
@@ -560,16 +530,10 @@ async function runGeneration(sessionId: string, state: {
 
     toast.success(`Видео готово: ${sessionTitle} (${state.duration}с)`, 7000)
   } catch (e: any) {
+    // Бэкенд сам обновил статус на 'failed' + отправил SSE
     const msg = e.message || 'Ошибка генерации'
-    const isAbort = msg.includes('abort') || msg.includes('network') || msg.includes('fetch')
-    if (!isAbort) {
-      http.put(`/sessions/${sessionId}`, { status: 'failed', errorMessage: msg }).catch(() => {})
-    }
     toast.error(`Ошибка: ${sessionTitle} — ${msg}`, 8000)
   } finally {
-    const next = new Set(generatingSessions.value)
-    next.delete(sessionId)
-    generatingSessions.value = next
     loadSessions()
     loadVideos()
   }
@@ -709,10 +673,42 @@ function onBusinessChange() {
   aiTemplates.value = []
 }
 
+// --- SSE: реал-тайм обновления сессий между вкладками/устройствами ---
+let sseSource: EventSource | null = null
+
+function connectSSE() {
+  sseSource = new EventSource(`/api/sse?tabId=${TAB_ID}`)
+  sseSource.onmessage = (e) => {
+    if (e.data === 'ping' || e.data === 'connected') return
+    try {
+      const event = JSON.parse(e.data)
+      if (event.type === 'session_updated') {
+        loadSessions()
+        if (event.sessionId === currentSessionId.value) {
+          loadVideos()
+          if (event.status === 'completed') {
+            toast.success('Видео готово!', 5000)
+          }
+        }
+      }
+    } catch {}
+  }
+  sseSource.onerror = () => {
+    sseSource?.close()
+    // Переподключение через 5 сек
+    setTimeout(connectSSE, 5000)
+  }
+}
+
 onMounted(async () => {
   loadCharacters(); loadVideos(); loadSavedPrompts(); loadDraftSession()
   await loadSessions()
   fixStuckSessions()
+  connectSSE()
+})
+
+onBeforeUnmount(() => {
+  sseSource?.close()
 })
 </script>
 

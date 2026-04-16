@@ -822,20 +822,43 @@ ai.post('/generate-video', async (c) => {
     }
   }
 
-  const result = await generateVideo({
-    prompt: data.prompt,
-    businessId: data.businessId,
-    postId: data.postId || null,
-    duration: data.duration,
-    aspectRatio: data.aspectRatio,
-    resolution: data.resolution,
-    generateAudio: data.generateAudio,
-    firstFrameUrl: data.firstFrameUrl || null,
-    lastFrameUrl: data.lastFrameUrl || null,
-    referenceImageUrls: data.referenceImageUrls || undefined,
-  })
+  const tabId = c.req.header('X-Tab-ID') || ''
 
-  return c.json(result, 201)
+  try {
+    const result = await generateVideo({
+      prompt: data.prompt,
+      businessId: data.businessId,
+      postId: data.postId || null,
+      duration: data.duration,
+      aspectRatio: data.aspectRatio,
+      resolution: data.resolution,
+      generateAudio: data.generateAudio,
+      firstFrameUrl: data.firstFrameUrl || null,
+      lastFrameUrl: data.lastFrameUrl || null,
+      referenceImageUrls: data.referenceImageUrls || undefined,
+    })
+
+    // Бэкенд сам обновляет сессию — source of truth
+    if (data.sessionId) {
+      await db.generationSession.update({
+        where: { id: data.sessionId },
+        data: { status: 'completed', resultUrl: result.mediaFile.url, mediaFileId: result.mediaFile.id },
+      }).catch(() => {})
+      emitEvent({ type: 'session_updated', tabId, sessionId: data.sessionId, status: 'completed' })
+    }
+
+    return c.json(result, 201)
+  } catch (err: any) {
+    // Генерация упала — бэкенд обновляет статус
+    if (data.sessionId) {
+      await db.generationSession.update({
+        where: { id: data.sessionId },
+        data: { status: 'failed', errorMessage: err.message?.slice(0, 500) || 'Unknown error' },
+      }).catch(() => {})
+      emitEvent({ type: 'session_updated', tabId, sessionId: data.sessionId, status: 'failed' })
+    }
+    throw err
+  }
 })
 
 // POST /api/ai/merge-references — AI распознаёт фотки и вставляет @ImageN теги в промпт
