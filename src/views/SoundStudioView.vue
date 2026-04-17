@@ -137,7 +137,7 @@ async function saveSession() {
   } catch {}
 }
 
-watch([prompt, lyrics, musicStyle, musicTitle, negativeTags, instrumental, vocalGender, sunoModel, styleWeight, weirdnessConstraint, musicMode, selectedPersonaId], scheduleAutoSave, { deep: true })
+watch([prompt, lyrics, musicStyle, musicTitle, negativeTags, instrumental, vocalGender, sunoModel, styleWeight, weirdnessConstraint, musicMode, selectedPersonaId, chatMessages], scheduleAutoSave, { deep: true })
 
 // --- Session CRUD ---
 async function loadSessions() {
