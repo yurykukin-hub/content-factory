@@ -67,7 +67,7 @@ const musicTitle = ref('')
 const negativeTags = ref('')
 const instrumental = ref(false)
 const vocalGender = ref<'f' | 'm' | null>(null)
-const sunoModel = ref('suno/v4.5')
+const sunoModel = ref('V4_5')
 const styleWeight = ref(0.7)
 const weirdnessConstraint = ref(0.3)
 
@@ -177,7 +177,7 @@ function loadSessionIntoState(session: any) {
   negativeTags.value = session.negativeTags || ''
   instrumental.value = session.instrumental ?? false
   vocalGender.value = session.vocalGender || null
-  sunoModel.value = session.sunoModel || 'suno/v4.5'
+  sunoModel.value = session.sunoModel || 'V4_5'
   styleWeight.value = session.styleWeight ?? 0.7
   weirdnessConstraint.value = session.weirdnessConstraint ?? 0.3
   selectedPersonaId.value = session.personaId || null
@@ -197,7 +197,7 @@ function resetState() {
   negativeTags.value = ''
   instrumental.value = false
   vocalGender.value = null
-  sunoModel.value = 'suno/v4.5'
+  sunoModel.value = 'V4_5'
   styleWeight.value = 0.7
   weirdnessConstraint.value = 0.3
   selectedPersonaId.value = null
@@ -429,7 +429,7 @@ const contextSummary = computed(() => {
   if (musicMode.value === 'custom') parts.push('Полный режим')
   else parts.push('Простой режим')
   if (instrumental.value) parts.push('инструментал')
-  if (sunoModel.value) parts.push(sunoModel.value.replace('suno/', ''))
+  if (sunoModel.value) parts.push(sunoModel.value.replace('suno/', '').replace('_', '.'))
   return parts.join(' · ')
 })
 

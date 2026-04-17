@@ -27,6 +27,10 @@ const emit = defineEmits<{
 
 const modelLabel = computed(() => {
   const map: Record<string, string> = {
+    'V4': 'Suno V4 (до 4 мин)',
+    'V4_5': 'Suno V4.5 (до 8 мин)',
+    'V5_5': 'Suno V5.5 (voice clone, до 8 мин)',
+    // Legacy names (for existing sessions)
     'suno/v4': 'Suno V4 (до 4 мин)',
     'suno/v4.5': 'Suno V4.5 (до 8 мин)',
     'suno/v5.5': 'Suno V5.5 (voice clone, до 8 мин)',

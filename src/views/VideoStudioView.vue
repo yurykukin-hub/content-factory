@@ -103,7 +103,7 @@ async function loadDraftSession() {
   if (!selectedBizId.value) return
   autoSavePaused = true
   try {
-    const draft = await http.get<any>(`/sessions/draft?businessId=${selectedBizId.value}`)
+    const draft = await http.get<any>(`/sessions/draft?businessId=${selectedBizId.value}&type=video`)
     if (draft) {
       currentSessionId.value = draft.id
       viewedSessionId.value = draft.id
@@ -142,7 +142,7 @@ async function loadDraftSession() {
     } else {
       // No draft exists — create one automatically
       try {
-        const session = await http.post<any>('/sessions', { businessId: selectedBizId.value })
+        const session = await http.post<any>('/sessions', { businessId: selectedBizId.value, type: 'video' })
         currentSessionId.value = session.id
         viewedSessionId.value = session.id
       } catch {}
@@ -186,7 +186,7 @@ async function createNewSession() {
   startNewSession()
   if (!selectedBizId.value) return
   try {
-    const session = await http.post<any>('/sessions', { businessId: selectedBizId.value })
+    const session = await http.post<any>('/sessions', { businessId: selectedBizId.value, type: 'video' })
     currentSessionId.value = session.id
     viewedSessionId.value = session.id
     await loadSessions()
@@ -375,7 +375,7 @@ const { USD_RUB } = useRates()
 
 async function loadSessions() {
   if (!selectedBizId.value) return
-  try { sessions.value = await http.get<Session[]>(`/sessions?businessId=${selectedBizId.value}`) } catch { sessions.value = [] }
+  try { sessions.value = await http.get<Session[]>(`/sessions?businessId=${selectedBizId.value}&type=video`) } catch { sessions.value = [] }
 }
 
 async function loadSession(session: Session) {

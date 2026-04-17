@@ -28,9 +28,9 @@ const emit = defineEmits<{
 }>()
 
 const MODELS = [
-  { id: 'suno/v4', label: 'V4', sub: 'до 4 мин' },
-  { id: 'suno/v4.5', label: 'V4.5', sub: 'до 8 мин' },
-  { id: 'suno/v5.5', label: 'V5.5', sub: 'voice clone' },
+  { id: 'V4', label: 'V4', sub: 'до 4 мин' },
+  { id: 'V4_5', label: 'V4.5', sub: 'до 8 мин' },
+  { id: 'V5_5', label: 'V5.5', sub: 'voice clone' },
 ]
 
 const GENDERS = [

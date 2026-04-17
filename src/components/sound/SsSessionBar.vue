@@ -118,7 +118,7 @@ const STATUS_LABEL: Record<string, string> = {
             <span :class="s.status === 'failed' ? 'text-red-500' : s.status === 'generating' ? 'text-amber-500' : ''">
               {{ STATUS_LABEL[s.status] }}
             </span>
-            <span v-if="s.sunoModel">· {{ s.sunoModel.replace('suno/', '') }}</span>
+            <span v-if="s.sunoModel">· {{ s.sunoModel.replace('suno/', '').replace('_', '.') }}</span>
             <span v-if="s.instrumental">· Инструм.</span>
           </div>
           <div v-if="s.status === 'failed' && s.errorMessage" class="text-[8px] text-red-400 mt-0.5 truncate">

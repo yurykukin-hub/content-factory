@@ -41,7 +41,7 @@ const generateSchema = z.object({
   styleWeight: z.number().min(0).max(1).optional(),
   weirdnessConstraint: z.number().min(0).max(1).optional(),
   audioWeight: z.number().min(0).max(1).optional(),
-  sunoModel: z.string().default('suno/v4.5'),
+  sunoModel: z.string().default('V4_5'),
   personaId: z.string().optional(),
 })
 
@@ -227,7 +227,7 @@ const agentChatSchema = z.object({
     lyrics: z.string().default(''),
     musicStyle: z.string().default(''),
     musicTitle: z.string().default(''),
-    sunoModel: z.string().default('suno/v4.5'),
+    sunoModel: z.string().default('V4_5'),
     vocalGender: z.enum(['f', 'm']).nullable().default(null),
     styleWeight: z.number().default(0.7),
     weirdnessConstraint: z.number().default(0.3),

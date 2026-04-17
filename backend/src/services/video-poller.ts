@@ -42,7 +42,7 @@ async function pollPendingTasks() {
         if (state === 'success' || state === 'completed') {
           if (isMusic) {
             // Download audio + cover, create MediaFile, charge user
-            const { mediaFileId, audioUrl, coverImageUrl } = await processMusicTaskResult(data, {
+            const result = await processMusicTaskResult(data, {
               businessId: session.businessId,
               prompt: session.prompt || '',
               costUsd: session.costUsd || MUSIC_COST_DEFAULT,
@@ -51,24 +51,35 @@ async function pollPendingTasks() {
               title: session.musicTitle || undefined,
             })
 
-            // Extract audioId from KIE response for Generate Persona
-            let kieAudioId: string | undefined
-            if (data?.resultJson) {
-              try {
-                const parsed = typeof data.resultJson === 'string' ? JSON.parse(data.resultJson) : data.resultJson
-                kieAudioId = parsed?.audioId || parsed?.audio_id || parsed?.id
-              } catch {}
+            // Use audioId extracted by processMusicTaskResult (new API v2 format)
+            let kieAudioId = result.kieAudioId
+
+            // Fallback: try extracting from raw KIE response
+            if (!kieAudioId) {
+              const sunoData = data?.response?.sunoData
+              if (Array.isArray(sunoData) && sunoData.length > 0) {
+                kieAudioId = sunoData.find((t: any) => t.audioUrl)?.id || sunoData[0]?.id
+              }
             }
-            if (!kieAudioId) kieAudioId = data?.audioId || data?.audio_id || data?.id
+            // Legacy fallback
+            if (!kieAudioId) {
+              if (data?.resultJson) {
+                try {
+                  const parsed = typeof data.resultJson === 'string' ? JSON.parse(data.resultJson) : data.resultJson
+                  kieAudioId = parsed?.audioId || parsed?.audio_id || parsed?.id
+                } catch {}
+              }
+              if (!kieAudioId) kieAudioId = data?.audioId || data?.audio_id || data?.id
+            }
 
             await db.generationSession.update({
               where: { id: session.id },
               data: {
                 status: 'completed',
-                audioUrl,
-                coverImageUrl,
-                mediaFileId,
-                resultUrl: audioUrl,
+                audioUrl: result.audioUrl,
+                coverImageUrl: result.coverImageUrl,
+                mediaFileId: result.mediaFileId,
+                resultUrl: result.audioUrl,
                 completedTaskId: session.kieTaskId,  // preserve for Generate Persona
                 kieAudioId: kieAudioId || null,
                 kieTaskId: null,
