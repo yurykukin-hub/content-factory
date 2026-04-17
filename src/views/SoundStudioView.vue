@@ -59,7 +59,7 @@ const sessions = ref<MusicSession[]>([])
 const currentSessionId = ref<string | null>(null)
 
 // --- Music generation state ---
-const musicMode = ref<'simple' | 'custom'>('simple')
+const musicMode = ref<'simple' | 'custom'>('custom') // forced to custom, restore SsModeTabs to enable switching
 const prompt = ref('')
 const lyrics = ref('')
 const musicStyle = ref('')
@@ -204,7 +204,7 @@ function resetState() {
   chatMessages.value = []
   generating.value = false
   generatingStartedAt.value = null
-  musicMode.value = 'simple'
+  musicMode.value = 'custom'
 }
 
 async function onLoadSession(session: MusicSession) {
@@ -519,8 +519,8 @@ onBeforeUnmount(() => {
 
         <!-- Controls (fills remaining space) -->
         <div class="flex-1 min-h-0 flex flex-col border-t border-gray-200 dark:border-gray-800">
-          <!-- Mode tabs: Simple / Custom -->
-          <SsModeTabs v-model="musicMode" class="shrink-0" />
+          <!-- Mode tabs: hidden, forced to custom (uncomment SsModeTabs to restore) -->
+          <!-- <SsModeTabs v-model="musicMode" class="shrink-0" /> -->
 
           <!-- Prompt Tabs: Agent / Editor -->
           <div class="px-4 pb-2 shrink-0">
