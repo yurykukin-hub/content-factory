@@ -4,7 +4,7 @@
  * Pattern from VsSessionBar.vue, adapted for music (shows cover image, status).
  */
 import { ref, nextTick } from 'vue'
-import { Plus, Pencil, Trash2, Check, X, Music, Loader2 } from 'lucide-vue-next'
+import { Plus, Pencil, Trash2, Check, X, Music, Loader2, ChevronDown } from 'lucide-vue-next'
 
 export interface MusicSession {
   id: string
@@ -34,6 +34,7 @@ const emit = defineEmits<{
   renameSession: [id: string, title: string]
 }>()
 
+const sessionListOpen = ref(false)
 const confirmDeleteId = ref<string | null>(null)
 const editingId = ref<string | null>(null)
 const editingTitle = ref('')
@@ -74,15 +75,35 @@ const STATUS_LABEL: Record<string, string> = {
 
 <template>
   <div class="flex flex-col min-h-0">
-    <div class="flex items-center justify-between px-4 py-1.5 shrink-0">
-      <span class="text-[10px] font-semibold text-gray-400 uppercase">Сессии</span>
-      <button @click="emit('createNew')"
-        class="flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-medium text-fuchsia-600 hover:bg-fuchsia-50 dark:hover:bg-fuchsia-900/20 transition-colors">
+    <!-- Header: collapsible on mobile -->
+    <div class="flex items-center justify-between px-4 py-1.5 shrink-0 cursor-pointer lg:cursor-default"
+         @click="sessionListOpen = !sessionListOpen">
+      <div class="flex items-center gap-2 min-w-0">
+        <span class="text-[10px] font-semibold text-gray-400 uppercase shrink-0">Сессии</span>
+        <!-- Mobile: current session name + count -->
+        <span v-if="sessions.length" class="lg:hidden text-[10px] text-gray-500 truncate max-w-[120px]">
+          {{ sessions.find(s => s.id === currentSessionId)?.musicTitle
+             || sessions.find(s => s.id === currentSessionId)?.title
+             || '' }}
+        </span>
+        <span v-if="sessions.length" class="lg:hidden text-[9px] text-gray-400 bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded-full shrink-0">
+          {{ sessions.length }}
+        </span>
+        <ChevronDown :size="12"
+          :class="['lg:hidden transition-transform text-gray-400 shrink-0', sessionListOpen ? 'rotate-180' : '']" />
+      </div>
+      <button @click.stop="emit('createNew')"
+        class="flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-medium text-fuchsia-600 hover:bg-fuchsia-50 dark:hover:bg-fuchsia-900/20 transition-colors shrink-0">
         <Plus :size="12" /> Новая
       </button>
     </div>
 
-    <div class="flex-1 overflow-y-auto px-2 pb-1 space-y-0.5">
+    <!-- Session list: collapsible on mobile, always visible on desktop -->
+    <div :class="[
+      'overflow-y-auto px-2 pb-1 space-y-0.5 transition-all duration-200',
+      sessionListOpen ? 'max-h-[40vh]' : 'max-h-0 overflow-hidden',
+      'lg:max-h-none lg:overflow-y-auto lg:flex-1'
+    ]">
       <div v-for="s in sessions" :key="s.id"
         @click="emit('loadSession', s)"
         :class="[

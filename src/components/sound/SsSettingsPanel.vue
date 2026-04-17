@@ -69,88 +69,94 @@ const modelLabel = computed(() => MODELS.find(m => m.id === props.sunoModel)?.la
 </script>
 
 <template>
-  <div class="sticky bottom-0 bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-800 px-3 py-2 z-10">
-    <div class="flex items-center gap-2 flex-wrap">
-      <!-- Model selector -->
-      <div class="flex bg-gray-100 dark:bg-gray-800 rounded p-0.5 shrink-0">
-        <button v-for="m in MODELS" :key="m.id"
-          @click="emit('update:sunoModel', m.id)"
+  <div class="shrink-0 bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-800 px-2 py-1.5 lg:px-3 lg:py-2 z-10">
+    <div class="flex flex-col gap-1 lg:flex-row lg:items-center lg:gap-2 lg:flex-wrap">
+      <!-- Row 1: model + vocal controls -->
+      <div class="flex items-center gap-1.5 flex-wrap lg:contents">
+        <!-- Model selector -->
+        <div class="flex bg-gray-100 dark:bg-gray-800 rounded p-0.5 shrink-0">
+          <button v-for="m in MODELS" :key="m.id"
+            @click="emit('update:sunoModel', m.id)"
+            :class="[
+              'px-2 py-0.5 rounded text-[10px] font-medium transition-all',
+              sunoModel === m.id
+                ? 'bg-white dark:bg-gray-900 text-fuchsia-600 shadow-sm'
+                : 'text-gray-500 hover:text-gray-700'
+            ]"
+            :title="m.sub">
+            {{ m.label }}
+          </button>
+        </div>
+
+        <!-- Vocal/Instrumental toggle -->
+        <button @click="emit('update:instrumental', !instrumental)"
           :class="[
-            'px-2 py-0.5 rounded text-[10px] font-medium transition-all',
-            sunoModel === m.id
-              ? 'bg-white dark:bg-gray-900 text-fuchsia-600 shadow-sm'
-              : 'text-gray-500 hover:text-gray-700'
+            'flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-medium transition-colors shrink-0',
+            instrumental
+              ? 'bg-gray-100 dark:bg-gray-800 text-gray-400'
+              : 'bg-fuchsia-100 dark:bg-fuchsia-900/50 text-fuchsia-600'
           ]"
-          :title="m.sub">
-          {{ m.label }}
+          :title="instrumental ? 'Инструментал (без вокала)' : 'С вокалом'">
+          <component :is="instrumental ? MicOff : Mic" :size="10" />
+          <span>{{ instrumental ? 'Инструм.' : 'Вокал' }}</span>
         </button>
+
+        <!-- Vocal gender (only when not instrumental) -->
+        <div v-if="!instrumental" class="flex bg-gray-100 dark:bg-gray-800 rounded p-0.5 shrink-0">
+          <button v-for="g in GENDERS" :key="String(g.id)"
+            @click="emit('update:vocalGender', g.id)"
+            :class="[
+              'px-1.5 py-0.5 rounded text-[9px] font-medium transition-all',
+              vocalGender === g.id
+                ? 'bg-white dark:bg-gray-900 text-fuchsia-600 shadow-sm'
+                : 'text-gray-500 hover:text-gray-700'
+            ]">
+            {{ g.label }}
+          </button>
+        </div>
       </div>
 
-      <!-- Vocal/Instrumental toggle -->
-      <button @click="emit('update:instrumental', !instrumental)"
-        :class="[
-          'flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-medium transition-colors shrink-0',
-          instrumental
-            ? 'bg-gray-100 dark:bg-gray-800 text-gray-400'
-            : 'bg-fuchsia-100 dark:bg-fuchsia-900/50 text-fuchsia-600'
-        ]"
-        :title="instrumental ? 'Инструментал (без вокала)' : 'С вокалом'">
-        <component :is="instrumental ? MicOff : Mic" :size="10" />
-        <span>{{ instrumental ? 'Инструм.' : 'Вокал' }}</span>
-      </button>
+      <!-- Row 2: sliders + cost + generate -->
+      <div class="flex items-center gap-1.5 lg:contents">
+        <!-- Style weight mini-slider -->
+        <div class="flex items-center gap-1 shrink-0" title="Влияние стиля: 0 = свободная генерация, 1 = строго по указанному стилю">
+          <span class="text-[8px] text-gray-400">Стиль</span>
+          <input type="range" min="0" max="1" step="0.1"
+            :value="styleWeight"
+            @input="emit('update:styleWeight', Number(($event.target as HTMLInputElement).value))"
+            class="w-12 h-1 accent-fuchsia-500" />
+          <span class="text-[9px] text-gray-500 w-5">{{ styleWeight }}</span>
+        </div>
 
-      <!-- Vocal gender (only when not instrumental) -->
-      <div v-if="!instrumental" class="flex bg-gray-100 dark:bg-gray-800 rounded p-0.5 shrink-0">
-        <button v-for="g in GENDERS" :key="String(g.id)"
-          @click="emit('update:vocalGender', g.id)"
+        <!-- Weirdness mini-slider -->
+        <div class="flex items-center gap-1 shrink-0" title="Креативность: 0 = стандартное звучание, 1 = экспериментальное и необычное">
+          <span class="text-[8px] text-gray-400">Креатив</span>
+          <input type="range" min="0" max="1" step="0.1"
+            :value="weirdnessConstraint"
+            @input="emit('update:weirdnessConstraint', Number(($event.target as HTMLInputElement).value))"
+            class="w-12 h-1 accent-fuchsia-500" />
+          <span class="text-[9px] text-gray-500 w-5">{{ weirdnessConstraint }}</span>
+        </div>
+
+        <!-- Spacer -->
+        <div class="flex-1" />
+
+        <!-- Cost -->
+        <span class="text-sm font-bold text-fuchsia-600 dark:text-fuchsia-400 shrink-0">{{ costRub }} &#8381;</span>
+
+        <!-- Generate button -->
+        <button @click="emit('generate')" :disabled="generating || !canGenerate"
           :class="[
-            'px-1.5 py-0.5 rounded text-[9px] font-medium transition-all',
-            vocalGender === g.id
-              ? 'bg-white dark:bg-gray-900 text-fuchsia-600 shadow-sm'
-              : 'text-gray-500 hover:text-gray-700'
+            'flex items-center gap-1.5 px-3 py-1.5 lg:px-4 lg:py-2 rounded-xl font-medium text-sm transition-colors shrink-0',
+            generating
+              ? 'bg-amber-600 text-white'
+              : 'bg-fuchsia-600 hover:bg-fuchsia-700 text-white disabled:opacity-50'
           ]">
-          {{ g.label }}
+          <Loader2 v-if="generating" :size="14" class="animate-spin" />
+          <Music v-else :size="14" />
+          {{ generating ? formatTime(elapsedSec) : 'Сгенерировать' }}
         </button>
       </div>
-
-      <!-- Style weight mini-slider -->
-      <div class="flex items-center gap-1 shrink-0" title="Влияние стиля: 0 = свободная генерация, 1 = строго по указанному стилю">
-        <span class="text-[8px] text-gray-400">Стиль</span>
-        <input type="range" min="0" max="1" step="0.1"
-          :value="styleWeight"
-          @input="emit('update:styleWeight', Number(($event.target as HTMLInputElement).value))"
-          class="w-12 h-1 accent-fuchsia-500" />
-        <span class="text-[9px] text-gray-500 w-5">{{ styleWeight }}</span>
-      </div>
-
-      <!-- Weirdness mini-slider -->
-      <div class="flex items-center gap-1 shrink-0" title="Креативность: 0 = стандартное звучание, 1 = экспериментальное и необычное">
-        <span class="text-[8px] text-gray-400">Креатив</span>
-        <input type="range" min="0" max="1" step="0.1"
-          :value="weirdnessConstraint"
-          @input="emit('update:weirdnessConstraint', Number(($event.target as HTMLInputElement).value))"
-          class="w-12 h-1 accent-fuchsia-500" />
-        <span class="text-[9px] text-gray-500 w-5">{{ weirdnessConstraint }}</span>
-      </div>
-
-      <!-- Spacer -->
-      <div class="flex-1" />
-
-      <!-- Cost -->
-      <span class="text-sm font-bold text-fuchsia-600 dark:text-fuchsia-400 shrink-0">{{ costRub }} &#8381;</span>
-
-      <!-- Generate button -->
-      <button @click="emit('generate')" :disabled="generating || !canGenerate"
-        :class="[
-          'flex items-center gap-1.5 px-4 py-2 rounded-xl font-medium text-sm transition-colors shrink-0',
-          generating
-            ? 'bg-amber-600 text-white'
-            : 'bg-fuchsia-600 hover:bg-fuchsia-700 text-white disabled:opacity-50'
-        ]">
-        <Loader2 v-if="generating" :size="14" class="animate-spin" />
-        <Music v-else :size="14" />
-        {{ generating ? formatTime(elapsedSec) : 'Сгенерировать' }}
-      </button>
     </div>
   </div>
 </template>

@@ -35,6 +35,15 @@ const emit = defineEmits<{
 const inputText = ref('')
 const messagesContainer = ref<HTMLDivElement | null>(null)
 const showModeMenu = ref(false)
+const expandedBlocks = ref<Set<string>>(new Set())
+
+function toggleBlock(key: string) {
+  if (expandedBlocks.value.has(key)) expandedBlocks.value.delete(key)
+  else expandedBlocks.value.add(key)
+}
+function isExpanded(key: string): boolean {
+  return expandedBlocks.value.has(key)
+}
 
 const modeLabel = computed(() => props.mode === 'simple' ? 'Простой' : 'Продвинутый')
 
@@ -120,7 +129,7 @@ function renderContent(text: string): string {
     </div>
 
     <!-- Messages -->
-    <div ref="messagesContainer" class="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+    <div ref="messagesContainer" class="flex-1 overflow-y-auto px-2 py-2 space-y-2 lg:px-4 lg:py-3 lg:space-y-3">
       <!-- Welcome message -->
       <div v-if="!messages.length && !loading" class="flex gap-2 mb-3">
         <div class="shrink-0 w-7 h-7 rounded-full bg-fuchsia-100 dark:bg-fuchsia-900/30 flex items-center justify-center mt-1">
@@ -142,7 +151,7 @@ function renderContent(text: string): string {
         </div>
 
         <div :class="[
-          'max-w-[85%] px-3 py-2 rounded-2xl text-sm leading-relaxed',
+          'max-w-[92%] lg:max-w-[85%] px-2.5 py-1.5 lg:px-3 lg:py-2 rounded-2xl text-sm leading-relaxed',
           msg.role === 'user'
             ? 'bg-fuchsia-500 text-white rounded-br-md'
             : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded-bl-md'
@@ -153,11 +162,17 @@ function renderContent(text: string): string {
           <div v-if="msg.prompts?.length" class="mt-2 space-y-1">
             <div v-for="(p, pi) in msg.prompts" :key="pi"
               class="bg-white/20 dark:bg-black/20 rounded-lg px-2 py-1.5 text-xs">
-              <p class="opacity-80">{{ p.slice(0, 150) }}{{ p.length > 150 ? '...' : '' }}</p>
-              <button @click="emit('usePrompt', p)"
-                class="mt-1 text-[10px] font-medium underline opacity-80 hover:opacity-100">
-                Использовать промпт
-              </button>
+              <p class="opacity-80">{{ isExpanded(`p-${idx}-${pi}`) ? p : p.slice(0, 150) }}{{ !isExpanded(`p-${idx}-${pi}`) && p.length > 150 ? '...' : '' }}</p>
+              <div class="flex items-center gap-2 mt-1">
+                <button @click="emit('usePrompt', p)"
+                  class="text-[10px] font-medium underline opacity-80 hover:opacity-100">
+                  Использовать промпт
+                </button>
+                <button v-if="p.length > 150" @click="toggleBlock(`p-${idx}-${pi}`)"
+                  class="text-[10px] font-medium opacity-60 hover:opacity-100">
+                  {{ isExpanded(`p-${idx}-${pi}`) ? 'Свернуть' : 'Показать всё' }}
+                </button>
+              </div>
             </div>
           </div>
 
@@ -165,11 +180,17 @@ function renderContent(text: string): string {
           <div v-if="msg.lyrics?.length" class="mt-2 space-y-1">
             <div v-for="(l, li) in msg.lyrics" :key="li"
               class="bg-white/20 dark:bg-black/20 rounded-lg px-2 py-1.5 text-xs font-mono whitespace-pre-line">
-              <p class="opacity-80">{{ l.slice(0, 300) }}{{ l.length > 300 ? '...' : '' }}</p>
-              <button @click="emit('useLyrics', l)"
-                class="mt-1 text-[10px] font-medium underline opacity-80 hover:opacity-100">
-                Использовать текст
-              </button>
+              <p class="opacity-80">{{ isExpanded(`l-${idx}-${li}`) ? l : l.slice(0, 300) }}{{ !isExpanded(`l-${idx}-${li}`) && l.length > 300 ? '...' : '' }}</p>
+              <div class="flex items-center gap-2 mt-1">
+                <button @click="emit('useLyrics', l)"
+                  class="text-[10px] font-medium underline opacity-80 hover:opacity-100">
+                  Использовать текст
+                </button>
+                <button v-if="l.length > 300" @click="toggleBlock(`l-${idx}-${li}`)"
+                  class="text-[10px] font-medium opacity-60 hover:opacity-100">
+                  {{ isExpanded(`l-${idx}-${li}`) ? 'Свернуть' : 'Показать всё' }}
+                </button>
+              </div>
             </div>
           </div>
 
@@ -203,7 +224,7 @@ function renderContent(text: string): string {
     </div>
 
     <!-- Quick replies -->
-    <div v-if="lastSuggestions.length && !loading" class="px-4 pb-2">
+    <div v-if="lastSuggestions.length && !loading" class="px-2 pb-1.5 lg:px-4 lg:pb-2">
       <div class="flex flex-wrap gap-1.5">
         <button v-for="s in lastSuggestions" :key="s"
           @click="sendMessage(s)" :disabled="disabled"
@@ -214,7 +235,7 @@ function renderContent(text: string): string {
     </div>
 
     <!-- Input -->
-    <div class="px-4 pb-3">
+    <div class="px-2 pb-2 lg:px-4 lg:pb-3">
       <div class="flex gap-2 items-end">
         <textarea v-model="inputText" @keydown="onKeydown"
           :placeholder="mode === 'simple' ? 'Опиши музыку в двух словах...' : 'Подробно опиши, какой трек хочешь...'"
