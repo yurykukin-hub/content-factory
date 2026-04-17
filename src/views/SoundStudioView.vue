@@ -5,7 +5,7 @@
  * Brand color: fuchsia (matching Content Factory).
  */
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
-import { ChevronDown, Music } from 'lucide-vue-next'
+import { ChevronDown, ChevronUp, Music } from 'lucide-vue-next'
 import { http, TAB_ID } from '@/api/client'
 import { useBusinessesStore } from '@/stores/businesses'
 import { useAuthStore } from '@/stores/auth'
@@ -83,6 +83,7 @@ const agentLoading = ref(false)
 const enhancing = ref(false)
 const showPreGenModal = ref(false)
 const showCreatePersonaModal = ref(false)
+const mobileTracksOpen = ref(false)
 const selectedPersonaId = ref<string | null>(null)
 
 // --- Results (from completed sessions) ---
@@ -588,6 +589,22 @@ onBeforeUnmount(() => {
                 :has-lyrics="!!lyrics.trim()"
                 @enhance="onEnhance"
               />
+            </div>
+          </div>
+
+          <!-- Mobile: collapsible tracks section -->
+          <div class="lg:hidden shrink-0 border-t border-gray-200 dark:border-gray-800" v-if="trackResults.length || generating">
+            <button @click="mobileTracksOpen = !mobileTracksOpen"
+              class="w-full flex items-center justify-between px-3 py-1.5 text-[11px] font-medium text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800/50">
+              <div class="flex items-center gap-1.5">
+                <Music :size="12" class="text-fuchsia-500" />
+                <span>Треки</span>
+                <span v-if="trackResults.length" class="text-[9px] text-gray-400 bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded-full">{{ trackResults.length }}</span>
+              </div>
+              <ChevronUp :size="12" :class="['transition-transform text-gray-400', mobileTracksOpen ? '' : 'rotate-180']" />
+            </button>
+            <div v-if="mobileTracksOpen" class="max-h-[35vh] overflow-y-auto">
+              <SsGallery :results="trackResults" :generating="generating" />
             </div>
           </div>
 
