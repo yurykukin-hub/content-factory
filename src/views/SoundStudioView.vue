@@ -149,11 +149,14 @@ async function loadSessions() {
 
 async function loadDraftSession() {
   if (!selectedBizId.value) return
+  autoSavePaused = true
   const draft = await http.get<any>(`/sessions/draft?businessId=${selectedBizId.value}&type=music`)
   if (draft) {
     loadSessionIntoState(draft)
+    autoSavePaused = false
   } else {
     await createNewSession()
+    autoSavePaused = false
   }
 }
 
@@ -209,9 +212,17 @@ function resetState() {
 }
 
 async function onLoadSession(session: MusicSession) {
+  // Flush pending auto-save for current session before switching
+  if (autoSaveTimer) {
+    clearTimeout(autoSaveTimer)
+    autoSaveTimer = null
+    await saveSession()
+  }
+  autoSavePaused = true
   // Fetch full session
   const full = await http.get<any>(`/sessions/${session.id}`)
   loadSessionIntoState(full)
+  autoSavePaused = false
 }
 
 async function onDeleteSession(id: string) {
@@ -267,7 +278,13 @@ async function loadTrackResults() {
   trackResults.value = tracks
 }
 
-function onBusinessChange() {
+async function onBusinessChange() {
+  // Flush pending auto-save before switching business
+  if (autoSaveTimer) {
+    clearTimeout(autoSaveTimer)
+    autoSaveTimer = null
+    await saveSession()
+  }
   sessions.value = []
   trackResults.value = []
   currentSessionId.value = null
