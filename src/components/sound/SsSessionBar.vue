@@ -76,7 +76,7 @@ const STATUS_LABEL: Record<string, string> = {
 <template>
   <div class="flex flex-col min-h-0">
     <!-- Header: collapsible on mobile -->
-    <div class="flex items-center justify-between px-4 py-1.5 shrink-0 cursor-pointer lg:cursor-default"
+    <div class="flex items-center justify-between px-3 py-1 lg:px-4 lg:py-1.5 shrink-0 cursor-pointer lg:cursor-default"
          @click="sessionListOpen = !sessionListOpen">
       <div class="flex items-center gap-2 min-w-0">
         <span class="text-[10px] font-semibold text-gray-400 uppercase shrink-0">Сессии</span>
@@ -100,8 +100,8 @@ const STATUS_LABEL: Record<string, string> = {
 
     <!-- Session list: collapsible on mobile, always visible on desktop -->
     <div :class="[
-      'overflow-y-auto px-2 pb-1 space-y-0.5 transition-all duration-200',
-      sessionListOpen ? 'max-h-[40vh]' : 'max-h-0 overflow-hidden',
+      'px-2 space-y-0.5 transition-all duration-200',
+      sessionListOpen ? 'max-h-[40vh] overflow-y-auto pb-1' : 'max-h-0 overflow-hidden p-0',
       'lg:max-h-none lg:overflow-y-auto lg:flex-1'
     ]">
       <div v-for="s in sessions" :key="s.id"
