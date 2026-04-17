@@ -87,7 +87,7 @@ function renderContent(text: string): string {
 </script>
 
 <template>
-  <div class="flex flex-col h-[360px]">
+  <div class="flex flex-col flex-1 min-h-0">
     <!-- Header -->
     <div class="flex items-center justify-between px-4 py-2 border-b border-gray-100 dark:border-gray-800">
       <div class="flex items-center gap-2">

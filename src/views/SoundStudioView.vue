@@ -517,18 +517,18 @@ onBeforeUnmount(() => {
           @rename-session="onRenameSession"
         />
 
-        <!-- Controls (fills remaining space, scrollable) -->
-        <div class="flex-1 min-h-0 overflow-y-auto border-t border-gray-200 dark:border-gray-800">
+        <!-- Controls (fills remaining space) -->
+        <div class="flex-1 min-h-0 flex flex-col border-t border-gray-200 dark:border-gray-800">
           <!-- Mode tabs: Simple / Custom -->
-          <SsModeTabs v-model="musicMode" />
+          <SsModeTabs v-model="musicMode" class="shrink-0" />
 
           <!-- Prompt Tabs: Agent / Editor -->
-          <div class="px-4 pb-2">
+          <div class="px-4 pb-2 shrink-0">
             <SsPromptTabs v-model="activeTab" />
           </div>
 
-          <!-- Agent tab -->
-          <SsAgentChat v-if="activeTab === 'agent'"
+          <!-- Agent tab (stretches to fill) -->
+          <SsAgentChat v-if="activeTab === 'agent'" class="flex-1 min-h-0"
             :messages="chatMessages"
             :loading="agentLoading"
             :mode="agentMode"
@@ -541,19 +541,22 @@ onBeforeUnmount(() => {
             @update:mode="agentMode = $event"
           />
 
-          <!-- Editor tab -->
-          <div v-else class="px-4 space-y-3">
+          <!-- Editor tab (stretches to fill) -->
+          <div v-else class="px-4 space-y-3 flex-1 min-h-0 overflow-y-auto">
             <!-- Simple mode: just prompt -->
-            <div>
-              <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wide">
+            <div :class="musicMode === 'simple' ? 'flex-1 flex flex-col min-h-0' : ''">
+              <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wide shrink-0">
                 {{ musicMode === 'custom' ? 'Описание / тема' : 'Промпт' }}
               </label>
               <textarea v-model="prompt" :disabled="generating"
                 :placeholder="musicMode === 'simple'
                   ? 'A dreamy indie rock song about summer nights with reverb guitars and soft female vocals, 100 bpm'
                   : 'Тема или краткое описание для генерации текста'"
-                rows="2"
-                class="w-full mt-0.5 px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-fuchsia-500/40 resize-y disabled:opacity-50"
+                :rows="musicMode === 'simple' ? undefined : 2"
+                :class="[
+                  'w-full mt-0.5 px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-fuchsia-500/40 resize-y disabled:opacity-50',
+                  musicMode === 'simple' ? 'flex-1 min-h-[60px]' : ''
+                ]"
               />
             </div>
 
@@ -588,8 +591,8 @@ onBeforeUnmount(() => {
             </div>
           </div>
 
-          <!-- Settings panel (sticky bottom) -->
-          <SsSettingsPanel
+          <!-- Settings panel (pinned to bottom) -->
+          <SsSettingsPanel class="shrink-0"
             :suno-model="sunoModel"
             :instrumental="instrumental"
             :vocal-gender="vocalGender"

@@ -61,7 +61,7 @@ const detectedSections = computed(() => {
 </script>
 
 <template>
-  <div class="flex flex-col gap-2">
+  <div class="flex flex-col gap-2 flex-1 min-h-0">
     <!-- Section marker buttons -->
     <div class="flex flex-wrap gap-1">
       <button v-for="s in SECTIONS" :key="s.marker"
@@ -77,15 +77,15 @@ const detectedSections = computed(() => {
       </button>
     </div>
 
-    <!-- Textarea -->
-    <div class="relative">
+    <!-- Textarea (stretches to fill available space) -->
+    <div class="relative flex-1 min-h-0 flex flex-col">
       <textarea
         ref="textareaRef"
         :value="modelValue"
         @input="emit('update:modelValue', ($event.target as HTMLTextAreaElement).value)"
         :disabled="disabled"
         placeholder="[Verse]&#10;Walking through the rain&#10;Memories remain...&#10;&#10;[Chorus]&#10;Summer rain falls down..."
-        class="w-full min-h-[200px] max-h-[400px] px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm font-mono leading-relaxed placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-fuchsia-500/40 resize-y disabled:opacity-50"
+        class="w-full flex-1 min-h-[120px] px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm font-mono leading-relaxed placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-fuchsia-500/40 resize-y disabled:opacity-50"
       />
     </div>
 
