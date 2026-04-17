@@ -72,8 +72,8 @@ async function pollPendingTasks() {
               if (!kieAudioId) kieAudioId = data?.audioId || data?.audio_id || data?.id
             }
 
-            // Build results array with all variants (primary + extras)
-            const allResults = [
+            // Build new results from this generation
+            const newResults = [
               {
                 resultUrl: result.audioUrl,
                 coverImageUrl: result.coverImageUrl,
@@ -95,6 +95,10 @@ async function pollPendingTasks() {
                 createdAt: new Date().toISOString(),
               })),
             ]
+
+            // Append to existing results (don't overwrite previous generations)
+            const existingResults = Array.isArray(session.results) ? session.results as any[] : []
+            const allResults = [...existingResults, ...newResults]
 
             await db.generationSession.update({
               where: { id: session.id },
