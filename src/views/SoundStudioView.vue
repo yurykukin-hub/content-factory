@@ -523,7 +523,7 @@ onBeforeUnmount(() => {
           <!-- <SsModeTabs v-model="musicMode" class="shrink-0" /> -->
 
           <!-- Prompt Tabs: Agent / Editor -->
-          <div class="px-4 pb-2 shrink-0">
+          <div class="px-2 py-1 lg:px-4 lg:pb-2 shrink-0">
             <SsPromptTabs v-model="activeTab" />
           </div>
 
@@ -612,8 +612,8 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <!-- RIGHT: Gallery -->
-      <SsGallery
+      <!-- RIGHT: Gallery (hidden on mobile — only visible on desktop) -->
+      <SsGallery class="hidden lg:flex"
         :results="trackResults"
         :generating="generating"
       />
