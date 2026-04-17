@@ -85,12 +85,14 @@ function escapeHtml(text: string): string {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
-/** Render markdown-like bold, italic, newlines */
+/** Render markdown-like bold, italic, newlines (collapse 3+ blank lines into 1) */
 function renderContent(text: string): string {
   let html = escapeHtml(text)
   html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
   html = html.replace(/\*(.*?)\*/g, '<em>$1</em>')
   html = html.replace(/\n/g, '<br>')
+  // Collapse 3+ consecutive <br> into max 2 (one blank line)
+  html = html.replace(/(<br\s*\/?>){3,}/gi, '<br><br>')
   return html
 }
 </script>
