@@ -3,7 +3,7 @@
  * Persona selector dropdown + "Create from track" flow.
  * Shows active personas, allows selecting one for generation.
  */
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, useTemplateRef } from 'vue'
 import { ChevronDown, UserCircle, Plus, X } from 'lucide-vue-next'
 import { http } from '@/api/client'
 
@@ -29,6 +29,24 @@ const emit = defineEmits<{
 const personas = ref<Persona[]>([])
 const open = ref(false)
 const loading = ref(false)
+const triggerRef = ref<HTMLElement | null>(null)
+const dropdownStyle = ref<Record<string, string>>({})
+
+function updateDropdownPosition() {
+  if (!triggerRef.value) return
+  const rect = triggerRef.value.getBoundingClientRect()
+  const spaceBelow = window.innerHeight - rect.bottom
+  const openUp = spaceBelow < 250
+  dropdownStyle.value = {
+    position: 'fixed',
+    left: `${rect.left}px`,
+    width: '16rem',
+    zIndex: '50',
+    ...(openUp
+      ? { bottom: `${window.innerHeight - rect.top + 4}px` }
+      : { top: `${rect.bottom + 4}px` }),
+  }
+}
 
 async function loadPersonas() {
   loading.value = true
@@ -54,9 +72,9 @@ import { computed } from 'vue'
 </script>
 
 <template>
-  <div class="relative">
+  <div class="relative" ref="triggerRef">
     <!-- Trigger -->
-    <button @click="open = !open" :disabled="disabled"
+    <button @click="open = !open; if (!open) {} else updateDropdownPosition()" :disabled="disabled"
       :class="[
         'flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors',
         modelValue
@@ -73,12 +91,12 @@ import { computed } from 'vue'
       </button>
     </button>
 
-    <!-- Backdrop -->
-    <div v-if="open" class="fixed inset-0 z-10" @click="open = false" />
-
-    <!-- Dropdown -->
+    <!-- Teleported dropdown (avoids overflow:hidden clipping) -->
+    <Teleport to="body">
+    <div v-if="open" class="fixed inset-0 z-40" @click="open = false" />
     <div v-if="open"
-      class="absolute left-0 top-full mt-1 w-64 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl z-20 py-1">
+      :style="dropdownStyle"
+      class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl py-1 max-h-[50vh] overflow-y-auto">
 
       <!-- No persona option -->
       <button @click="select(null)"
@@ -122,5 +140,6 @@ import { computed } from 'vue'
         Нет персон. Создайте из готового трека.
       </div>
     </div>
+    </Teleport>
   </div>
 </template>
