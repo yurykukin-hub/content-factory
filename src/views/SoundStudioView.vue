@@ -543,7 +543,7 @@ onBeforeUnmount(() => {
           />
 
           <!-- Editor tab (stretches to fill) -->
-          <div v-else class="px-4 space-y-3 flex-1 min-h-0 overflow-y-auto">
+          <div v-else class="px-4 py-2 flex-1 min-h-0 flex flex-col gap-2 overflow-y-auto">
             <!-- Simple mode: just prompt -->
             <div :class="musicMode === 'simple' ? 'flex-1 flex flex-col min-h-0' : ''">
               <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wide shrink-0">
@@ -562,9 +562,9 @@ onBeforeUnmount(() => {
             </div>
 
             <!-- Custom mode: lyrics + style -->
-            <template v-if="musicMode === 'custom'">
-              <SsLyricsEditor v-model="lyrics" :disabled="generating" />
-              <SsStylePanel
+            <div v-if="musicMode === 'custom'" class="flex-1 min-h-0 flex flex-col gap-2">
+              <SsLyricsEditor v-model="lyrics" :disabled="generating" class="flex-1 min-h-0" />
+              <SsStylePanel class="shrink-0"
                 :music-style="musicStyle"
                 :music-title="musicTitle"
                 :negative-tags="negativeTags"
@@ -573,10 +573,10 @@ onBeforeUnmount(() => {
                 @update:music-title="musicTitle = $event"
                 @update:negative-tags="negativeTags = $event"
               />
-            </template>
+            </div>
 
             <!-- Persona selector + Enhance menu -->
-            <div class="flex items-center gap-2 pb-2">
+            <div class="flex items-center gap-2 pb-2 shrink-0">
               <SsPersonaSelector
                 v-if="!instrumental"
                 v-model="selectedPersonaId"
