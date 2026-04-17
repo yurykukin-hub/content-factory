@@ -527,6 +527,7 @@ model GenerationSession {
   // Промпт
   prompt           String   @default("")
   promptHistory    Json?    @map("prompt_history")    // [{version, prompt, createdAt}]
+  chatHistory      Json?    @map("chat_history")      // [{role, content, prompts?, suggestions?, createdAt}]
 
   // Настройки
   duration         Int      @default(4)

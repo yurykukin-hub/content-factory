@@ -13,6 +13,7 @@ import VsSettingsPanel from '@/components/video/VsSettingsPanel.vue'
 import VsGallery from '@/components/video/VsGallery.vue'
 import VsSessionBar from '@/components/video/VsSessionBar.vue'
 import VsConstructorDrawer from '@/components/video/VsConstructorDrawer.vue'
+import VsPreGenModal from '@/components/video/VsPreGenModal.vue'
 import MediaPickerModal from '@/components/MediaPickerModal.vue'
 import VsRefModal from '@/components/video/VsRefModal.vue'
 import type { CharacterData } from '@/components/video/VsRefModal.vue'
@@ -89,6 +90,7 @@ async function saveSession() {
     referenceImages: refImages.value.length ? refImages.value : null,
     firstFrameUrl: firstFrame.value?.url || null,
     lastFrameUrl: lastFrame.value?.url || null,
+    chatHistory: chatMessages.value.length ? chatMessages.value : null,
   }
   try {
     await http.put(`/sessions/${currentSessionId.value}`, payload)
@@ -124,6 +126,8 @@ async function loadDraftSession() {
       refImages.value = (draft.referenceImages as any[]) || []
       firstFrame.value = draft.firstFrameUrl ? { url: draft.firstFrameUrl, thumbUrl: null, filename: 'frame' } : null
       lastFrame.value = draft.lastFrameUrl ? { url: draft.lastFrameUrl, thumbUrl: null, filename: 'frame' } : null
+      // Restore agent chat history (validate it's an array)
+      chatMessages.value = Array.isArray(draft.chatHistory) ? draft.chatHistory as AgentMessage[] : []
       // Restore badges from prompt text (setTimeout ensures DOM is ready)
       if (prompt.value && refImages.value.length) {
         setTimeout(() => {
@@ -158,6 +162,7 @@ function startNewSession() {
   refImages.value = []
   firstFrame.value = null
   lastFrame.value = null
+  chatMessages.value = []
 }
 
 async function deleteSession(id: string) {
@@ -205,6 +210,7 @@ const promptHistory = ref<string[]>([])
 const historyIndex = ref(-1)
 const generatedPromptIndices = ref<Set<number>>(new Set())
 const showConstructor = ref(false)
+const showPreGenModal = ref(false)
 
 // Settings
 const duration = ref(4)
@@ -220,7 +226,20 @@ const lastFrame = ref<{ url: string; thumbUrl?: string | null; filename: string 
 // References
 const refImages = ref<{ url: string; thumbUrl?: string | null; filename: string; altText?: string | null }[]>([])
 
+// --- Agent state (declared before watch) ---
+interface AgentMessage {
+  role: 'user' | 'assistant'
+  content: string
+  prompts?: string[]
+  suggestions?: string[]
+  createdAt: string
+}
+const chatMessages = ref<AgentMessage[]>([])
+const agentLoading = ref(false)
+const agentMode = ref<'simple' | 'advanced'>('simple')
+
 // Auto-save on changes (debounced 2sec)
+// chatMessages autosave triggered explicitly in sendAgentMessage — no deep watch needed
 watch([prompt, duration, audio, resolution, aspectRatio, inputMode, refImages, firstFrame, lastFrame], scheduleAutoSave, { deep: true })
 const showMediaPicker = ref(false)
 const showRefModal = ref(false)
@@ -235,9 +254,91 @@ const selectedCharacterId = ref<string | null>(null)
 interface PromptEntry { id: string; prompt: string; resultUrl: string | null; rating: number | null; tags: string[]; metadata: any; createdAt: string }
 const savedPrompts = ref<PromptEntry[]>([])
 
+function parseAgentResponse(raw: string): { text: string; prompts: string[]; suggestions: string[] } {
+  const prompts: string[] = []
+  const suggestions: string[] = []
+
+  // Extract <prompt>...</prompt> blocks
+  let text = raw.replace(/<prompt>([\s\S]*?)<\/prompt>/g, (_, p) => {
+    prompts.push(p.trim())
+    return '' // Remove from text
+  })
+
+  // Extract <suggestions>...|...|...</suggestions>
+  text = text.replace(/<suggestions>([\s\S]*?)<\/suggestions>/g, (_, s) => {
+    suggestions.push(...s.split('|').map((x: string) => x.trim()).filter(Boolean))
+    return ''
+  })
+
+  return { text: text.trim(), prompts, suggestions }
+}
+
+async function sendAgentMessage(userText: string) {
+  if (!selectedBizId.value || agentLoading.value) return
+
+  chatMessages.value.push({
+    role: 'user',
+    content: userText,
+    createdAt: new Date().toISOString(),
+  })
+  agentLoading.value = true
+
+  try {
+    const context = {
+      inputMode: inputMode.value,
+      refImages: refImages.value.map(r => ({
+        filename: r.filename,
+        altText: r.altText || null,
+      })),
+      duration: duration.value,
+      aspectRatio: aspectRatio.value,
+      resolution: resolution.value,
+      generateAudio: audio.value,
+      currentPrompt: prompt.value,
+    }
+
+    const recentMessages = chatMessages.value
+      .slice(-20)
+      .map(m => ({ role: m.role, content: m.content }))
+
+    const res = await http.post<{ content: string }>('/ai/agent-chat', {
+      messages: recentMessages,
+      context,
+      mode: agentMode.value,
+      businessId: selectedBizId.value,
+    })
+
+    const parsed = parseAgentResponse(res.content)
+
+    chatMessages.value.push({
+      role: 'assistant',
+      content: parsed.text,
+      prompts: parsed.prompts,
+      suggestions: parsed.suggestions,
+      createdAt: new Date().toISOString(),
+    })
+  } catch (e: any) {
+    toast.error(e.message || 'Ошибка агента')
+  } finally {
+    agentLoading.value = false
+    scheduleAutoSave() // Save chat history to session
+  }
+}
+
+function onAgentUsePrompt(promptText: string) {
+  // Save current prompt to history if different
+  if (prompt.value.trim() && (!promptHistory.value.length || promptHistory.value[promptHistory.value.length - 1] !== prompt.value)) {
+    promptHistory.value.push(prompt.value)
+  }
+  setPromptWithBadges(promptText)
+  promptHistory.value.push(promptText)
+  historyIndex.value = promptHistory.value.length - 1
+  toast.success('Промпт загружен из агента')
+}
+
 // Sessions
 interface Session {
-  id: string; businessId: string; prompt: string; duration: number; aspectRatio: string
+  id: string; businessId: string; title: string; prompt: string; duration: number; aspectRatio: string
   resolution: string; generateAudio: boolean; inputMode: string
   referenceImages: any; firstFrameUrl: string | null; lastFrameUrl: string | null
   status: string; resultUrl: string | null; costUsd: number | null
@@ -307,6 +408,9 @@ async function loadSession(session: Session) {
     historyIndex.value = promptHistory.value.length - 1
     generatedPromptIndices.value = new Set()
   }
+
+  // Restore chat history (validate it's an array)
+  chatMessages.value = Array.isArray(fullSession?.chatHistory) ? fullSession.chatHistory as AgentMessage[] : []
 
   // Always set currentSessionId — auto-save guards by status
   currentSessionId.value = session.id
@@ -449,6 +553,16 @@ async function enhance(mode: EnhanceMode = 'enhance') {
     toast.success(MODE_LABELS[mode] || 'Промпт улучшен')
   } catch (e: any) { toast.error(e.message || 'Ошибка') }
   finally { enhancing.value = false }
+}
+
+function onGenerateClick() {
+  if (!prompt.value.trim() || !selectedBizId.value) return
+  showPreGenModal.value = true
+}
+
+function onPreGenConfirm() {
+  showPreGenModal.value = false
+  generate()
 }
 
 async function generate() {
@@ -772,6 +886,9 @@ onBeforeUnmount(() => {
             :is-admin="isAdmin"
             :is-pro-mode="isProMode"
             :debug-info="lastEnhanceDebug"
+            :chat-messages="chatMessages"
+            :agent-loading="agentLoading"
+            :agent-mode="agentMode"
             @enhance="enhance"
             @history-back="historyBack"
             @history-forward="historyForward"
@@ -783,7 +900,10 @@ onBeforeUnmount(() => {
             @remove-frame="(w) => w === 'first' ? firstFrame = null : lastFrame = null"
             @open-constructor="showConstructor = true"
             @apply-template="(t) => prompt = t"
-            @load-templates="loadAiTemplates" />
+            @load-templates="loadAiTemplates"
+            @agent-send="sendAgentMessage"
+            @agent-use-prompt="onAgentUsePrompt"
+            @update:agent-mode="agentMode = $event" />
         </div>
         <VsSettingsPanel
           :duration="duration"
@@ -798,7 +918,7 @@ onBeforeUnmount(() => {
           @update:audio="audio = $event"
           @update:resolution="resolution = $event"
           @update:aspect-ratio="aspectRatio = $event"
-          @generate="generate" />
+          @generate="onGenerateClick" />
         </div>
       </div>
 
@@ -830,6 +950,18 @@ onBeforeUnmount(() => {
       :business-id="selectedBizId || ''"
       @close="showMediaPicker = false"
       @selected="(f: any) => addRefFromLibrary(f)" />
+
+    <!-- Pre-generation Confirmation Modal -->
+    <VsPreGenModal
+      :visible="showPreGenModal"
+      :prompt="prompt"
+      :duration="duration"
+      :resolution="resolution"
+      :aspect-ratio="aspectRatio"
+      :generate-audio="audio"
+      :cost-rub="costRub"
+      @confirm="onPreGenConfirm"
+      @cancel="showPreGenModal = false" />
 
   </div>
 </template>

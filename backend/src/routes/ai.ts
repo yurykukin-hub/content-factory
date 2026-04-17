@@ -2,8 +2,8 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import { db } from '../db'
 import { config } from '../config'
-import { aiComplete, aiVision } from '../services/ai/openrouter'
-import { buildBrandContext, buildPlanPrompt, buildPostPrompt, buildAdaptPrompt, buildHashtagPrompt, buildImageEnhancerPrompt, buildEditEnhancerPrompt, buildStoryTitlePrompt, buildScenarioPrompt, buildVideoPromptEnhancer, buildVideoPromptEnhancerAdaptive, buildVideoPromptDirector, buildVideoPromptStructure, buildVideoPromptFocus, buildVideoPromptAudio, buildVideoPromptCamera, buildVideoPromptTranslate, buildVideoPromptSimplify, analyzeVideoPrompt } from '../services/ai/prompt-builder'
+import { aiComplete, aiVision, aiChat } from '../services/ai/openrouter'
+import { buildBrandContext, buildPlanPrompt, buildPostPrompt, buildAdaptPrompt, buildHashtagPrompt, buildImageEnhancerPrompt, buildEditEnhancerPrompt, buildStoryTitlePrompt, buildScenarioPrompt, buildVideoPromptEnhancer, buildVideoPromptEnhancerAdaptive, buildVideoPromptDirector, buildVideoPromptStructure, buildVideoPromptFocus, buildVideoPromptAudio, buildVideoPromptCamera, buildVideoPromptTranslate, buildVideoPromptSimplify, analyzeVideoPrompt, buildAgentSystemPrompt } from '../services/ai/prompt-builder'
 import { generateImage, editImage, removeBackground, createVideoTask, EDIT_MODELS } from '../services/ai/kie'
 import { emitEvent } from '../eventBus'
 import type { AuthUser } from '../middleware/auth'
@@ -978,6 +978,56 @@ ai.post('/describe-image', async (c) => {
   })
 
   return c.json({ description: result.content.trim() })
+})
+
+// POST /api/ai/agent-chat — AI Agent для видеостудии (мульти-turn диалог)
+const agentChatSchema = z.object({
+  messages: z.array(z.object({
+    role: z.enum(['user', 'assistant']),
+    content: z.string().max(2000),
+  })).min(1).max(20),  // Бэкенд тоже slice(-20), лимит согласован
+  context: z.object({
+    inputMode: z.enum(['text', 'frames', 'references']),
+    refImages: z.array(z.object({
+      filename: z.string(),
+      altText: z.string().nullable(),
+    })).default([]),
+    duration: z.number().min(4).max(15),
+    aspectRatio: z.string(),
+    resolution: z.string(),
+    generateAudio: z.boolean(),
+    currentPrompt: z.string().default(''),
+  }),
+  mode: z.enum(['simple', 'advanced']).default('simple'),
+  businessId: z.string(),
+})
+
+ai.post('/agent-chat', async (c) => {
+  const data = agentChatSchema.parse(await c.req.json())
+  const user = c.get('user') as AuthUser
+
+  await assertBusinessAccess(user, data.businessId)
+
+  const brandContext = await buildBrandContext(data.businessId)
+  const systemPrompt = buildAgentSystemPrompt(data.context, data.mode, brandContext)
+
+  // Send only last 20 messages to cap token usage
+  const recentMessages = data.messages.slice(-20)
+
+  const model = data.mode === 'advanced' ? config.models.sonnet : config.models.haiku
+  const maxTokens = data.mode === 'advanced' ? 1000 : 600
+
+  const result = await aiChat({
+    systemPrompt,
+    messages: recentMessages,
+    model,
+    maxTokens,
+    businessId: data.businessId,
+    action: `agent_chat_${data.mode}`,
+    userId: user.userId,
+  })
+
+  return c.json({ content: result.content })
 })
 
 export { ai }

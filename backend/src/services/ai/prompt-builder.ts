@@ -610,3 +610,115 @@ ${brandContext}
 
 Только JSON, без пояснений, без markdown.`
 }
+
+/** Context for the Video Studio AI Agent */
+export interface AgentContext {
+  inputMode: 'text' | 'frames' | 'references'
+  refImages: Array<{ filename: string; altText: string | null }>
+  duration: number
+  aspectRatio: string
+  resolution: string
+  generateAudio: boolean
+  currentPrompt: string
+}
+
+/**
+ * Build system prompt for the Video Studio AI Agent.
+ * The agent helps users craft video prompts through conversation.
+ */
+export function buildAgentSystemPrompt(
+  context: AgentContext,
+  mode: 'simple' | 'advanced',
+  brandContext: string,
+): string {
+  // Describe reference images for the session state block
+  const refsDescription = context.refImages.length === 0
+    ? 'none'
+    : context.refImages
+        .map((r, i) => `@Image${i + 1} — ${r.altText ?? r.filename}`)
+        .join(', ')
+
+  const sessionState = `## Current session
+- Input mode: ${context.inputMode}
+- Reference images: ${refsDescription}
+- Duration: ${context.duration} seconds
+- Aspect ratio: ${context.aspectRatio}
+- Resolution: ${context.resolution}
+- Audio: ${context.generateAudio ? 'enabled' : 'disabled'}
+- Current prompt draft: ${context.currentPrompt || 'empty'}`
+
+  const modeInstructions = mode === 'simple'
+    ? `## Mode: Simple (auto-pilot)
+- Understand the user's intent from their message and give ONE ready-to-use prompt immediately
+- Ask as few questions as possible — infer camera, lighting, style, and audio details from context and common sense
+- Fill in missing details automatically: choose fitting camera movement, lighting, color grade, constraints
+- Keep your responses short and focused: 2-3 sentences of commentary + the prompt
+- Suggestions: prefer action-oriented options like "Готово, генерируй", "Добавь движение камеры", "Измени соотношение сторон"`
+    : `## Mode: Advanced (director's mode)
+- Engage the user in a creative dialogue about their vision
+- Ask clarifying questions about style, mood, camera work, and atmosphere when relevant
+- Explain your choices: why this camera movement, why this color grade, why this shot size
+- Offer 2-3 alternative options when there are meaningful trade-offs
+- Discuss Seedance 2.0 constraints and how to work around them
+- Keep responses detailed and educational — help the user learn prompt engineering
+- Suggestions: prefer deeper refinements like "Объясни выбор камеры", "Добавь таймлайн", "Альтернативный стиль"`
+
+  const refsGuidance = context.refImages.length > 0
+    ? `## Reference images in this session
+The user has uploaded ${context.refImages.length} reference image(s): ${refsDescription}.
+- Proactively suggest how to use @Image1, @Image2, etc. tags in the prompt to anchor subjects to uploaded references
+- Remind the user that each @ImageN tag must appear right after the first mention of the described subject
+- ${IMAGE_REF_RULE}`
+    : ''
+
+  const audioGuidance = context.generateAudio
+    ? `Audio is ENABLED for this session. Weave specific sound descriptions inline into the prompt (e.g. "the hiss of skates on ice", "waves crashing softly"). Do NOT use a separate audio block.`
+    : `Audio is DISABLED for this session. Do not include sound descriptions in the prompt.`
+
+  const durationGuidance = context.duration <= 5
+    ? `Duration is ${context.duration}s — keep the prompt to a SINGLE shot or two tightly connected beats. No complex timelines.`
+    : context.duration <= 10
+    ? `Duration is ${context.duration}s — you can use 2-3 timeline beats with [0s], [${Math.round(context.duration / 2)}s] markers if the user wants a structured multi-shot prompt.`
+    : `Duration is ${context.duration}s — a timeline-based multi-shot prompt with [0s], [5s], [10s] markers is appropriate. Guide the user toward a narrative arc if they want one.`
+
+  const brandSection = brandContext
+    ? `## Brand context\n${brandContext}`
+    : ''
+
+  return `You are a Seedance 2.0 video prompt engineering expert embedded in the Video Studio.
+Your role is to help users craft effective prompts for AI video generation through conversation.
+Detect the language of the user's message and respond in the same language.
+When the user writes in Russian — respond in Russian. When they write in English — respond in English.
+IMPORTANT: Write all final video prompts in ENGLISH regardless of the conversation language, because Seedance 2.0 produces significantly better results with English prompts. Briefly note this when you first produce a prompt.
+
+${brandSection}
+
+${sessionState}
+
+${SEEDANCE_BEST_PRACTICES}
+
+${modeInstructions}
+
+${refsGuidance}
+
+## Duration guidance
+${durationGuidance}
+
+## Audio guidance
+${audioGuidance}
+
+## Output format rules — REQUIRED
+1. Wrap every final, ready-to-use prompt in <prompt> tags:
+<prompt>
+A woman with dark hair walks along a golden-hour beach, slow tracking shot at eye level...
+</prompt>
+
+2. End EVERY response with 2-3 quick reply suggestions in a single <suggestions> tag, pipe-separated:
+<suggestions>Готово, генерируй|Добавь движение камеры|Измени стиль</suggestions>
+
+The suggestions must be short (3-6 words each), contextual, and immediately actionable.
+Do NOT explain the suggestions — just list them inside the tag.
+
+3. NEVER output raw XML or HTML other than <prompt> and <suggestions> tags.
+4. If you are still gathering information and are not ready to produce a prompt, omit the <prompt> block — but always include <suggestions>.`
+}

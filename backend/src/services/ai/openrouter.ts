@@ -69,6 +69,62 @@ interface AiCompleteResult {
   model: string
 }
 
+export interface AiChatParams {
+  systemPrompt: string
+  messages: Array<{ role: 'user' | 'assistant'; content: string }>
+  model?: string
+  maxTokens?: number
+  businessId?: string
+  action?: string
+  userId?: string
+}
+
+/**
+ * Общий блок: запись в AiUsageLog + списание с баланса пользователя.
+ * Вызывается только когда params.action задан.
+ */
+async function logAndCharge(params: {
+  businessId?: string | null
+  userId?: string
+  action: string
+  model: string
+  result: AiCompleteResult
+  prompt: string
+  start: number
+}): Promise<void> {
+  const markup = await getMarkupPercent()
+  const chargedRub = calculateChargedRub(params.result.costUsd, markup)
+
+  const log = await db.aiUsageLog.create({
+    data: {
+      businessId: params.businessId || null,
+      userId: params.userId || null,
+      action: params.action,
+      model: params.model,
+      tokensIn: params.result.tokensIn,
+      tokensOut: params.result.tokensOut,
+      cachedTokens: params.result.cachedTokens,
+      costUsd: params.result.costUsd,
+      markupPercent: markup,
+      chargedRub,
+      status: 'success',
+      prompt: params.prompt.slice(0, 2000),
+      durationMs: Date.now() - params.start,
+    },
+  })
+
+  // Charge user balance (ADMIN exempt)
+  if (params.userId && params.result.costUsd > 0) {
+    const user = await db.user.findUnique({ where: { id: params.userId }, select: { role: true } })
+    if (user) {
+      await chargeUser({
+        userId: params.userId, role: user.role, costUsd: params.result.costUsd,
+        markupPercent: markup, aiUsageLogId: log.id, description: params.action,
+      })
+    }
+  }
+}
+
 /**
  * Вызов OpenRouter API для генерации текста.
  * Трекает использование в AiUsageLog.
@@ -114,39 +170,16 @@ export async function aiComplete(params: AiCompleteParams): Promise<AiCompleteRe
     model,
   }
 
-  // Log usage + charge
   if (params.action) {
-    const markup = await getMarkupPercent()
-    const chargedRub = calculateChargedRub(result.costUsd, markup)
-
-    const log = await db.aiUsageLog.create({
-      data: {
-        businessId: params.businessId || null,
-        userId: params.userId || null,
-        action: params.action,
-        model,
-        tokensIn: result.tokensIn,
-        tokensOut: result.tokensOut,
-        cachedTokens: result.cachedTokens,
-        costUsd: result.costUsd,
-        markupPercent: markup,
-        chargedRub,
-        status: 'success',
-        prompt: (params.userPrompt || '').slice(0, 2000),
-        durationMs: Date.now() - start,
-      },
+    await logAndCharge({
+      businessId: params.businessId,
+      userId: params.userId,
+      action: params.action,
+      model,
+      result,
+      prompt: params.userPrompt || '',
+      start,
     })
-
-    // Charge user balance (ADMIN exempt)
-    if (params.userId && result.costUsd > 0) {
-      const user = await db.user.findUnique({ where: { id: params.userId }, select: { role: true } })
-      if (user) {
-        await chargeUser({
-          userId: params.userId, role: user.role, costUsd: result.costUsd,
-          markupPercent: markup, aiUsageLogId: log.id, description: params.action,
-        })
-      }
-    }
   }
 
   return result
@@ -215,36 +248,80 @@ export async function aiVision(params: {
   }
 
   if (params.action) {
-    const markup = await getMarkupPercent()
-    const chargedRub = calculateChargedRub(result.costUsd, markup)
-
-    const log = await db.aiUsageLog.create({
-      data: {
-        businessId: params.businessId || null,
-        userId: params.userId || null,
-        action: params.action,
-        model,
-        tokensIn: result.tokensIn,
-        tokensOut: result.tokensOut,
-        cachedTokens: result.cachedTokens,
-        costUsd: result.costUsd,
-        markupPercent: markup,
-        chargedRub,
-        status: 'success',
-        prompt: (params.userPrompt || '').slice(0, 2000),
-        durationMs: Date.now() - start,
-      },
+    await logAndCharge({
+      businessId: params.businessId,
+      userId: params.userId,
+      action: params.action,
+      model,
+      result,
+      prompt: params.userPrompt || '',
+      start,
     })
+  }
 
-    if (params.userId && result.costUsd > 0) {
-      const user = await db.user.findUnique({ where: { id: params.userId }, select: { role: true } })
-      if (user) {
-        await chargeUser({
-          userId: params.userId, role: user.role, costUsd: result.costUsd,
-          markupPercent: markup, aiUsageLogId: log.id, description: params.action,
-        })
-      }
-    }
+  return result
+}
+
+/**
+ * Multi-turn chat вызов OpenRouter API.
+ * Принимает историю сообщений user/assistant и системный промпт.
+ * Трекает использование в AiUsageLog — пишет последнее user-сообщение как prompt.
+ */
+export async function aiChat(params: AiChatParams): Promise<AiCompleteResult> {
+  const model = params.model || config.models.haiku
+  const apiKey = await getApiKey()
+  const start = Date.now()
+
+  const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+      'HTTP-Referer': 'https://content.yurykukin.ru',
+      'X-Title': 'Content Factory',
+    },
+    body: JSON.stringify({
+      model,
+      max_tokens: params.maxTokens || 2000,
+      messages: [
+        { role: 'system', content: params.systemPrompt },
+        ...params.messages,
+      ],
+    }),
+  })
+
+  if (!response.ok) {
+    const err = await response.text()
+    throw new Error(`OpenRouter chat error ${response.status}: ${err}`)
+  }
+
+  const data = await response.json() as any
+  const content = data.choices?.[0]?.message?.content || ''
+  const usage = data.usage || {}
+
+  const result: AiCompleteResult = {
+    content,
+    tokensIn: usage.prompt_tokens || 0,
+    tokensOut: usage.completion_tokens || 0,
+    cachedTokens: usage.prompt_tokens_details?.cached_tokens || 0,
+    costUsd: calculateCost(model, usage.prompt_tokens || 0, usage.completion_tokens || 0),
+    model,
+  }
+
+  if (params.action) {
+    // Для лога берём последнее user-сообщение из истории
+    const lastUserMessage = [...params.messages].reverse().find(m => m.role === 'user')
+    const promptForLog = lastUserMessage?.content || ''
+
+    await logAndCharge({
+      businessId: params.businessId,
+      userId: params.userId,
+      action: params.action,
+      model,
+      result,
+      prompt: promptForLog,
+      start,
+    })
   }
 
   return result

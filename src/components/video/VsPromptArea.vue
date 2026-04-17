@@ -8,6 +8,9 @@ import VsRichPrompt from './VsRichPrompt.vue'
 import type { BadgeData } from './VsRichPrompt.vue'
 import VsEnhanceMenu from './VsEnhanceMenu.vue'
 import type { EnhanceMode } from './VsEnhanceMenu.vue'
+import VsPromptTabs from './VsPromptTabs.vue'
+import VsAgentChat from './VsAgentChat.vue'
+import type { AgentMessage } from './VsAgentMessage.vue'
 
 interface FrameRef {
   url: string
@@ -51,6 +54,10 @@ const props = defineProps<{
   isAdmin?: boolean
   isProMode?: boolean
   debugInfo?: EnhanceDebugInfo | null
+  // Agent props
+  chatMessages?: AgentMessage[]
+  agentLoading?: boolean
+  agentMode?: 'simple' | 'advanced'
 }>()
 
 const emit = defineEmits<{
@@ -67,8 +74,13 @@ const emit = defineEmits<{
   openConstructor: []
   applyTemplate: [prompt: string]
   loadTemplates: []
+  // Agent emits
+  agentSend: [message: string]
+  agentUsePrompt: [prompt: string]
+  'update:agentMode': [mode: 'simple' | 'advanced']
 }>()
 
+const activeTab = ref<'agent' | 'editor'>('editor')
 const showTemplates = ref(false)
 const richPromptRef = ref<InstanceType<typeof VsRichPrompt> | null>(null)
 const showAddMenu = ref(false)
@@ -124,11 +136,45 @@ function openPreview(img: RefImage) {
   previewRef.value = img
 }
 
+// Agent context summary for welcome message
+const contextSummary = computed(() => {
+  const parts: string[] = []
+  if (props.refImages.length) parts.push(`${props.refImages.length} фото`)
+  if (props.firstFrame || props.lastFrame) parts.push('кадры загружены')
+  return parts.length
+    ? `Загружено: ${parts.join(', ')}. Режим: ${props.inputMode === 'text' ? 'текст' : props.inputMode === 'frames' ? 'кадры' : 'референсы'}.`
+    : 'Пока ничего не загружено. Можно начать с текстового описания.'
+})
+
+function onAgentUsePrompt(promptText: string) {
+  activeTab.value = 'editor'
+  emit('agentUsePrompt', promptText)
+}
+
 defineExpose({ insertBadge, openPreview, setContentWithBadges })
 </script>
 
 <template>
-  <div class="px-4 py-3 space-y-3">
+  <div>
+    <!-- Tab switcher: Agent / Editor -->
+    <div class="px-4 pt-3 pb-2">
+      <VsPromptTabs v-model="activeTab" />
+    </div>
+
+    <!-- Agent tab -->
+    <VsAgentChat
+      v-if="activeTab === 'agent'"
+      :messages="chatMessages || []"
+      :loading="agentLoading || false"
+      :mode="agentMode || 'simple'"
+      :disabled="false"
+      :context-summary="contextSummary"
+      @send="emit('agentSend', $event)"
+      @use-prompt="onAgentUsePrompt"
+      @update:mode="emit('update:agentMode', $event)" />
+
+    <!-- Editor tab (existing content) -->
+    <div v-else class="px-4 py-3 space-y-3">
 
     <!-- 1. INPUT IMAGES (above prompt, Kling-style) -->
 
@@ -324,5 +370,6 @@ defineExpose({ insertBadge, openPreview, setContentWithBadges })
       <p v-else class="text-[10px] text-gray-400">Выберите проект для генерации шаблонов</p>
     </div>
 
+    </div><!-- /Editor tab -->
   </div>
 </template>
