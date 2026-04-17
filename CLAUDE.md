@@ -13,7 +13,7 @@ AI-контент-фабрика для автоматизации SMM. Гене
 - **Backend:** Bun + Hono + TypeScript
 - **Frontend:** Vue 3 + Tailwind CSS + Lucide Icons + Pinia
 - **ORM/DB:** Prisma + PostgreSQL 16
-- **AI:** OpenRouter (Haiku для адаптации, Sonnet для генерации, Gemini Flash для vision) + KIE.ai (Nano Banana 2 для text2img/img2img, FLUX Kontext Pro для img2img, recraft для удаления фона, Seedance 2 для видео, **Suno v4/v4.5/v5.5 для музыки**)
+- **AI:** OpenRouter (Haiku для адаптации, Sonnet для генерации, Gemini Flash для vision) + KIE.ai (Nano Banana 2 для text2img/img2img, FLUX Kontext Pro для img2img, recraft для удаления фона, Seedance 2 для видео, **Suno V4/V4_5/V5_5 для музыки — API v2, 17.04.2026**)
 - **Audio:** wavesurfer.js v7 (waveform visualization)
 - **Testing:** Vitest (96 тестов — 7 файлов)
 - **Deploy:** Docker Compose + Caddy (SSL auto)
@@ -198,7 +198,7 @@ cp backend/.env.example backend/.env
 8. **Видео-генерация** (KIE.ai Seedance 2) → **async** (background poller), 480p/720p, 4-15 сек, 9:16/1:1/16:9, audio toggle
 9. **AI-описание фото** (Gemini 2.0 Flash Vision) → auto-describe на русском для референсов и медиатеки
 10. **AI Agent чат** (Haiku Simple / Sonnet Advanced) → multi-turn диалог для крафта видео-промптов. Знает контекст (refs, duration, resolution, audio). Quick reply suggestions. Промпт переносится в Editor одной кнопкой
-11. **Музыка-генерация** (KIE.ai Suno v4/v4.5/v5.5) → **async** (background poller), Simple/Custom mode, lyrics+style, до 8 мин, voice clone (V5.5 Generate Persona)
+11. **Музыка-генерация** (KIE.ai Suno V4/V4_5/V5_5) → **async** (background poller), Custom mode (Simple скрыт), lyrics+style, до 8 мин, voice clone (V5.5 Generate Persona), **2 трека на генерацию** (results JSON append)
 12. **Music AI Agent** (Haiku/Sonnet) → multi-turn диалог для крафта музыкальных промптов, текстов, стилей. 8 enhance modes (lyrics, improve, rhyme, structure, style, translate, enhance, simplify)
 
 API keys: OpenRouter — из БД (AppConfig) или .env. FAL — из .env (FAL_API_KEY). KIE — из .env (KIE_API_KEY)
@@ -238,18 +238,27 @@ API keys: OpenRouter — из БД (AppConfig) или .env. FAL — из .env (F
 - **Pre-gen modal** — VsPreGenModal показывается перед каждой генерацией, отображает formatted prompt sections для подтверждения
 - **Security** — escapeHtml в markdown-рендеринге (XSS-safe), Zod validation на agent-chat, assertBusinessAccess checks
 
-## Sound Studio Architecture (2026-04-17)
+## Sound Studio Architecture (2026-04-17, updated 17.04)
 - **GenerationSession type="music"** — расширение той же модели (type discriminator). 18 music-полей: customMode, instrumental, lyrics, musicStyle, musicTitle, negativeTags, vocalGender, styleWeight, weirdnessConstraint, audioWeight, personaId, coverImageUrl, audioUrl, streamAudioUrl, sunoModel, completedTaskId, kieAudioId
-- **MusicPersona** — голосовая персона для voice cloning (name, description, gender, sampleMediaId, sunoPersonaId)
-- **Suno API** через KIE.ai — POST /api/v1/jobs/createTask (model: suno/v4, v4.5, v5.5). Стоимость: ~$0.11/песня
-- **Generate Persona** — POST /api/v1/generate/generate-persona (taskId + audioId + vocalStart/vocalEnd 10-30 сек)
+- **MusicPersona** — голосовая персона для voice cloning (name, description, gender, sampleMediaId, sunoPersonaId). Dropdown: Teleport to body (z-50, auto-direction up/down)
+- **KIE.ai Suno API v2** (migrated 17.04.2026):
+  - Генерация: `POST /api/v1/generate` (model: V4, V4_5, V5_5, callBackUrl required)
+  - Статус: `GET /api/v1/generate/record-info` (ждём SUCCESS, не FIRST_SUCCESS)
+  - Persona: `POST /api/v1/generate/generate-persona` (только из сгенерированных треков)
+  - Модели: V4 (4мин), V4_5 (8мин), V5_5 (voice clone). Маппинг старых имён в MODEL_MAP
+  - Стоимость: ~$0.11/песня. **2 трека** на генерацию (sunoData[] массив)
+- **Multi-track results** — поллер сохраняет оба варианта в `results` JSON. При повторной генерации в сессии — append, не overwrite
 - **Async generation** — тот же поллер (video-poller.ts), ветвление по session.type. Сохраняет completedTaskId + kieAudioId для Generate Persona
 - **8 enhance modes**: enhance, lyrics (Sonnet), improve (Sonnet), style, structure, rhyme, translate, simplify
-- **Music AI Agent** — buildMusicAgentSystemPrompt (Suno expert, знает стили/lyrics-формат/weights). Два режима: Simple/Advanced
-- **Lyrics Editor** — textarea с [Verse]/[Chorus]/[Bridge] section markers, подсветка секций
+- **Music AI Agent** — buildMusicAgentSystemPrompt (Suno expert, знает стили/lyrics-формат/weights). Два режима: Simple/Advanced. Collapse 3+ blank lines в renderContent
+- **Lyrics Editor** — textarea с [Verse]/[Chorus]/[Bridge] section markers, подсветка секций. flex-1 min-h-0 (резиновая высота)
 - **Waveform player** — wavesurfer.js v7 composable (useSurfer.ts), fuchsia brand color
 - **Voice Persona flow**: Generate track → Track completes (save completedTaskId + kieAudioId) → Create Persona (SsCreatePersonaModal) → Use in future generations (SsPersonaSelector)
-- **Layout** — 50/50 как Video Studio, KeepAlive, SSE, auto-save 2sec debounce
+- **Auto-save** — debounced 2sec PUT, only for draft sessions. **Flush before session switch** (onLoadSession, onBusinessChange). chatMessages в watch array
+- **Layout desktop** — 50/50, KeepAlive, SSE. Lyrics/Agent chat — elastic height (flex-1). Gallery: right panel
+- **Layout mobile** — full-height (100vh-5rem), collapsible session list (default collapsed), gallery hidden (collapsible "Треки" toggle above settings), settings in 2 rows (lg:contents pattern), agent chat 92% width, compact padding
+- **Mode switcher** — Simple/Custom скрыт, forced Custom mode (SsModeTabs commented out). Легко вернуть
+- **Session type isolation** — VideoStudio: `&type=video`, SoundStudio: `&type=music` (фикс mixing bug)
 
 ## Media Library
 - **Upload MIME detection**: extensionToMime() fallback when blob.type is empty/octet-stream (MOV, AVI, MKV etc.)
