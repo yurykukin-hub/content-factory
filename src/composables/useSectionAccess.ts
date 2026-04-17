@@ -16,6 +16,7 @@ export type Section =
   | 'scenarios'
   | 'characters'
   | 'videoStudio'
+  | 'soundStudio'
   | 'settings'
   | 'publishing'
   | 'aiLogs'
@@ -23,7 +24,7 @@ export type Section =
 export type AccessLevel = 'full' | 'view' | 'none'
 
 /** Секции, доступные только ADMIN по умолчанию */
-const ADMIN_SECTIONS: Section[] = ['scenarios', 'characters', 'videoStudio', 'settings', 'aiLogs']
+const ADMIN_SECTIONS: Section[] = ['scenarios', 'characters', 'videoStudio', 'soundStudio', 'settings', 'aiLogs']
 
 /** Все секции с русскими лейблами */
 export const SECTION_LABELS: Record<Section, string> = {
@@ -36,6 +37,7 @@ export const SECTION_LABELS: Record<Section, string> = {
   scenarios: 'Сценарии',
   characters: 'Персонажи',
   videoStudio: 'Видео-студия',
+  soundStudio: 'Звуковая студия',
   settings: 'Настройки',
   publishing: 'Публикация',
   aiLogs: 'AI Логи',

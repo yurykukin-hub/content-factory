@@ -16,6 +16,7 @@ import {
   Settings,
   Image,
   Activity,
+  Music,
   X,
 } from 'lucide-vue-next'
 
@@ -50,6 +51,7 @@ const allNavItems: { name: string; label: string; icon: any; path: string; secti
   { name: 'posts', label: 'Stories', icon: Film, path: '/posts', section: 'posts' },
   { name: 'ideas', label: 'Идеи', icon: Lightbulb, path: '/ideas', section: 'ideas' },
   { name: 'video-studio', label: 'Видео-студия', icon: Film, path: '/video-studio', section: 'videoStudio' },
+  { name: 'sound-studio', label: 'Звуковая студия', icon: Music, path: '/sound-studio', section: 'soundStudio' },
   { name: 'scenarios', label: 'Сценарии', icon: Clapperboard, path: '/scenarios', section: 'scenarios' },
   { name: 'characters', label: 'Персонажи', icon: UserCircle, path: '/characters', section: 'characters' },
   { name: 'plans', label: 'Контент-планы', icon: ClipboardList, path: '/plans', section: 'plans' },

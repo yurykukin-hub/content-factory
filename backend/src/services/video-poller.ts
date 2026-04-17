@@ -1,21 +1,23 @@
 /**
- * Background video poller — checks KIE.ai task status every 10 seconds.
+ * Background generation poller — checks KIE.ai task status every 10 seconds.
+ * Handles both video (Seedance 2) and music (Suno) tasks.
  *
  * Reads pending tasks from PostgreSQL (not memory) → survives restarts.
- * On success: downloads video, creates MediaFile, updates session, emits SSE.
+ * On success: downloads result, creates MediaFile, updates session, emits SSE.
  * On failure: marks session as failed, emits SSE.
  */
 
 import { db } from '../db'
 import { checkVideoTaskStatus, processVideoTaskResult } from './ai/kie'
+import { checkMusicTaskStatus, processMusicTaskResult } from './ai/suno'
 import { emitEvent } from '../eventBus'
 import { log } from '../utils/logger'
 
 const POLL_INTERVAL = 10_000   // 10 seconds
 const TASK_TIMEOUT = 15 * 60 * 1000  // 15 minutes
 
-async function pollPendingVideos() {
-  // Find all sessions with active KIE tasks
+async function pollPendingTasks() {
+  // Find all sessions with active KIE tasks (both video and music)
   const sessions = await db.generationSession.findMany({
     where: {
       status: 'generating',
@@ -28,29 +30,58 @@ async function pollPendingVideos() {
   // Check each task in parallel
   await Promise.allSettled(
     sessions.map(async (session) => {
+      const isMusic = session.type === 'music'
+      const logPrefix = isMusic ? '[MusicPoller]' : '[VideoPoller]'
+
       try {
-        const { state, data } = await checkVideoTaskStatus(session.kieTaskId!)
+        // Check task status (same KIE API for both types)
+        const { state, data } = isMusic
+          ? await checkMusicTaskStatus(session.kieTaskId!)
+          : await checkVideoTaskStatus(session.kieTaskId!)
 
         if (state === 'success' || state === 'completed') {
-          // Download video + save to DB
-          const { mediaFileId, resultUrl } = await processVideoTaskResult(data, {
-            businessId: session.businessId,
-            postId: null,
-            prompt: session.prompt || '',
-            duration: session.duration,
-            costUsd: session.costUsd || 0,
-            model: session.model,
-            userId: session.userId || undefined,
-          })
+          if (isMusic) {
+            // Download audio + cover, create MediaFile, charge user
+            const { mediaFileId, audioUrl, coverImageUrl } = await processMusicTaskResult(data, {
+              businessId: session.businessId,
+              prompt: session.prompt || '',
+              costUsd: session.costUsd || MUSIC_COST_DEFAULT,
+              model: session.sunoModel || session.model,
+              userId: session.userId || undefined,
+              title: session.musicTitle || undefined,
+            })
 
-          // Update session → completed
-          await db.generationSession.update({
-            where: { id: session.id },
-            data: { status: 'completed', resultUrl, mediaFileId, kieTaskId: null },
-          })
+            await db.generationSession.update({
+              where: { id: session.id },
+              data: {
+                status: 'completed',
+                audioUrl,
+                coverImageUrl,
+                mediaFileId,
+                resultUrl: audioUrl,
+                kieTaskId: null,
+              },
+            })
+          } else {
+            // Download video + save to DB
+            const { mediaFileId, resultUrl } = await processVideoTaskResult(data, {
+              businessId: session.businessId,
+              postId: null,
+              prompt: session.prompt || '',
+              duration: session.duration,
+              costUsd: session.costUsd || 0,
+              model: session.model,
+              userId: session.userId || undefined,
+            })
+
+            await db.generationSession.update({
+              where: { id: session.id },
+              data: { status: 'completed', resultUrl, mediaFileId, kieTaskId: null },
+            })
+          }
 
           emitEvent({ type: 'session_updated', tabId: '', sessionId: session.id, status: 'completed' })
-          log.info('[VideoPoller] completed', { sessionId: session.id, mediaFileId })
+          log.info(`${logPrefix} completed`, { sessionId: session.id })
 
         } else if (state === 'fail' || state === 'failed') {
           const errMsg = data?.failMsg || data?.errorMessage || 'KIE.ai: генерация не удалась'
@@ -59,7 +90,7 @@ async function pollPendingVideos() {
             data: { status: 'failed', errorMessage: errMsg, kieTaskId: null },
           })
           emitEvent({ type: 'session_updated', tabId: '', sessionId: session.id, status: 'failed' })
-          log.warn('[VideoPoller] failed', { sessionId: session.id, error: errMsg })
+          log.warn(`${logPrefix} failed`, { sessionId: session.id, error: errMsg })
 
         } else {
           // Still pending/processing — check timeout
@@ -72,12 +103,12 @@ async function pollPendingVideos() {
               data: { status: 'failed', errorMessage: 'Таймаут генерации (>15 мин)', kieTaskId: null },
             })
             emitEvent({ type: 'session_updated', tabId: '', sessionId: session.id, status: 'failed' })
-            log.warn('[VideoPoller] timeout', { sessionId: session.id })
+            log.warn(`${logPrefix} timeout`, { sessionId: session.id })
           }
         }
       } catch (err: any) {
         // Network error or CDN expired — mark as failed
-        log.error('[VideoPoller] error', { sessionId: session.id, error: err.message })
+        log.error(`${logPrefix} error`, { sessionId: session.id, error: err.message })
         await db.generationSession.update({
           where: { id: session.id },
           data: { status: 'failed', errorMessage: `Ошибка: ${err.message?.slice(0, 200)}`, kieTaskId: null },
@@ -88,12 +119,15 @@ async function pollPendingVideos() {
   )
 }
 
+const MUSIC_COST_DEFAULT = 0.11
+
+// Keep old export name for backward compat (index.ts imports startVideoPoller)
 export function startVideoPoller(): ReturnType<typeof setInterval> {
-  log.info('[VideoPoller] started (interval: 10s)')
+  log.info('[GenerationPoller] started (interval: 10s, types: video + music)')
   // Run immediately on startup to pick up tasks from before restart
-  pollPendingVideos().catch(e => log.error('[VideoPoller] initial poll error', { error: e.message }))
+  pollPendingTasks().catch(e => log.error('[GenerationPoller] initial poll error', { error: e.message }))
   // Then every 10 seconds
   return setInterval(() => {
-    pollPendingVideos().catch(e => log.error('[VideoPoller] poll error', { error: e.message }))
+    pollPendingTasks().catch(e => log.error('[GenerationPoller] poll error', { error: e.message }))
   }, POLL_INTERVAL)
 }

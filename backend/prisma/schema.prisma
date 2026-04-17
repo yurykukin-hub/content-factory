@@ -345,8 +345,9 @@ model MediaFile {
   post         Post?        @relation(fields: [postId], references: [id])
   business     Business     @relation(fields: [businessId], references: [id])
   folder       MediaFolder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
-  characterRef Character[]           @relation("CharacterReference")
-  sessions     GenerationSession[]  @relation("SessionMediaFile")
+  characterRef   Character[]           @relation("CharacterReference")
+  sessions       GenerationSession[]  @relation("SessionMediaFile")
+  personaSamples MusicPersona[]       @relation("PersonaSample")
 
   @@index([businessId])
   @@index([postId])
@@ -515,11 +516,14 @@ model Scenario {
   @@map("scenarios")
 }
 
-/// Сессия генерации видео (полный контекст: промпт + референсы + настройки + результат)
+/// Сессия генерации видео/музыки (полный контекст: промпт + референсы + настройки + результат)
 model GenerationSession {
   id               String   @id @default(cuid())
   businessId       String   @map("business_id")
   userId           String   @map("user_id")
+
+  // Тип сессии (video | music)
+  type             String   @default("video")
 
   // Название (авто из промпта или ручное)
   title            String   @default("")
@@ -529,17 +533,34 @@ model GenerationSession {
   promptHistory    Json?    @map("prompt_history")    // [{version, prompt, createdAt}]
   chatHistory      Json?    @map("chat_history")      // [{role, content, prompts?, suggestions?, createdAt}]
 
-  // Настройки
+  // Настройки видео
   duration         Int      @default(4)
   aspectRatio      String   @default("9:16") @map("aspect_ratio")
   resolution       String   @default("480p")
   generateAudio    Boolean  @default(false) @map("generate_audio")
   inputMode        String   @default("references") @map("input_mode") // text | frames | references
 
-  // Референсы (JSON)
+  // Референсы видео (JSON)
   referenceImages  Json?    @map("reference_images")  // [{url, thumbUrl, filename, altText}]
   firstFrameUrl    String?  @map("first_frame_url")
   lastFrameUrl     String?  @map("last_frame_url")
+
+  // === Настройки музыки (null для video сессий) ===
+  customMode          Boolean? @map("custom_mode")          // false = Simple, true = Custom (lyrics+style)
+  instrumental        Boolean? @map("instrumental")          // true = без вокала
+  lyrics              String?                                // текст песни с [Verse]/[Chorus] маркерами
+  musicStyle          String?  @map("music_style")           // "indie rock, melancholic, 120 bpm" (до 1000 символов)
+  musicTitle          String?  @map("music_title")           // название трека (до 80 символов)
+  negativeTags        String?  @map("negative_tags")         // "metal, screaming" — стили для исключения
+  vocalGender         String?  @map("vocal_gender")          // "m" | "f"
+  styleWeight         Float?   @map("style_weight")          // 0-1, вес стиля в генерации
+  weirdnessConstraint Float?   @map("weirdness_constraint")  // 0-1, креативность
+  audioWeight         Float?   @map("audio_weight")          // 0-1, влияние аудио на результат
+  personaId           String?  @map("persona_id")            // FK to MusicPersona (voice clone)
+  coverImageUrl       String?  @map("cover_image_url")       // обложка от Suno
+  audioUrl            String?  @map("audio_url")             // скачанный audio файл (local)
+  streamAudioUrl      String?  @map("stream_audio_url")      // streaming URL от Suno
+  sunoModel           String?  @map("suno_model")            // "suno/v4" | "suno/v4.5" | "suno/v5.5"
 
   // Генерация (async task)
   status           String   @default("draft")         // draft | generating | completed | failed
@@ -561,14 +582,34 @@ model GenerationSession {
   createdAt        DateTime @default(now()) @map("created_at")
   updatedAt        DateTime @updatedAt @map("updated_at")
 
-  business  Business   @relation(fields: [businessId], references: [id], onDelete: Cascade)
-  user      User       @relation(fields: [userId], references: [id])
-  mediaFile MediaFile? @relation("SessionMediaFile", fields: [mediaFileId], references: [id])
+  business  Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  user      User          @relation(fields: [userId], references: [id])
+  mediaFile MediaFile?    @relation("SessionMediaFile", fields: [mediaFileId], references: [id])
+  persona   MusicPersona? @relation(fields: [personaId], references: [id])
 
   @@index([businessId])
   @@index([userId])
   @@index([status])
+  @@index([type])
   @@map("generation_sessions")
+}
+
+/// Голосовая персона для музыки (voice cloning через Suno V5.5)
+model MusicPersona {
+  id            String   @id @default(cuid())
+  name          String                              // "Женский инди-вокал"
+  description   String   @default("")               // "Мягкий женский голос, инди-фолк стиль"
+  gender        String?                             // "m" | "f" | "neutral"
+  sampleMediaId String?  @map("sample_media_id")   // FK to MediaFile (voice sample audio)
+  sunoPersonaId String?  @map("suno_persona_id")   // ID персоны из Suno V5.5 Generate Persona API
+  isActive      Boolean  @default(true) @map("is_active")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  sampleMedia MediaFile?          @relation("PersonaSample", fields: [sampleMediaId], references: [id])
+  sessions    GenerationSession[]
+
+  @@map("music_personas")
 }
 
 /// История пополнений и списаний баланса пользователя

@@ -6,17 +6,19 @@ import { assertBusinessAccess } from '../middleware/resource-access'
 
 const sessions = new Hono()
 
-// GET /api/sessions?businessId=X&status=completed — список сессий
+// GET /api/sessions?businessId=X&status=completed&type=video — список сессий
 sessions.get('/sessions', async (c) => {
   const user = c.get('user') as AuthUser
   const businessId = c.req.query('businessId')
   const status = c.req.query('status')
+  const type = c.req.query('type') // "video" | "music"
 
   if (!businessId) return c.json({ error: 'businessId required' }, 400)
   try { await assertBusinessAccess(user, businessId) } catch { return c.json({ error: 'Нет доступа' }, 403) }
 
   const where: any = { businessId }
   if (status) where.status = status
+  if (type) where.type = type
 
   const list = await db.generationSession.findMany({
     where,
@@ -29,16 +31,17 @@ sessions.get('/sessions', async (c) => {
   return c.json(list)
 })
 
-// GET /api/sessions/draft?businessId=X — получить текущий draft (или null)
+// GET /api/sessions/draft?businessId=X&type=video — получить текущий draft (или null)
 // IMPORTANT: must be before :id route
 sessions.get('/sessions/draft', async (c) => {
   const user = c.get('user') as AuthUser
   const businessId = c.req.query('businessId')
+  const type = c.req.query('type') || 'video' // default to video for backward compat
   if (!businessId) return c.json(null)
   try { await assertBusinessAccess(user, businessId) } catch { return c.json(null) }
 
   const draft = await db.generationSession.findFirst({
-    where: { businessId, userId: user.userId, status: 'draft' },
+    where: { businessId, userId: user.userId, status: 'draft', type },
     orderBy: { updatedAt: 'desc' },
   })
   return c.json(draft)
@@ -62,7 +65,9 @@ sessions.get('/sessions/:id', async (c) => {
 // POST /api/sessions — создать сессию
 const createSchema = z.object({
   businessId: z.string(),
+  type: z.enum(['video', 'music']).default('video'),
   prompt: z.string().default(''),
+  // Video settings
   duration: z.number().int().min(4).max(15).default(4),
   aspectRatio: z.enum(['9:16', '1:1', '16:9']).default('9:16'),
   resolution: z.enum(['480p', '720p']).default('480p'),
@@ -71,6 +76,19 @@ const createSchema = z.object({
   referenceImages: z.any().optional(),
   firstFrameUrl: z.string().optional().nullable(),
   lastFrameUrl: z.string().optional().nullable(),
+  // Music settings
+  customMode: z.boolean().optional(),
+  instrumental: z.boolean().optional(),
+  lyrics: z.string().optional(),
+  musicStyle: z.string().max(1000).optional(),
+  musicTitle: z.string().max(80).optional(),
+  negativeTags: z.string().optional(),
+  vocalGender: z.enum(['f', 'm']).optional().nullable(),
+  styleWeight: z.number().min(0).max(1).optional(),
+  weirdnessConstraint: z.number().min(0).max(1).optional(),
+  audioWeight: z.number().min(0).max(1).optional(),
+  personaId: z.string().optional().nullable(),
+  sunoModel: z.string().optional(),
 })
 
 sessions.post('/sessions', async (c) => {
@@ -95,6 +113,8 @@ const updateSchema = z.object({
   title: z.string().optional(),
   prompt: z.string().optional(),
   promptHistory: z.any().optional(),
+  chatHistory: z.any().optional(),
+  // Video settings
   duration: z.number().int().min(4).max(15).optional(),
   aspectRatio: z.enum(['9:16', '1:1', '16:9']).optional(),
   resolution: z.enum(['480p', '720p']).optional(),
@@ -103,6 +123,20 @@ const updateSchema = z.object({
   referenceImages: z.any().optional(),
   firstFrameUrl: z.string().optional().nullable(),
   lastFrameUrl: z.string().optional().nullable(),
+  // Music settings
+  customMode: z.boolean().optional(),
+  instrumental: z.boolean().optional(),
+  lyrics: z.string().optional(),
+  musicStyle: z.string().max(1000).optional(),
+  musicTitle: z.string().max(80).optional(),
+  negativeTags: z.string().optional(),
+  vocalGender: z.enum(['f', 'm']).optional().nullable(),
+  styleWeight: z.number().min(0).max(1).optional(),
+  weirdnessConstraint: z.number().min(0).max(1).optional(),
+  audioWeight: z.number().min(0).max(1).optional(),
+  personaId: z.string().optional().nullable(),
+  sunoModel: z.string().optional(),
+  // Common
   status: z.enum(['draft', 'generating', 'completed', 'failed']).optional(),
   mediaFileId: z.string().optional().nullable(),
   resultUrl: z.string().optional().nullable(),

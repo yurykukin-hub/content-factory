@@ -88,6 +88,12 @@ const routes: RouteRecordRaw[] = [
     meta: { section: 'videoStudio' },
   },
   {
+    path: '/sound-studio',
+    name: 'sound-studio',
+    component: () => import('@/views/SoundStudioView.vue'),
+    meta: { section: 'soundStudio' },
+  },
+  {
     path: '/settings',
     name: 'settings',
     component: () => import('@/views/SettingsView.vue'),
