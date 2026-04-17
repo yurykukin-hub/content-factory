@@ -13,7 +13,8 @@ AI-контент-фабрика для автоматизации SMM. Гене
 - **Backend:** Bun + Hono + TypeScript
 - **Frontend:** Vue 3 + Tailwind CSS + Lucide Icons + Pinia
 - **ORM/DB:** Prisma + PostgreSQL 16
-- **AI:** OpenRouter (Haiku для адаптации, Sonnet для генерации, Gemini Flash для vision) + KIE.ai (Nano Banana 2 для text2img/img2img, FLUX Kontext Pro для img2img, recraft для удаления фона, Seedance 2 для видео)
+- **AI:** OpenRouter (Haiku для адаптации, Sonnet для генерации, Gemini Flash для vision) + KIE.ai (Nano Banana 2 для text2img/img2img, FLUX Kontext Pro для img2img, recraft для удаления фона, Seedance 2 для видео, **Suno v4/v4.5/v5.5 для музыки**)
+- **Audio:** wavesurfer.js v7 (waveform visualization)
 - **Testing:** Vitest (96 тестов — 7 файлов)
 - **Deploy:** Docker Compose + Caddy (SSL auto)
 
@@ -48,7 +49,7 @@ content-factory/
 │   │   │   ├── platforms.ts    # platformsByBiz + platformsById
 │   │   │   ├── posts.ts        # CRUD + approve + versions (access checks)
 │   │   │   ├── content-plans.ts # CRUD + create-post/ai-generate + batch
-│   │   │   ├── ai.ts           # generate-post/image/video/scenario, adapt, enhance-prompt, describe-image, suggest-templates
+│   │   │   ├── ai.ts           # generate-post/image/video/scenario, adapt, enhance-prompt, describe-image, suggest-templates, agent-chat
 │   │   │   ├── publish.ts      # publish + schedule (access checks)
 │   │   │   ├── media.ts        # upload/delete/attach + library + tags
 │   │   │   ├── settings.ts     # AppConfig CRUD (ADMIN-only, .env fallback)
@@ -56,17 +57,19 @@ content-factory/
 │   │   │   ├── ideas.ts        # CRUD идей (per-user, ownership check)
 │   │   │   ├── characters.ts   # CRUD AI-персонажей (person/mascot/avatar/object/location, per-business)
 │   │   │   ├── scenarios.ts    # CRUD сценариев (scenes JSON, AI-генерация)
-│   │   │   ├── sessions.ts     # CRUD GenerationSession (video generation sessions)
+│   │   │   ├── sessions.ts     # CRUD GenerationSession (video + music sessions, type filter)
+│   │   │   ├── music.ts        # Sound Studio: generate, enhance-prompt (8 modes), agent-chat, personas CRUD, from-track
 │   │   │   ├── dashboard.ts    # metrics (scoped by business access)
 │   │   │   ├── ai-logs.ts     # AI usage logs (list, stats, summary, error-count, export CSV)
 │   │   │   └── sse.ts          # Server-Sent Events
 │   │   ├── services/
 │   │   │   ├── scheduler.ts    # Отложенная публикация
-│   │   │   ├── video-poller.ts # Background poller: KIE tasks → download → SSE (10 сек)
+│   │   │   ├── video-poller.ts # Background poller: video + music KIE tasks → download → SSE (10 сек)
 │   │   │   ├── vk-oauth.ts     # VK OAuth service (PKCE, auto-refresh)
 │   │   │   ├── ai/
-│   │   │   │   ├── openrouter.ts      # OpenRouter + cost calculation
-│   │   │   │   ├── prompt-builder.ts  # Промпт-конструктор
+│   │   │   │   ├── openrouter.ts      # OpenRouter + cost calculation + logAndCharge DRY helper
+│   │   │   │   ├── prompt-builder.ts  # Промпт-конструктор + video/music agent prompts + 8 music enhance modes
+│   │   │   │   ├── suno.ts           # KIE.ai Suno client: createMusicTask, processMusicResult, generatePersona
 │   │   │   │   ├── image-generation.ts # AI image gen (Gemini 2.5 Flash Image)
 │   │   │   │   └── fal.ts            # FAL.ai SDK (image editing, remove bg)
 │   │   │   └── publishers/
@@ -105,6 +108,10 @@ content-factory/
 │       ├── video/              # Видео-студия компоненты
 │       │   ├── VsModeTabs.vue         # Табы режимов (Референсы/Кадры/Текст)
 │       │   ├── VsCharacterCarousel.vue # Карусель референсов + hover popup + create
+│       │   ├── VsPromptTabs.vue       # Табы Agent/Editor в промпт-зоне
+│       │   ├── VsAgentChat.vue        # AI Agent чат (multi-turn, quick replies, Simple/Advanced)
+│       │   ├── VsAgentMessage.vue     # Сообщение в чате (markdown, XSS-safe escapeHtml)
+│       │   ├── VsPreGenModal.vue      # Модалка подтверждения перед генерацией (formatted prompt)
 │       │   ├── VsPromptArea.vue       # Промпт + ref images + шаблоны + VsEnhanceMenu
 │       │   ├── VsEnhanceMenu.vue     # Split-button dropdown: 8 режимов enhance (basic+pro)
 │       │   ├── VsRichPrompt.vue       # Contenteditable с draggable badge chips (@ImageN)
@@ -114,14 +121,28 @@ content-factory/
 │       │   ├── VsConstructorDrawer.vue # Drawer с PromptConstructor
 │       │   ├── VsRefModal.vue         # Модалка создания/просмотра референса + AI Auto
 │       │   └── PromptConstructor.vue  # Конструктор промптов (6 секций)
+│       ├── sound/              # Звуковая студия компоненты
+│       │   ├── SsModeTabs.vue         # Simple/Custom режим
+│       │   ├── SsTrackPlayer.vue      # Waveform player (wavesurfer.js, fuchsia brand)
+│       │   ├── SsLyricsEditor.vue     # Textarea + [Verse]/[Chorus] section markers
+│       │   ├── SsStylePanel.vue       # Genre/Mood/BPM + negative tags
+│       │   ├── SsEnhanceMenu.vue      # Split-button: 8 music enhance modes
+│       │   ├── SsSettingsPanel.vue    # Model/weights/cost + Generate button
+│       │   ├── SsSessionBar.vue       # Список музыкальных сессий
+│       │   ├── SsGallery.vue          # Галерея треков с waveform players
+│       │   ├── SsAgentChat.vue        # AI Agent чат для музыки (multi-turn)
+│       │   ├── SsPromptTabs.vue       # Agent/Editor табы
+│       │   ├── SsPreGenModal.vue      # Подтверждение перед генерацией
+│       │   ├── SsPersonaSelector.vue  # Выбор голосовой персоны (Voice Clone)
+│       │   └── SsCreatePersonaModal.vue # Создание персоны из трека (Suno V5.5)
 │       └── settings/           # VkOAuthTab, ProfileTab, AiTab, UsersTab
 ├── docker-compose.yml          # Dev (postgres only)
 ├── docker-compose.prod.yml     # Prod (postgres + backend, healthchecks)
 └── scripts/deploy.sh, backup-db.sh
 ```
 
-## Schema (24 модели, 8 enums)
-User, UserBusiness, Business, BrandProfile, PlatformAccount, ContentPlan, ContentPlanItem, Post, PostVersion, PublishLog, MediaFolder, MediaFile, AiUsageLog, WebhookRule, AppConfig, Idea, StoryTemplate, Character, CharacterBusiness, Scenario, PromptEntry, PromptTemplate, GenerationSession, **BalanceTransaction**
+## Schema (25 моделей, 8 enums)
+User, UserBusiness, Business, BrandProfile, PlatformAccount, ContentPlan, ContentPlanItem, Post, PostVersion, PublishLog, MediaFolder, MediaFile, AiUsageLog, WebhookRule, AppConfig, Idea, StoryTemplate, Character, CharacterBusiness, Scenario, PromptEntry, PromptTemplate, GenerationSession, BalanceTransaction, **MusicPersona**
 
 Enums: UserRole, Platform, AccountType, PostType, PostStatus, ContentPlanStatus, PublishStatus
 
@@ -176,6 +197,9 @@ cp backend/.env.example backend/.env
 7. **Удаление фона** (FAL.ai rembg) → PNG с прозрачностью, одна кнопка
 8. **Видео-генерация** (KIE.ai Seedance 2) → **async** (background poller), 480p/720p, 4-15 сек, 9:16/1:1/16:9, audio toggle
 9. **AI-описание фото** (Gemini 2.0 Flash Vision) → auto-describe на русском для референсов и медиатеки
+10. **AI Agent чат** (Haiku Simple / Sonnet Advanced) → multi-turn диалог для крафта видео-промптов. Знает контекст (refs, duration, resolution, audio). Quick reply suggestions. Промпт переносится в Editor одной кнопкой
+11. **Музыка-генерация** (KIE.ai Suno v4/v4.5/v5.5) → **async** (background poller), Simple/Custom mode, lyrics+style, до 8 мин, voice clone (V5.5 Generate Persona)
+12. **Music AI Agent** (Haiku/Sonnet) → multi-turn диалог для крафта музыкальных промптов, текстов, стилей. 8 enhance modes (lyrics, improve, rhyme, structure, style, translate, enhance, simplify)
 
 API keys: OpenRouter — из БД (AppConfig) или .env. FAL — из .env (FAL_API_KEY). KIE — из .env (KIE_API_KEY)
 
@@ -200,7 +224,7 @@ API keys: OpenRouter — из БД (AppConfig) или .env. FAL — из .env (F
 - Dark mode supported
 
 ## Video Studio Architecture
-- **GenerationSession** — DB-backed sessions: prompt + refs + settings + results + promptHistory + status (draft/generating/completed/failed) + kieTaskId + kieTaskCreatedAt
+- **GenerationSession** — DB-backed sessions: prompt + refs + settings + results + promptHistory + chatHistory (agent messages JSON) + status (draft/generating/completed/failed) + kieTaskId + kieTaskCreatedAt
 - **Async generation** — POST /generate-video создаёт задачу в KIE (2-5 сек), возвращает 202. Background `video-poller.ts` каждые 10 сек проверяет pending задачи, скачивает готовые видео, шлёт SSE. Deploy-safe: задачи в PostgreSQL, переживают перезапуск
 - **SSE sync** — `session_updated` события для синхронизации между вкладками/устройствами. Фронтенд подключается через `EventSource(/api/sse)`
 - **generating computed** — определяется из `session.status` в БД (не in-memory). Переживает F5, навигацию, смену устройства
@@ -210,6 +234,22 @@ API keys: OpenRouter — из БД (AppConfig) или .env. FAL — из .env (F
 - **Auto-save** — debounced 2sec PUT, only for draft sessions
 - **Missing refs hint** — кнопка "Вставить референсы" когда бейджи потеряны из промпта
 - **KeepAlive** — VideoStudioView preserved on navigation (App.vue)
+- **AI Agent mode** — два таба (Agent / Editor) в VsPromptTabs. Agent: multi-turn чат (aiChat endpoint, Haiku/Sonnet), контекст-aware system prompt (buildAgentSystemPrompt — refs, duration, resolution, audio, Seedance 2.0 expert). Quick reply suggestions. Кнопка "Использовать промпт" переносит в Editor. Chat history persisted в GenerationSession.chatHistory (JSON)
+- **Pre-gen modal** — VsPreGenModal показывается перед каждой генерацией, отображает formatted prompt sections для подтверждения
+- **Security** — escapeHtml в markdown-рендеринге (XSS-safe), Zod validation на agent-chat, assertBusinessAccess checks
+
+## Sound Studio Architecture (2026-04-17)
+- **GenerationSession type="music"** — расширение той же модели (type discriminator). 18 music-полей: customMode, instrumental, lyrics, musicStyle, musicTitle, negativeTags, vocalGender, styleWeight, weirdnessConstraint, audioWeight, personaId, coverImageUrl, audioUrl, streamAudioUrl, sunoModel, completedTaskId, kieAudioId
+- **MusicPersona** — голосовая персона для voice cloning (name, description, gender, sampleMediaId, sunoPersonaId)
+- **Suno API** через KIE.ai — POST /api/v1/jobs/createTask (model: suno/v4, v4.5, v5.5). Стоимость: ~$0.11/песня
+- **Generate Persona** — POST /api/v1/generate/generate-persona (taskId + audioId + vocalStart/vocalEnd 10-30 сек)
+- **Async generation** — тот же поллер (video-poller.ts), ветвление по session.type. Сохраняет completedTaskId + kieAudioId для Generate Persona
+- **8 enhance modes**: enhance, lyrics (Sonnet), improve (Sonnet), style, structure, rhyme, translate, simplify
+- **Music AI Agent** — buildMusicAgentSystemPrompt (Suno expert, знает стили/lyrics-формат/weights). Два режима: Simple/Advanced
+- **Lyrics Editor** — textarea с [Verse]/[Chorus]/[Bridge] section markers, подсветка секций
+- **Waveform player** — wavesurfer.js v7 composable (useSurfer.ts), fuchsia brand color
+- **Voice Persona flow**: Generate track → Track completes (save completedTaskId + kieAudioId) → Create Persona (SsCreatePersonaModal) → Use in future generations (SsPersonaSelector)
+- **Layout** — 50/50 как Video Studio, KeepAlive, SSE, auto-save 2sec debounce
 
 ## Media Library
 - **Upload MIME detection**: extensionToMime() fallback when blob.type is empty/octet-stream (MOV, AVI, MKV etc.)

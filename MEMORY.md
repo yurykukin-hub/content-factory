@@ -17,6 +17,7 @@ User, UserBusiness, Business, BrandProfile, PlatformAccount, ContentPlan, Conten
 
 ## Endpoints (~18 route-файлов)
 - auth, users, businesses, platforms, posts, content-plans, ai, publish, media, settings, vk-oauth, ideas, characters, scenarios, sessions, dashboard, sse, **ai-logs**
+- [2026-04-17] POST /api/ai/agent-chat — multi-turn AI Agent чат (aiChat in openrouter.ts, logAndCharge DRY helper)
 - GET /api/media/library/:bizId — **cursor pagination** `{ files, hasMore, totalCount }` (НЕ массив!) (16.04)
 - [2026-04-16] **AI Logs API** (5 endpoints): GET /ai-logs (paginated list), /ai-logs/stats, /ai-logs/summary (groupBy), /ai-logs/error-count, /ai-logs/export (CSV)
 
@@ -74,3 +75,19 @@ User, UserBusiness, Business, BrandProfile, PlatformAccount, ContentPlan, Conten
 - AI logging: все AI-вызовы логируют userId, prompt, durationMs, status, markupPercent, chargedRub. ADMIN видит всех, user — только свои
 - Billing: AppConfig `ai_markup_percent` (default 50%), `usd_rub_rate` (default 95). Auto-charge с $transaction + WHERE guard (race-safe). ADMIN exempt. Balance check middleware в /api/ai/* (402). Top-up через Settings → Users
 - Security: path traversal → resolve+startsWith, CSRF → X-Tab-ID, rate limit → in-memory Map, graceful shutdown → SIGTERM handler
+
+## AI Agent Mode — Video Studio (2026-04-17)
+- [2026-04-17] feat: AI Agent mode in Video Studio — VsAgentChat + VsAgentMessage + VsPreGenModal + VsPromptTabs. aiChat() multi-turn. buildAgentSystemPrompt (Seedance 2.0 expert). Pre-gen modal always shown. logAndCharge DRY refactor in openrouter.ts. Security: escapeHtml in markdown, assertBusinessAccess fix, Zod limits reduced
+- [2026-04-17] GenerationSession.chatHistory �� JSON field для хранени�� истории чата агента per-session
+- [2026-04-17] Два режима: Simple (Haiku) / Advanced (Sonnet). Quick reply suggestions. Prompt transfer Agent→Editor одной кнопкой
+
+## Sound Studio — AI Music Generation (2026-04-17)
+- [2026-04-17] feat: Sound Studio MVP — full-stack module (suno.ts, music.ts routes, 13 Ss* components, SoundStudioView, useSurfer composable)
+- [2026-04-17] KIE.ai Suno API: POST /api/v1/jobs/createTask model "suno/v4.5". Стоимость ~$0.11/песня. Тот же KIE_API_KEY
+- [2026-04-17] GenerationSession расширена: type="music", 18 nullable music-полей (customMode, lyrics, musicStyle, vocalGender, weights, persona, completedTaskId, kieAudioId)
+- [2026-04-17] MusicPersona модель: name, description, gender, sunoPersonaId. Voice Clone через Suno V5.5 Generate Persona API
+- [2026-04-17] Generate Persona flow: POST /api/v1/generate/generate-persona (taskId+audioId+vocalStart/End 10-30с). Поллер сохраняет completedTaskId+kieAudioId при завершении
+- [2026-04-17] 8 music enhance modes: enhance, lyrics (Sonnet), improve (Sonnet), style, structure, rhyme, translate, simplify
+- [2026-04-17] wavesurfer.js v7 — useSurfer.ts composable для waveform visualization (fuchsia brand)
+- [2026-04-17] Section access: soundStudio (ADMIN-only по умолчанию). Routes: /api/music/* с requireSection guard
+- [2026-04-17] VIDEO-POLLER переименован логически в generation-poller (обрабатывает video+music). Ветвление по session.type
