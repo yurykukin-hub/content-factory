@@ -43,7 +43,7 @@ const filtered = computed(() => {
 </script>
 
 <template>
-  <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 overflow-hidden flex flex-col max-h-[calc(100vh-140px)]">
+  <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 overflow-hidden flex flex-col lg:min-h-0">
     <!-- Header -->
     <div class="px-4 py-3 border-b border-gray-100 dark:border-gray-800">
       <div class="flex items-center justify-between">

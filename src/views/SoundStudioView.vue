@@ -475,9 +475,9 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="max-w-[1600px] mx-auto lg:h-[calc(100vh-80px)]">
+  <div class="max-w-[1600px] mx-auto lg:flex lg:flex-col" style="height: calc(100vh - 80px); min-height: 0;">
     <!-- Header: title + business selector -->
-    <div class="flex items-center justify-between mb-4">
+    <div class="flex items-center justify-between mb-4 shrink-0">
       <h1 class="text-lg font-bold text-gray-800 dark:text-gray-200 flex items-center gap-2">
         <Music :size="20" class="text-fuchsia-500" />
         Звуковая студия
@@ -504,9 +504,9 @@ onBeforeUnmount(() => {
     </div>
 
     <!-- Main 50/50 layout -->
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:flex-1 lg:min-h-0">
       <!-- LEFT: Generator -->
-      <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 overflow-hidden flex flex-col max-h-[calc(100vh-140px)]">
+      <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 overflow-hidden flex flex-col lg:min-h-0">
         <!-- Session bar -->
         <SsSessionBar class="flex-1 min-h-0"
           :sessions="sessions"
