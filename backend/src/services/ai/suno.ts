@@ -183,9 +183,11 @@ export async function checkMusicTaskStatus(kieTaskId: string): Promise<{ state: 
   const d = result?.data || result
 
   // Normalize status: KIE v2 uses uppercase (PENDING, FIRST_SUCCESS, SUCCESS, FAILURE)
+  // Wait for SUCCESS (both tracks ready), not FIRST_SUCCESS (only first track has audioUrl)
   const rawStatus = (d?.status || d?.state || 'PENDING').toUpperCase()
   let state = 'pending'
-  if (rawStatus === 'SUCCESS' || rawStatus === 'FIRST_SUCCESS') state = 'success'
+  if (rawStatus === 'SUCCESS') state = 'success'
+  else if (rawStatus === 'FIRST_SUCCESS') state = 'pending' // keep polling — second track not ready yet
   else if (rawStatus === 'FAILURE' || rawStatus === 'FAILED') state = 'fail'
 
   return { state, data: d }
