@@ -9,7 +9,7 @@ import { db } from '../db'
 import type { AuthUser } from '../middleware/auth'
 import { assertBusinessAccess } from '../middleware/resource-access'
 import { canAfford } from '../services/billing'
-import { createMusicTask } from '../services/ai/suno'
+import { createMusicTask, generatePersona } from '../services/ai/suno'
 import { aiComplete, aiChat } from '../services/ai/openrouter'
 import {
   buildBrandContext,
@@ -379,6 +379,67 @@ music.delete('/personas/:id', async (c) => {
   const { id } = c.req.param()
   await db.musicPersona.delete({ where: { id } })
   return c.json({ ok: true })
+})
+
+// =====================
+// POST /personas/from-track — Create persona from a completed track (Voice Clone)
+// =====================
+
+const fromTrackSchema = z.object({
+  sessionId: z.string(),         // completed music session
+  name: z.string().min(1).max(100),
+  description: z.string().max(500).default(''),
+  gender: z.enum(['m', 'f', 'neutral']).optional(),
+  vocalStart: z.number().min(0).default(0),
+  vocalEnd: z.number().min(10).max(300).default(30),
+  style: z.string().max(200).optional(),
+})
+
+music.post('/personas/from-track', async (c) => {
+  const user = c.get('user') as AuthUser
+  if ((user as any).role !== 'ADMIN') return c.json({ error: 'ADMIN only' }, 403)
+
+  const data = fromTrackSchema.parse(await c.req.json())
+
+  // Load session to get KIE task/audio IDs
+  const session = await db.generationSession.findUnique({ where: { id: data.sessionId } })
+  if (!session) return c.json({ error: 'Сессия не найдена' }, 404)
+  if (session.status !== 'completed') return c.json({ error: 'Сессия не завершена' }, 400)
+  if (session.type !== 'music') return c.json({ error: 'Сессия не является музыкальной' }, 400)
+
+  const taskId = session.completedTaskId
+  const audioId = session.kieAudioId
+
+  if (!taskId) return c.json({ error: 'Нет taskId. Перегенерируйте трек для создания персоны.' }, 400)
+  if (!audioId) return c.json({ error: 'Нет audioId. KIE не вернул аудио-идентификатор.' }, 400)
+
+  try {
+    const result = await generatePersona({
+      taskId,
+      audioId,
+      name: data.name,
+      description: data.description,
+      vocalStart: data.vocalStart,
+      vocalEnd: data.vocalEnd,
+      style: data.style,
+    })
+
+    // Save to DB
+    const persona = await db.musicPersona.create({
+      data: {
+        name: result.name,
+        description: result.description,
+        gender: data.gender || null,
+        sunoPersonaId: result.personaId,
+      },
+    })
+
+    log.info('[Music] persona created from track', { personaId: persona.id, sunoPersonaId: result.personaId })
+    return c.json(persona, 201)
+  } catch (err: any) {
+    log.error('[Music] persona creation failed', { error: err.message })
+    return c.json({ error: err.message || 'Ошибка создания персоны' }, 500)
+  }
 })
 
 export { music }

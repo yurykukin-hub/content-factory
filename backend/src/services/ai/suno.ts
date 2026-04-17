@@ -301,3 +301,67 @@ export async function processMusicTaskResult(
   log.info('[Suno] music saved', { businessId: params.businessId, mediaId: mediaFile.id })
   return { mediaFileId: mediaFile.id, audioUrl: localAudioUrl, coverImageUrl: localCoverUrl }
 }
+
+// =====================
+// Generate Persona (Voice Clone via Suno V5.5)
+// =====================
+
+export interface GeneratePersonaParams {
+  taskId: string        // completedTaskId from GenerationSession
+  audioId: string       // kieAudioId from GenerationSession
+  name: string          // persona name, e.g. "Female Indie Vocal"
+  description: string   // detailed voice description
+  vocalStart?: number   // start of vocal segment (sec), default 0
+  vocalEnd?: number     // end of vocal segment (sec), default 30
+  style?: string        // style tags
+}
+
+export interface GeneratePersonaResult {
+  personaId: string
+  name: string
+  description: string
+}
+
+/**
+ * Create a voice persona from a completed music track.
+ * Requires: taskId + audioId from a completed Suno generation (V4+).
+ * Vocal segment must be 10-30 seconds.
+ */
+export async function generatePersona(params: GeneratePersonaParams): Promise<GeneratePersonaResult> {
+  const {
+    taskId, audioId, name, description,
+    vocalStart = 0, vocalEnd = 30, style,
+  } = params
+
+  // Validate vocal segment length (10-30 sec required by API)
+  const segmentLength = vocalEnd - vocalStart
+  if (segmentLength < 10 || segmentLength > 30) {
+    throw new Error(`Вокальный сегмент должен быть 10-30 секунд (текущий: ${segmentLength}с)`)
+  }
+
+  log.info('[Suno] generatePersona', { taskId, audioId, name, vocalStart, vocalEnd })
+
+  const body: Record<string, any> = {
+    taskId,
+    audioId,
+    name,
+    description,
+    vocalStart,
+    vocalEnd,
+  }
+  if (style) body.style = style
+
+  const response = await kiePost('/api/v1/generate/generate-persona', body)
+
+  const personaId = response?.data?.personaId
+  if (!personaId) {
+    throw new Error('KIE.ai не вернул personaId. Возможно, из этого трека уже создана персона.')
+  }
+
+  log.info('[Suno] persona created', { personaId, name })
+  return {
+    personaId,
+    name: response.data.name || name,
+    description: response.data.description || description,
+  }
+}

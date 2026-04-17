@@ -51,6 +51,16 @@ async function pollPendingTasks() {
               title: session.musicTitle || undefined,
             })
 
+            // Extract audioId from KIE response for Generate Persona
+            let kieAudioId: string | undefined
+            if (data?.resultJson) {
+              try {
+                const parsed = typeof data.resultJson === 'string' ? JSON.parse(data.resultJson) : data.resultJson
+                kieAudioId = parsed?.audioId || parsed?.audio_id || parsed?.id
+              } catch {}
+            }
+            if (!kieAudioId) kieAudioId = data?.audioId || data?.audio_id || data?.id
+
             await db.generationSession.update({
               where: { id: session.id },
               data: {
@@ -59,6 +69,8 @@ async function pollPendingTasks() {
                 coverImageUrl,
                 mediaFileId,
                 resultUrl: audioUrl,
+                completedTaskId: session.kieTaskId,  // preserve for Generate Persona
+                kieAudioId: kieAudioId || null,
                 kieTaskId: null,
               },
             })

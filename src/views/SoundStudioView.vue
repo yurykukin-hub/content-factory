@@ -22,6 +22,8 @@ import SsPromptTabs from '@/components/sound/SsPromptTabs.vue'
 import SsAgentChat from '@/components/sound/SsAgentChat.vue'
 import SsEnhanceMenu from '@/components/sound/SsEnhanceMenu.vue'
 import SsPreGenModal from '@/components/sound/SsPreGenModal.vue'
+import SsPersonaSelector from '@/components/sound/SsPersonaSelector.vue'
+import SsCreatePersonaModal from '@/components/sound/SsCreatePersonaModal.vue'
 import type { MusicSession } from '@/components/sound/SsSessionBar.vue'
 import type { AgentMessage } from '@/components/sound/SsAgentChat.vue'
 import type { MusicEnhanceMode } from '@/components/sound/SsEnhanceMenu.vue'
@@ -80,6 +82,8 @@ const agentMode = ref<'simple' | 'advanced'>('simple')
 const agentLoading = ref(false)
 const enhancing = ref(false)
 const showPreGenModal = ref(false)
+const showCreatePersonaModal = ref(false)
+const selectedPersonaId = ref<string | null>(null)
 
 // --- Results (from completed sessions) ---
 const trackResults = ref<any[]>([])
@@ -126,12 +130,13 @@ async function saveSession() {
       styleWeight: styleWeight.value,
       weirdnessConstraint: weirdnessConstraint.value,
       sunoModel: sunoModel.value,
+      personaId: selectedPersonaId.value,
       chatHistory: chatMessages.value.length ? chatMessages.value : null,
     })
   } catch {}
 }
 
-watch([prompt, lyrics, musicStyle, musicTitle, negativeTags, instrumental, vocalGender, sunoModel, styleWeight, weirdnessConstraint, musicMode], scheduleAutoSave, { deep: true })
+watch([prompt, lyrics, musicStyle, musicTitle, negativeTags, instrumental, vocalGender, sunoModel, styleWeight, weirdnessConstraint, musicMode, selectedPersonaId], scheduleAutoSave, { deep: true })
 
 // --- Session CRUD ---
 async function loadSessions() {
@@ -175,6 +180,7 @@ function loadSessionIntoState(session: any) {
   sunoModel.value = session.sunoModel || 'suno/v4.5'
   styleWeight.value = session.styleWeight ?? 0.7
   weirdnessConstraint.value = session.weirdnessConstraint ?? 0.3
+  selectedPersonaId.value = session.personaId || null
   chatMessages.value = session.chatHistory || []
   generating.value = session.status === 'generating'
   generatingStartedAt.value = session.kieTaskCreatedAt || null
@@ -194,6 +200,7 @@ function resetState() {
   sunoModel.value = 'suno/v4.5'
   styleWeight.value = 0.7
   weirdnessConstraint.value = 0.3
+  selectedPersonaId.value = null
   chatMessages.value = []
   generating.value = false
   generatingStartedAt.value = null
@@ -541,8 +548,14 @@ onBeforeUnmount(() => {
               />
             </template>
 
-            <!-- Enhance menu -->
+            <!-- Persona selector + Enhance menu -->
             <div class="flex items-center gap-2 pb-2">
+              <SsPersonaSelector
+                v-if="!instrumental"
+                v-model="selectedPersonaId"
+                :disabled="generating"
+                @create-from-track="showCreatePersonaModal = true"
+              />
               <SsEnhanceMenu
                 :enhancing="enhancing"
                 :disabled="generating || (!prompt && !lyrics)"
@@ -595,6 +608,13 @@ onBeforeUnmount(() => {
       :cost-rub="costRub"
       @confirm="confirmGenerate"
       @cancel="showPreGenModal = false"
+    />
+    <!-- Create Persona Modal -->
+    <SsCreatePersonaModal
+      :show="showCreatePersonaModal"
+      :sessions="sessions as any[]"
+      @close="showCreatePersonaModal = false"
+      @created="showCreatePersonaModal = false"
     />
   </div>
 </template>

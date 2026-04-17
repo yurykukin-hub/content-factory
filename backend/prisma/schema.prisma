@@ -567,6 +567,10 @@ model GenerationSession {
   kieTaskId        String?  @map("kie_task_id")       // taskId от KIE.ai для async polling
   kieTaskCreatedAt DateTime? @map("kie_task_created_at")
 
+  // Completed KIE IDs (preserved after generation for Generate Persona)
+  completedTaskId  String?  @map("completed_task_id")  // kieTaskId сохранённый после завершения
+  kieAudioId       String?  @map("kie_audio_id")       // audioId из KIE response (для Generate Persona)
+
   // Результат
   mediaFileId      String?  @map("media_file_id")
   resultUrl        String?  @map("result_url")
