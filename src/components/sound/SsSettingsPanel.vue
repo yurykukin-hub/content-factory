@@ -114,7 +114,7 @@ const modelLabel = computed(() => MODELS.find(m => m.id === props.sunoModel)?.la
       </div>
 
       <!-- Style weight mini-slider -->
-      <div class="flex items-center gap-1 shrink-0" title="Вес стиля (0-1)">
+      <div class="flex items-center gap-1 shrink-0" title="Влияние стиля: 0 = свободная генерация, 1 = строго по указанному стилю">
         <span class="text-[8px] text-gray-400">Стиль</span>
         <input type="range" min="0" max="1" step="0.1"
           :value="styleWeight"
@@ -124,8 +124,8 @@ const modelLabel = computed(() => MODELS.find(m => m.id === props.sunoModel)?.la
       </div>
 
       <!-- Weirdness mini-slider -->
-      <div class="flex items-center gap-1 shrink-0" title="Креативность (0-1)">
-        <span class="text-[8px] text-gray-400">Weird</span>
+      <div class="flex items-center gap-1 shrink-0" title="Креативность: 0 = стандартное звучание, 1 = экспериментальное и необычное">
+        <span class="text-[8px] text-gray-400">Креатив</span>
         <input type="range" min="0" max="1" step="0.1"
           :value="weirdnessConstraint"
           @input="emit('update:weirdnessConstraint', Number(($event.target as HTMLInputElement).value))"

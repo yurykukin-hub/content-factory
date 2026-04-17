@@ -229,18 +229,41 @@ async function onRenameSession(id: string, title: string) {
 }
 
 async function loadTrackResults() {
-  // Collect results from completed sessions
+  // Collect results from completed sessions (including all variants from results JSON)
+  const tracks: typeof trackResults.value = []
   const completed = sessions.value.filter(s => s.status === 'completed' && s.audioUrl)
-  trackResults.value = completed.map(s => ({
-    resultUrl: s.audioUrl,
-    audioUrl: s.audioUrl,
-    coverImageUrl: s.coverImageUrl,
-    prompt: s.prompt || '',
-    costUsd: s.costUsd || MUSIC_COST_USD,
-    createdAt: s.updatedAt,
-    title: s.musicTitle || s.title || '',
-    musicStyle: s.musicStyle || '',
-  }))
+
+  for (const s of completed) {
+    // Check results JSON for multiple variants (new API returns 2 tracks)
+    const results = s.results as any[] | null
+    if (Array.isArray(results) && results.length > 0) {
+      for (const r of results) {
+        tracks.push({
+          resultUrl: r.resultUrl,
+          audioUrl: r.resultUrl,
+          coverImageUrl: r.coverImageUrl,
+          prompt: s.prompt || '',
+          costUsd: r.costUsd ?? s.costUsd ?? MUSIC_COST_USD,
+          createdAt: r.createdAt || s.updatedAt,
+          title: r.title || s.musicTitle || s.title || '',
+          musicStyle: s.musicStyle || '',
+        })
+      }
+    } else {
+      // Fallback: single track from session fields (old sessions)
+      tracks.push({
+        resultUrl: s.audioUrl,
+        audioUrl: s.audioUrl,
+        coverImageUrl: s.coverImageUrl,
+        prompt: s.prompt || '',
+        costUsd: s.costUsd || MUSIC_COST_USD,
+        createdAt: s.updatedAt,
+        title: s.musicTitle || s.title || '',
+        musicStyle: s.musicStyle || '',
+      })
+    }
+  }
+  trackResults.value = tracks
 }
 
 function onBusinessChange() {
@@ -452,7 +475,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="max-w-[1600px] mx-auto">
+  <div class="max-w-[1600px] mx-auto lg:h-[calc(100vh-80px)]">
     <!-- Header: title + business selector -->
     <div class="flex items-center justify-between mb-4">
       <h1 class="text-lg font-bold text-gray-800 dark:text-gray-200 flex items-center gap-2">

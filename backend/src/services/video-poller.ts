@@ -72,6 +72,30 @@ async function pollPendingTasks() {
               if (!kieAudioId) kieAudioId = data?.audioId || data?.audio_id || data?.id
             }
 
+            // Build results array with all variants (primary + extras)
+            const allResults = [
+              {
+                resultUrl: result.audioUrl,
+                coverImageUrl: result.coverImageUrl,
+                mediaFileId: result.mediaFileId,
+                kieAudioId: kieAudioId || null,
+                title: result.title || session.musicTitle,
+                duration: result.duration,
+                costUsd: session.costUsd || MUSIC_COST_DEFAULT,
+                createdAt: new Date().toISOString(),
+              },
+              ...result.extraTracks.map(t => ({
+                resultUrl: t.audioUrl,
+                coverImageUrl: t.coverImageUrl,
+                mediaFileId: t.mediaFileId,
+                kieAudioId: t.kieAudioId || null,
+                title: t.title || session.musicTitle,
+                duration: t.duration,
+                costUsd: 0,
+                createdAt: new Date().toISOString(),
+              })),
+            ]
+
             await db.generationSession.update({
               where: { id: session.id },
               data: {
@@ -83,6 +107,7 @@ async function pollPendingTasks() {
                 completedTaskId: session.kieTaskId,  // preserve for Generate Persona
                 kieAudioId: kieAudioId || null,
                 kieTaskId: null,
+                results: allResults,
               },
             })
           } else {

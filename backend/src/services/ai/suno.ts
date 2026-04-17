@@ -248,24 +248,53 @@ export interface ProcessMusicResultParams {
   title?: string
 }
 
-/** Download audio + cover, create MediaFile + AiUsageLog, charge user */
+export interface MusicTrackResult {
+  mediaFileId: string
+  audioUrl: string
+  coverImageUrl: string | null
+  kieAudioId?: string
+  title?: string
+  duration?: number
+}
+
+/** Download audio + cover, create MediaFile + AiUsageLog, charge user.
+ *  Also downloads second variant if available (stored in extraTracks). */
 export async function processMusicTaskResult(
   kieData: any,
   params: ProcessMusicResultParams,
-): Promise<{ mediaFileId: string; audioUrl: string; coverImageUrl: string | null; kieAudioId?: string }> {
+): Promise<MusicTrackResult & { extraTracks: MusicTrackResult[] }> {
   // Extract URLs from KIE response — new API v2 format (sunoData array)
   let audioOutputUrl: string | undefined
   let imageOutputUrl: string | undefined
   let extractedAudioId: string | undefined
+  let trackTitle: string | undefined
+  let trackDuration: number | undefined
 
-  // New format: data.response.sunoData[] (array of 2 variants)
+  // Collect ALL variants from sunoData for multi-track support
   const sunoData = kieData?.response?.sunoData
+  const allVariants: Array<{ audioUrl: string; imageUrl?: string; id?: string; title?: string; duration?: number }> = []
+
   if (Array.isArray(sunoData) && sunoData.length > 0) {
-    // Pick first variant with a valid audioUrl
-    const track = sunoData.find((t: any) => t.audioUrl) || sunoData[0]
-    audioOutputUrl = track.audioUrl || track.sourceAudioUrl
-    imageOutputUrl = track.imageUrl || track.sourceImageUrl
-    extractedAudioId = track.id
+    for (const t of sunoData) {
+      const url = t.audioUrl || t.sourceAudioUrl
+      if (url) {
+        allVariants.push({
+          audioUrl: url,
+          imageUrl: t.imageUrl || t.sourceImageUrl,
+          id: t.id,
+          title: t.title,
+          duration: t.duration ? Math.round(t.duration) : undefined,
+        })
+      }
+    }
+    // Primary track = first variant
+    if (allVariants.length > 0) {
+      audioOutputUrl = allVariants[0].audioUrl
+      imageOutputUrl = allVariants[0].imageUrl
+      extractedAudioId = allVariants[0].id
+      trackTitle = allVariants[0].title
+      trackDuration = allVariants[0].duration
+    }
   }
 
   // Fallback: old format (resultJson) for backward compat with existing tasks
@@ -353,8 +382,53 @@ export async function processMusicTaskResult(
   const localAudioUrl = `/uploads/${params.businessId}/${audioFilename}`
   const localCoverUrl = coverFilename ? `/uploads/${params.businessId}/${coverFilename}` : null
 
-  log.info('[Suno] music saved', { businessId: params.businessId, mediaId: mediaFile.id })
-  return { mediaFileId: mediaFile.id, audioUrl: localAudioUrl, coverImageUrl: localCoverUrl, kieAudioId: extractedAudioId }
+  // Download second variant (if available) — best effort, no billing
+  const extraTracks: MusicTrackResult[] = []
+  for (let i = 1; i < allVariants.length; i++) {
+    try {
+      const v = allVariants[i]
+      const { filename: extraAudioFile, audioBuffer: extraBuf } = await downloadAudio(v.audioUrl, params.businessId)
+      let extraCoverFile: string | null = null
+      if (v.imageUrl) {
+        const c = await downloadCoverImage(v.imageUrl, params.businessId)
+        if (c) extraCoverFile = c.filename
+      }
+      const extraName = params.title
+        ? `AI Music: ${params.title.slice(0, 45)} (${i + 1})`
+        : `AI Music: ${params.prompt.slice(0, 45).replace(/[\r\n\t]/g, ' ')} (${i + 1})`
+      const extraMedia = await db.mediaFile.create({
+        data: {
+          businessId: params.businessId,
+          filename: extraName,
+          url: `/uploads/${params.businessId}/${extraAudioFile}`,
+          thumbUrl: extraCoverFile ? `/uploads/${params.businessId}/${extraCoverFile}` : null,
+          mimeType: 'audio/mpeg',
+          sizeBytes: extraBuf.length,
+          altText: params.prompt.slice(0, 500),
+          aiModel: params.model,
+          aiCostUsd: 0, // no extra charge for second variant
+        },
+      })
+      extraTracks.push({
+        mediaFileId: extraMedia.id,
+        audioUrl: `/uploads/${params.businessId}/${extraAudioFile}`,
+        coverImageUrl: extraCoverFile ? `/uploads/${params.businessId}/${extraCoverFile}` : null,
+        kieAudioId: v.id,
+        title: v.title,
+        duration: v.duration,
+      })
+      log.info('[Suno] extra track saved', { businessId: params.businessId, variant: i + 1 })
+    } catch (err: any) {
+      log.warn('[Suno] extra track download failed', { variant: i + 1, error: err.message })
+    }
+  }
+
+  log.info('[Suno] music saved', { businessId: params.businessId, mediaId: mediaFile.id, extraTracks: extraTracks.length })
+  return {
+    mediaFileId: mediaFile.id, audioUrl: localAudioUrl, coverImageUrl: localCoverUrl,
+    kieAudioId: extractedAudioId, title: trackTitle, duration: trackDuration,
+    extraTracks,
+  }
 }
 
 // =====================
