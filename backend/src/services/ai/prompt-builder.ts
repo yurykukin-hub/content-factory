@@ -1148,6 +1148,7 @@ export interface PhotoAgentContext {
   photoAspectRatio: string
   characterName?: string | null
   batchSize: number
+  referenceImages?: { filename: string; altText?: string | null }[]
 }
 
 /**
@@ -1158,12 +1159,18 @@ export function buildPhotoAgentSystemPrompt(
   mode: 'simple' | 'advanced',
   brandContext: string,
 ): string {
+  // Describe reference images
+  const refDesc = context.referenceImages?.length
+    ? context.referenceImages.map((r, i) => `  ${i + 1}. ${r.filename}${r.altText ? ` — ${r.altText}` : ''}`).join('\n')
+    : 'нет'
+
   const sessionState = `## Текущая сессия
 - Модель: ${context.photoModel === 'nano-banana-pro' ? 'Nano Banana Pro (качественная)' : 'Nano Banana 2 (быстрая)'}
 - Разрешение: ${context.photoResolution}
 - Формат: ${context.photoAspectRatio}
 - Количество: ${context.batchSize} изображений
 - Персонаж: ${context.characterName || 'не выбран'}
+- Референсные изображения (${context.referenceImages?.length || 0} шт.):\n${refDesc}
 - Текущий промпт: ${context.currentPrompt || 'пусто'}`
 
   const modeInstructions = mode === 'simple'

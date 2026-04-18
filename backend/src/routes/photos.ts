@@ -230,6 +230,10 @@ const agentChatSchema = z.object({
     photoAspectRatio: z.string().default('1:1'),
     characterName: z.string().nullable().default(null),
     batchSize: z.number().default(1),
+    referenceImages: z.array(z.object({
+      filename: z.string(),
+      altText: z.string().nullable().optional(),
+    })).default([]),
   }),
   mode: z.enum(['simple', 'advanced']).default('simple'),
   businessId: z.string(),

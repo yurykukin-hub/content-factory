@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { http } from '@/api/client'
 import { X, Search, Loader2, Image, Check } from 'lucide-vue-next'
 
@@ -12,20 +12,27 @@ interface MediaFile {
   sizeBytes: number
 }
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   visible: boolean
   businessId: string
-}>()
+  multiSelect?: boolean
+  maxSelect?: number
+}>(), {
+  multiSelect: false,
+  maxSelect: 14,
+})
 
 const emit = defineEmits<{
   close: []
   selected: [file: MediaFile]
+  selectedMulti: [files: MediaFile[]]
 }>()
 
 const files = ref<MediaFile[]>([])
 const loading = ref(false)
 const search = ref('')
 const selectedId = ref<string | null>(null)
+const selectedIds = ref<Set<string>>(new Set())
 
 async function loadMedia() {
   loading.value = true
@@ -41,15 +48,43 @@ async function loadMedia() {
   }
 }
 
-function confirm() {
-  const file = files.value.find(f => f.id === selectedId.value)
-  if (file) {
-    emit('selected', file)
-    emit('close')
-    selectedId.value = null
-    search.value = ''
+function toggleSelect(id: string) {
+  if (props.multiSelect) {
+    if (selectedIds.value.has(id)) {
+      selectedIds.value.delete(id)
+    } else if (selectedIds.value.size < props.maxSelect) {
+      selectedIds.value.add(id)
+    }
+    // Force reactivity
+    selectedIds.value = new Set(selectedIds.value)
+  } else {
+    selectedId.value = selectedId.value === id ? null : id
   }
 }
+
+function confirm() {
+  if (props.multiSelect) {
+    const selected = files.value.filter(f => selectedIds.value.has(f.id))
+    if (selected.length) {
+      emit('selectedMulti', selected)
+      emit('close')
+      selectedIds.value = new Set()
+      search.value = ''
+    }
+  } else {
+    const file = files.value.find(f => f.id === selectedId.value)
+    if (file) {
+      emit('selected', file)
+      emit('close')
+      selectedId.value = null
+      search.value = ''
+    }
+  }
+}
+
+const isSelected = (id: string) => props.multiSelect ? selectedIds.value.has(id) : selectedId.value === id
+const selectionCount = computed(() => props.multiSelect ? selectedIds.value.size : (selectedId.value ? 1 : 0))
+const canConfirm = computed(() => selectionCount.value > 0)
 
 function formatSize(bytes: number) {
   if (bytes < 1024) return bytes + ' B'
@@ -61,6 +96,7 @@ function formatSize(bytes: number) {
 watch(() => props.visible, (v) => {
   if (v) {
     selectedId.value = null
+    selectedIds.value = new Set()
     search.value = ''
     loadMedia()
   }
@@ -112,10 +148,10 @@ function onSearch() {
           <button
             v-for="f in files"
             :key="f.id"
-            @click="selectedId = selectedId === f.id ? null : f.id"
+            @click="toggleSelect(f.id)"
             :class="[
               'relative group rounded-lg overflow-hidden aspect-square border-2 transition-all',
-              selectedId === f.id
+              isSelected(f.id)
                 ? 'border-brand-500 ring-2 ring-brand-500/30 scale-[0.96]'
                 : 'border-transparent hover:border-gray-300 dark:hover:border-gray-600',
             ]"
@@ -127,7 +163,7 @@ function onSearch() {
               loading="lazy"
             />
             <!-- Check overlay -->
-            <div v-if="selectedId === f.id" class="absolute inset-0 bg-brand-500/20 flex items-center justify-center">
+            <div v-if="isSelected(f.id)" class="absolute inset-0 bg-brand-500/20 flex items-center justify-center">
               <div class="w-7 h-7 rounded-full bg-brand-500 flex items-center justify-center shadow-lg">
                 <Check :size="16" class="text-white" />
               </div>
@@ -144,7 +180,8 @@ function onSearch() {
       <!-- Footer -->
       <div class="flex items-center justify-between mt-4 pt-4 border-t border-gray-200 dark:border-gray-800">
         <span class="text-xs text-gray-400">
-          {{ files.length }} изображений{{ selectedId ? ' · 1 выбрано' : '' }}
+          {{ files.length }} изображений{{ selectionCount ? ` · ${selectionCount} выбрано` : '' }}
+          <span v-if="multiSelect && maxSelect" class="text-gray-500"> (макс. {{ maxSelect }})</span>
         </span>
         <div class="flex gap-2">
           <button @click="emit('close')" class="px-4 py-2 rounded-lg text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800">
@@ -152,10 +189,10 @@ function onSearch() {
           </button>
           <button
             @click="confirm"
-            :disabled="!selectedId"
+            :disabled="!canConfirm"
             class="flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium disabled:opacity-50 transition-colors"
           >
-            <Check :size="16" /> Выбрать
+            <Check :size="16" /> Выбрать{{ selectionCount > 1 ? ` (${selectionCount})` : '' }}
           </button>
         </div>
       </div>

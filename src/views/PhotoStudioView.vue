@@ -404,6 +404,7 @@ async function onSendAgentMessage(userText: string) {
         photoResolution: photoResolution.value,
         batchSize: batchSize.value,
         photoAspectRatio: photoAspectRatio.value,
+        referenceImages: referenceImages.value.map(r => ({ filename: r.filename, altText: r.altText })),
       },
       mode: agentMode.value,
       businessId: selectedBizId.value,
@@ -478,6 +479,22 @@ function onAddRefFromLibrary(file: { url: string; thumbUrl: string | null; filen
     altText: file.altText || null,
   })
   showMediaPicker.value = false
+}
+
+function onAddRefsMulti(files: { url: string; thumbUrl: string | null; filename: string; altText?: string | null }[]) {
+  const remaining = maxRefs.value - referenceImages.value.length
+  for (const file of files.slice(0, remaining)) {
+    referenceImages.value.push({
+      url: file.url,
+      thumbUrl: file.thumbUrl,
+      filename: file.filename,
+      altText: file.altText || null,
+    })
+  }
+  showMediaPicker.value = false
+  if (files.length > remaining) {
+    toast.info(`Добавлено ${remaining} из ${files.length} (лимит ${maxRefs.value})`)
+  }
 }
 
 // Agent context summary
@@ -707,8 +724,11 @@ onBeforeUnmount(() => {
     <MediaPickerModal
       :visible="showMediaPicker"
       :business-id="selectedBizId || ''"
+      multi-select
+      :max-select="maxRefs - referenceImages.length"
       @close="showMediaPicker = false"
       @selected="onAddRefFromLibrary"
+      @selected-multi="onAddRefsMulti"
     />
   </div>
 </template>
