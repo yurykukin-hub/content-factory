@@ -65,7 +65,7 @@ sessions.get('/sessions/:id', async (c) => {
 // POST /api/sessions — создать сессию
 const createSchema = z.object({
   businessId: z.string(),
-  type: z.enum(['video', 'music']).default('video'),
+  type: z.enum(['video', 'music', 'photo']).default('video'),
   prompt: z.string().default(''),
   // Video settings
   duration: z.number().int().min(4).max(15).default(4),
@@ -89,6 +89,11 @@ const createSchema = z.object({
   audioWeight: z.number().min(0).max(1).optional(),
   personaId: z.string().optional().nullable(),
   sunoModel: z.string().optional(),
+  // Photo settings
+  photoModel: z.enum(['nano-banana-2', 'nano-banana-pro']).optional(),
+  photoResolution: z.enum(['1K', '2K', '4K']).optional(),
+  batchSize: z.number().int().min(1).max(4).optional(),
+  photoAspectRatio: z.string().optional(),
 })
 
 sessions.post('/sessions', async (c) => {
@@ -136,6 +141,11 @@ const updateSchema = z.object({
   audioWeight: z.number().min(0).max(1).optional(),
   personaId: z.string().optional().nullable(),
   sunoModel: z.string().optional(),
+  // Photo settings
+  photoModel: z.enum(['nano-banana-2', 'nano-banana-pro']).optional(),
+  photoResolution: z.enum(['1K', '2K', '4K']).optional(),
+  batchSize: z.number().int().min(1).max(4).optional(),
+  photoAspectRatio: z.string().optional(),
   // Common
   status: z.enum(['draft', 'generating', 'completed', 'failed']).optional(),
   mediaFileId: z.string().optional().nullable(),

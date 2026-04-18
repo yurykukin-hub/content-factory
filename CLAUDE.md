@@ -13,7 +13,7 @@ AI-контент-фабрика для автоматизации SMM. Гене
 - **Backend:** Bun + Hono + TypeScript
 - **Frontend:** Vue 3 + Tailwind CSS + Lucide Icons + Pinia
 - **ORM/DB:** Prisma + PostgreSQL 16
-- **AI:** OpenRouter (Haiku для адаптации, Sonnet для генерации, Gemini Flash для vision) + KIE.ai (Nano Banana 2 для text2img/img2img, FLUX Kontext Pro для img2img, recraft для удаления фона, Seedance 2 для видео, **Suno V4/V4_5/V5_5 для музыки — API v2**) + **OpenAI Whisper** (голосовой ввод)
+- **AI:** OpenRouter (Haiku для адаптации, Sonnet для генерации, Gemini Flash для vision) + KIE.ai (Nano Banana 2 + **Nano Banana Pro** для text2img/img2img, FLUX Kontext Pro для img2img, recraft для удаления фона, Seedance 2 для видео, **Suno V4/V4_5/V5_5 для музыки — API v2**) + **OpenAI Whisper** (голосовой ввод)
 - **Audio:** wavesurfer.js v7 (waveform visualization)
 - **Testing:** Vitest (96 тестов — 7 файлов)
 - **Deploy:** Docker Compose + Caddy (SSL auto)
@@ -57,18 +57,19 @@ content-factory/
 │   │   │   ├── ideas.ts        # CRUD идей (per-user, ownership check)
 │   │   │   ├── characters.ts   # CRUD AI-персонажей (person/mascot/avatar/object/location, per-business)
 │   │   │   ├── scenarios.ts    # CRUD сценариев (scenes JSON, AI-генерация)
-│   │   │   ├── sessions.ts     # CRUD GenerationSession (video + music sessions, type filter)
+│   │   │   ├── sessions.ts     # CRUD GenerationSession (video + music + photo sessions, type filter)
 │   │   │   ├── music.ts        # Sound Studio: generate, enhance-prompt (8 modes), agent-chat, personas CRUD, from-track
+│   │   │   ├── photos.ts       # Photo Studio: generate (batch 1/2/4), enhance-prompt (8 modes), agent-chat, edit-image, remove-bg
 │   │   │   ├── dashboard.ts    # metrics (scoped by business access)
 │   │   │   ├── ai-logs.ts     # AI usage logs (list, stats, summary, error-count, export CSV)
 │   │   │   └── sse.ts          # Server-Sent Events
 │   │   ├── services/
 │   │   │   ├── scheduler.ts    # Отложенная публикация
-│   │   │   ├── video-poller.ts # Background poller: video + music KIE tasks → download → SSE (10 сек)
+│   │   │   ├── video-poller.ts # Background poller: video + music + photo KIE tasks → download → SSE (10 сек)
 │   │   │   ├── vk-oauth.ts     # VK OAuth service (PKCE, auto-refresh)
 │   │   │   ├── ai/
 │   │   │   │   ├── openrouter.ts      # OpenRouter + cost calculation + logAndCharge DRY helper
-│   │   │   │   ├── prompt-builder.ts  # Промпт-конструктор + video/music agent prompts + 8 music enhance modes
+│   │   │   │   ├── prompt-builder.ts  # Промпт-конструктор + video/music/photo agent prompts + 8 enhance modes per studio
 │   │   │   │   ├── suno.ts           # KIE.ai Suno client: createMusicTask, processMusicResult, generatePersona
 │   │   │   │   ├── image-generation.ts # AI image gen (Gemini 2.5 Flash Image)
 │   │   │   │   ├── fal.ts            # FAL.ai SDK (image editing, remove bg)
@@ -85,7 +86,7 @@ content-factory/
 │   └── .env.example
 ├── src/                        # Vue 3 frontend
 │   ├── api/client.ts           # HTTP client (auto-refresh on 401)
-│   ├── router/index.ts         # 15 routes + auth guard + section access guard
+│   ├── router/index.ts         # 16 routes + auth guard + section access guard
 │   ├── stores/                 # auth (+ sectionAccess), businesses, theme, sidebar
 │   ├── composables/            # useToast, useFormatters, useStatus, usePlatform, useSectionAccess, useRates, useVoiceInput
 │   ├── views/
@@ -96,6 +97,7 @@ content-factory/
 │   │   ├── ContentPlansView    # AI планы (таблица + календарь)
 │   │   ├── MediaLibraryView    # Медиа-библиотека (grid, click-to-preview modal, AI describe)
 │   │   ├── VideoStudioView     # Видео-студия (Kling-style 50/50 layout, sessions, rich prompt)
+│   │   ├── PhotoStudioView    # Фото-студия (50/50, NB2/Pro, batch 1/2/4, 1K/2K/4K, AI Agent)
 │   │   ├── IdeasView           # Личный блокнот идей (inline edit, auto-save)
 │   │   └── ...                 # Dashboard, Login, Settings
 │   └── components/
@@ -136,6 +138,14 @@ content-factory/
 │       │   ├── SsPreGenModal.vue      # Подтверждение перед генерацией
 │       │   ├── SsPersonaSelector.vue  # Выбор голосовой персоны (Voice Clone)
 │       │   └── SsCreatePersonaModal.vue # Создание персоны из трека (Suno V5.5)
+│       ├── photo/              # Фото-студия компоненты
+│       │   ├── PsSettingsPanel.vue    # Model/Resolution/Batch/AspectRatio + Generate
+│       │   ├── PsSessionBar.vue       # Список фото-сессий
+│       │   ├── PsPromptTabs.vue       # Agent/Editor табы
+│       │   ├── PsAgentChat.vue        # AI Agent чат для фото
+│       │   ├── PsEnhanceMenu.vue      # Split-button: 8 photo enhance modes
+│       │   ├── PsGallery.vue          # Галерея изображений (grid + lightbox)
+│       │   └── PsPreGenModal.vue      # Подтверждение перед генерацией
 │       └── settings/           # VkOAuthTab, ProfileTab, AiTab, UsersTab
 ├── docker-compose.yml          # Dev (postgres only)
 ├── docker-compose.prod.yml     # Prod (postgres + backend, healthchecks)
@@ -151,7 +161,7 @@ Enums: UserRole, Platform, AccountType, PostType, PostStatus, ContentPlanStatus,
 - **ADMIN** — полный доступ ко всем проектам и настройкам (bypass sectionAccess)
 - **EDITOR** — только привязанные проекты (через UserBusiness), может редактировать бренд-профиль, не может управлять каналами
 - **VIEWER** — только чтение
-- **Section Access** — гранулярный доступ по разделам (User.sectionAccess JSON). 12 секций × 3 уровня (full/view/none). Дефолты по роли, кастомизация через Settings → Пользователи
+- **Section Access** — гранулярный доступ по разделам (User.sectionAccess JSON). 13 секций × 3 уровня (full/view/none). Дефолты по роли, кастомизация через Settings → Пользователи
 - Все routes проверяют доступ через `resource-access.ts` + `section-access.ts`
 
 ## Пользователи (production)
@@ -201,7 +211,8 @@ cp backend/.env.example backend/.env
 10. **AI Agent чат** (Haiku Simple / Sonnet Advanced) → multi-turn диалог для крафта видео-промптов. Знает контекст (refs, duration, resolution, audio). Quick reply suggestions. Промпт переносится в Editor одной кнопкой
 11. **Музыка-генерация** (KIE.ai Suno V4/V4_5/V5_5) → **async** (background poller), Custom mode (Simple скрыт), lyrics+style, до 8 мин, voice clone (V5.5 Generate Persona), **2 трека на генерацию** (results JSON append)
 12. **Music AI Agent** (Haiku/Sonnet) → multi-turn диалог для крафта музыкальных промптов, текстов, стилей. 8 enhance modes (lyrics, improve, rhyme, structure, style, translate, enhance, simplify)
-13. **Голосовой ввод** (OpenAI Whisper) → микрофон в Agent Chat (Video + Sound Studio), toggle recording → transcribe → текст в textarea. useVoiceInput composable. ~$0.006/мин
+13. **Голосовой ввод** (OpenAI Whisper) → микрофон в Agent Chat (Video + Sound + Photo Studio), toggle recording → transcribe → текст в textarea. useVoiceInput composable. ~$0.006/мин
+14. **Фото-генерация** (KIE.ai Nano Banana 2 / Pro) → **async** (background poller), batch 1/2/4, 1K/2K/4K, 10 aspect ratios, character references (img2img). 8 enhance modes (style, lighting, composition, mood, detail, translate, enhance, simplify). Photo AI Agent (Haiku/Sonnet)
 
 API keys: OpenRouter — из БД (AppConfig) или .env. FAL — из .env (FAL_API_KEY). KIE — из .env (KIE_API_KEY). **OpenAI** — AppConfig `openai_api_key` или .env `OPENAI_API_KEY` (Whisper STT)
 
@@ -261,6 +272,20 @@ API keys: OpenRouter — из БД (AppConfig) или .env. FAL — из .env (F
 - **Layout mobile** — full-height (100vh-5rem), collapsible session list (default collapsed), gallery hidden (collapsible "Треки" toggle above settings), settings in 2 rows (lg:contents pattern), agent chat 92% width, compact padding
 - **Mode switcher** — Simple/Custom скрыт, forced Custom mode (SsModeTabs commented out). Легко вернуть
 - **Session type isolation** — VideoStudio: `&type=video`, SoundStudio: `&type=music` (фикс mixing bug)
+
+## Photo Studio Architecture (2026-04-18)
+- **GenerationSession type="photo"** — расширение той же модели (type discriminator). 5 photo-полей: photoModel, photoResolution, batchSize, photoAspectRatio, batchTaskIds
+- **Две модели:** `nano-banana-2` (быстрая, 4-6 сек, $0.04-0.09) и `nano-banana-pro` (качественная, 10-20 сек, $0.07-0.12)
+- **Три разрешения:** 1K, 2K (default), 4K. Цена зависит от модели + разрешения (`PHOTO_PRICING`)
+- **Batch генерация:** 1/2/4 изображения за запрос. Параллельные вызовы `createPhotoTask()` через `Promise.allSettled()`. TaskIds хранятся в `batchTaskIds` JSON
+- **10 aspect ratios:** 1:1, 2:3, 3:2, 3:4, 4:3, 4:5, 5:4, 9:16, 16:9, 21:9
+- **Async generation** — тот же поллер (video-poller.ts), ветвление по session.type='photo'. `pollPhotoSession()` ждёт завершения ВСЕХ задач batch перед completed
+- **8 enhance modes:** enhance, style, lighting, composition, mood, detail, translate, simplify
+- **Photo AI Agent** — buildPhotoAgentSystemPrompt (NB2/Pro expert, aspect ratios, resolution, character references). Simple/Advanced modes
+- **Character references** — переиспользует Character model, enrichment prompt + image_input для img2img
+- **img2img + remove-bg** — делегируют в существующие `editImage()` и `removeBackground()` через `/api/photos/edit-image` и `/api/photos/remove-background`
+- **Layout** — 50/50, KeepAlive, SSE. Auto-save 2s debounce. Gallery: responsive grid (1 col mobile, 2 cols desktop) + lightbox
+- **Session type isolation** — PhotoStudio: `&type=photo`
 
 ## Media Library
 - **Upload MIME detection**: extensionToMime() fallback when blob.type is empty/octet-stream (MOV, AVI, MKV etc.)

@@ -9,14 +9,14 @@
 ## Блокеры
 - [2026-04-05] VK OAuth: заявка подана, ожидаем. До получения — фото в VK не публикуются
 
-## Schema (24 модели, 8 enums)
-User, UserBusiness, Business, BrandProfile, PlatformAccount, ContentPlan, ContentPlanItem, Post, PostVersion, PublishLog, MediaFile, MediaFolder, AiUsageLog, WebhookRule, AppConfig, Idea, StoryTemplate, Character, CharacterBusiness, Scenario, PromptEntry, PromptTemplate, GenerationSession, **BalanceTransaction**
+## Schema (25 модели, 8 enums)
+User, UserBusiness, Business, BrandProfile, PlatformAccount, ContentPlan, ContentPlanItem, Post, PostVersion, PublishLog, MediaFile, MediaFolder, AiUsageLog, WebhookRule, AppConfig, Idea, StoryTemplate, Character, CharacterBusiness, Scenario, PromptEntry, PromptTemplate, GenerationSession, BalanceTransaction, **MusicPersona**
 
 - [2026-04-16] **AiUsageLog расширена:** +userId, +status, +errorMessage, +prompt, +durationMs, +markupPercent, +chargedRub
 - [2026-04-16] **User.balanceKopecks** — баланс в копейках. **BalanceTransaction** — история пополнений/списаний (24-я модель)
 
-## Endpoints (~18 route-файлов)
-- auth, users, businesses, platforms, posts, content-plans, ai, publish, media, settings, vk-oauth, ideas, characters, scenarios, sessions, dashboard, sse, **ai-logs**
+## Endpoints (~20 route-файлов)
+- auth, users, businesses, platforms, posts, content-plans, ai, publish, media, settings, vk-oauth, ideas, characters, scenarios, sessions, music, **photos**, dashboard, sse, ai-logs
 - [2026-04-17] POST /api/ai/agent-chat — multi-turn AI Agent чат (aiChat in openrouter.ts, logAndCharge DRY helper)
 - GET /api/media/library/:bizId — **cursor pagination** `{ files, hasMore, totalCount }` (НЕ массив!) (16.04)
 - [2026-04-16] **AI Logs API** (5 endpoints): GET /ai-logs (paginated list), /ai-logs/stats, /ai-logs/summary (groupBy), /ai-logs/error-count, /ai-logs/export (CSV)
@@ -25,7 +25,7 @@ User, UserBusiness, Business, BrandProfile, PlatformAccount, ContentPlan, Conten
 - Split app.ts + index.ts, health endpoint
 - Error handler, RBAC (UserBusiness), refresh tokens (1h+30d)
 - Security: resource-access checks на 30+ endpoints
-- Section Access: **12 секций** × 3 уровня (full/view/none), requireSection middleware. `aiLogs` в ADMIN_SECTIONS
+- Section Access: **13 секций** × 3 уровня (full/view/none), requireSection middleware. `photoStudio` + `aiLogs` в ADMIN_SECTIONS
 
 ## Security Hardening + Code Review (2026-04-16)
 - [2026-04-16] **96 тестов** (7 файлов): auth, users, security, security-hardening, prompt-builder, posts, routes-rbac
@@ -54,6 +54,13 @@ User, UserBusiness, Business, BrandProfile, PlatformAccount, ContentPlan, Conten
 - [2026-04-16] **Video thumbnails:** ffmpeg в Dockerfile, extractVideoThumbnail() утилита (1сек → sharp WebP 400×400). Auto при upload + KIE generation. fix-video-thumbs.ts — 89/90 существующих видео обновлены
 - [2026-04-16] isImage()/isVideo() + displayType() — fallback на расширение файла
 - [2026-04-16] **4 консьюмера API:** MediaLibraryView, MediaPickerModal, VsRefModal, VideoStudioView — все используют `res.files`
+
+## Photo Studio (2026-04-18)
+- [2026-04-18] **Photo Studio:** GenerationSession type='photo', 5 новых полей (photoModel, photoResolution, batchSize, photoAspectRatio, batchTaskIds)
+- [2026-04-18] **Модели:** nano-banana-2 ($0.04-0.09, 4-6 сек) + nano-banana-pro ($0.07-0.12, 10-20 сек). PHOTO_PRICING в kie.ts
+- [2026-04-18] **Batch:** 1/2/4 параллельных задачи через Promise.allSettled(). Poller ждёт ВСЕ задачи batch
+- [2026-04-18] **Routes:** /api/photos/* — generate (202), enhance-prompt (8 modes), agent-chat, edit-image, remove-bg
+- [2026-04-18] **Frontend:** PhotoStudioView.vue + 7 Ps* компонентов. 50/50 layout, KeepAlive, SSE, auto-save
 
 ## Архитектурные решения
 - [2026-04-16] **Async video generation:** POST создаёт задачу в KIE (2-5 сек, 202), video-poller.ts каждые 10 сек проверяет pending, скачивает готовые, шлёт SSE. Deploy-safe: kieTaskId в PostgreSQL

@@ -8,7 +8,7 @@
  */
 
 import { db } from '../db'
-import { checkVideoTaskStatus, processVideoTaskResult } from './ai/kie'
+import { checkVideoTaskStatus, processVideoTaskResult, checkPhotoTaskStatus, processPhotoTaskResult } from './ai/kie'
 import { checkMusicTaskStatus, processMusicTaskResult } from './ai/suno'
 import { emitEvent } from '../eventBus'
 import { log } from '../utils/logger'
@@ -31,9 +31,16 @@ async function pollPendingTasks() {
   await Promise.allSettled(
     sessions.map(async (session) => {
       const isMusic = session.type === 'music'
-      const logPrefix = isMusic ? '[MusicPoller]' : '[VideoPoller]'
+      const isPhoto = session.type === 'photo'
+      const logPrefix = isPhoto ? '[PhotoPoller]' : isMusic ? '[MusicPoller]' : '[VideoPoller]'
 
       try {
+        // --- Photo batch handling ---
+        if (isPhoto) {
+          await pollPhotoSession(session)
+          return
+        }
+
         // Check task status (same KIE API for both types)
         const { state, data } = isMusic
           ? await checkMusicTaskStatus(session.kieTaskId!)
@@ -187,11 +194,133 @@ async function pollPendingTasks() {
   )
 }
 
+// ---------------------------------------------------------------------------
+// Photo batch poller — checks ALL tasks in batchTaskIds
+// ---------------------------------------------------------------------------
+
+async function pollPhotoSession(session: any) {
+  const taskIds: string[] = Array.isArray(session.batchTaskIds)
+    ? session.batchTaskIds
+    : session.kieTaskId ? [session.kieTaskId] : []
+
+  if (taskIds.length === 0) {
+    await db.generationSession.update({
+      where: { id: session.id },
+      data: { status: 'failed', errorMessage: 'Нет задач для проверки', kieTaskId: null },
+    })
+    emitEvent({ type: 'session_updated', tabId: '', sessionId: session.id, status: 'failed' })
+    return
+  }
+
+  // Check all tasks in parallel
+  const checks = await Promise.allSettled(
+    taskIds.map(async (taskId) => {
+      const { state, data } = await checkPhotoTaskStatus(taskId)
+      return { taskId, state, data }
+    })
+  )
+
+  const results = checks
+    .filter((r): r is PromiseFulfilledResult<{ taskId: string; state: string; data: any }> => r.status === 'fulfilled')
+    .map(r => r.value)
+
+  // Count states
+  const completed = results.filter(r => r.state === 'success' || r.state === 'completed')
+  const failed = results.filter(r => r.state === 'fail' || r.state === 'failed')
+  const pending = results.filter(r => r.state !== 'success' && r.state !== 'completed' && r.state !== 'fail' && r.state !== 'failed')
+
+  // If any failed — mark whole session as failed
+  if (failed.length > 0) {
+    const errMsg = failed[0].data?.failMsg || failed[0].data?.errorMessage || 'Генерация фото не удалась'
+    await db.generationSession.update({
+      where: { id: session.id },
+      data: { status: 'failed', errorMessage: errMsg, kieTaskId: null },
+    })
+    emitEvent({ type: 'session_updated', tabId: '', sessionId: session.id, status: 'failed' })
+    log.warn('[PhotoPoller] failed', { sessionId: session.id, error: errMsg })
+    return
+  }
+
+  // If still pending — check timeout
+  if (pending.length > 0) {
+    const age = session.kieTaskCreatedAt
+      ? Date.now() - new Date(session.kieTaskCreatedAt).getTime()
+      : 0
+    if (age > TASK_TIMEOUT) {
+      await db.generationSession.update({
+        where: { id: session.id },
+        data: { status: 'failed', errorMessage: 'Таймаут генерации (>15 мин)', kieTaskId: null },
+      })
+      emitEvent({ type: 'session_updated', tabId: '', sessionId: session.id, status: 'failed' })
+      log.warn('[PhotoPoller] timeout', { sessionId: session.id })
+    }
+    return // Not all done yet
+  }
+
+  // ALL completed — process each result
+  const now = new Date().toISOString()
+  const perImageCost = (session.costUsd || 0) / completed.length
+  const newResults: any[] = []
+
+  for (const item of completed) {
+    try {
+      const result = await processPhotoTaskResult(item.data, {
+        businessId: session.businessId,
+        prompt: session.prompt || '',
+        costUsd: perImageCost,
+        model: session.photoModel || session.model,
+        userId: session.userId || undefined,
+      })
+      newResults.push({
+        resultUrl: result.resultUrl,
+        thumbUrl: result.thumbUrl,
+        mediaFileId: result.mediaFileId,
+        costUsd: perImageCost,
+        createdAt: now,
+        prompt: session.prompt || '',
+        photoModel: session.photoModel || '',
+        photoResolution: session.photoResolution || '2K',
+        photoAspectRatio: session.photoAspectRatio || '1:1',
+      })
+    } catch (err: any) {
+      log.error('[PhotoPoller] processPhotoTaskResult error', { sessionId: session.id, taskId: item.taskId, error: err.message })
+    }
+  }
+
+  if (newResults.length === 0) {
+    await db.generationSession.update({
+      where: { id: session.id },
+      data: { status: 'failed', errorMessage: 'Не удалось скачать изображения', kieTaskId: null },
+    })
+    emitEvent({ type: 'session_updated', tabId: '', sessionId: session.id, status: 'failed' })
+    return
+  }
+
+  // Append to existing results (don't overwrite previous generations)
+  const existingResults = Array.isArray(session.results) ? session.results as any[] : []
+  const allResults = [...existingResults, ...newResults]
+
+  await db.generationSession.update({
+    where: { id: session.id },
+    data: {
+      status: 'completed',
+      mediaFileId: newResults[0].mediaFileId,
+      resultUrl: newResults[0].resultUrl,
+      kieTaskId: null,
+      batchTaskIds: null,
+      results: allResults,
+    },
+  })
+
+  emitEvent({ type: 'session_updated', tabId: '', sessionId: session.id, status: 'completed' })
+  log.info('[PhotoPoller] completed', { sessionId: session.id, imageCount: newResults.length })
+}
+
 const MUSIC_COST_DEFAULT = 0.11
 
 // Keep old export name for backward compat (index.ts imports startVideoPoller)
 export function startVideoPoller(): ReturnType<typeof setInterval> {
-  log.info('[GenerationPoller] started (interval: 10s, types: video + music)')
+  log.info('[GenerationPoller] started (interval: 10s, types: video + music + photo)')
   // Run immediately on startup to pick up tasks from before restart
   pollPendingTasks().catch(e => log.error('[GenerationPoller] initial poll error', { error: e.message }))
   // Then every 10 seconds

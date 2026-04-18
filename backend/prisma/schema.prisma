@@ -522,7 +522,7 @@ model GenerationSession {
   businessId       String   @map("business_id")
   userId           String   @map("user_id")
 
-  // Тип сессии (video | music)
+  // Тип сессии (video | music | photo)
   type             String   @default("video")
 
   // Название (авто из промпта или ручное)
@@ -561,6 +561,13 @@ model GenerationSession {
   audioUrl            String?  @map("audio_url")             // скачанный audio файл (local)
   streamAudioUrl      String?  @map("stream_audio_url")      // streaming URL от Suno
   sunoModel           String?  @map("suno_model")            // "suno/v4" | "suno/v4.5" | "suno/v5.5"
+
+  // === Настройки фото (null для video/music сессий) ===
+  photoModel          String?  @map("photo_model")            // "nano-banana-2" | "nano-banana-pro"
+  photoResolution     String?  @map("photo_resolution")       // "1K" | "2K" | "4K"
+  batchSize           Int?     @map("batch_size")              // 1 | 2 | 4
+  photoAspectRatio    String?  @map("photo_aspect_ratio")     // "1:1" | "2:3" | "3:2" | "9:16" | etc.
+  batchTaskIds        Json?    @map("batch_task_ids")          // ["taskId1", "taskId2", ...] for parallel tasks
 
   // Генерация (async task)
   status           String   @default("draft")         // draft | generating | completed | failed

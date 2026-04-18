@@ -94,6 +94,12 @@ const routes: RouteRecordRaw[] = [
     meta: { section: 'soundStudio' },
   },
   {
+    path: '/photo-studio',
+    name: 'photo-studio',
+    component: () => import('@/views/PhotoStudioView.vue'),
+    meta: { section: 'photoStudio' },
+  },
+  {
     path: '/settings',
     name: 'settings',
     component: () => import('@/views/SettingsView.vue'),

@@ -31,6 +31,7 @@ import { promptLibrary } from './routes/prompt-library'
 import { promptTemplates } from './routes/prompt-templates'
 import { sessions } from './routes/sessions'
 import { music } from './routes/music'
+import { photos } from './routes/photos'
 import { aiLogs } from './routes/ai-logs'
 
 const app = new Hono()
@@ -118,6 +119,7 @@ app.get('/api/settings/public', async (c) => {
 app.use('/api/scenarios/*', requireSection('scenarios'))
 app.use('/api/settings/*', requireSection('settings'))
 app.use('/api/music/*', requireSection('soundStudio'))
+app.use('/api/photos/*', requireSection('photoStudio'))
 app.use('/api/ai-logs/*', requireSection('aiLogs'))
 
 app.route('/api/businesses', businesses)
@@ -142,6 +144,7 @@ app.route('/api/prompt-library', promptLibrary)
 app.route('/api/prompt-templates', promptTemplates)
 app.route('/api', sessions)  // /api/sessions
 app.route('/api/music', music)  // /api/music/*
+app.route('/api/photos', photos)  // /api/photos/*
 app.route('/api/ai-logs', aiLogs)
 app.route('/api/dashboard', dashboard)
 app.route('/api/sse', sse)

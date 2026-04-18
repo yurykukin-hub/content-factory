@@ -47,7 +47,7 @@ function handleUnauthorized() {
       <TheHeader />
       <main class="flex-1 p-3 md:p-6 overflow-auto">
         <router-view v-slot="{ Component }">
-          <KeepAlive :include="['VideoStudioView', 'SoundStudioView']">
+          <KeepAlive :include="['VideoStudioView', 'SoundStudioView', 'PhotoStudioView']">
             <component :is="Component" />
           </KeepAlive>
         </router-view>

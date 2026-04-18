@@ -12,6 +12,22 @@ import { log } from '../../utils/logger'
 const UPLOAD_DIR = join(getModuleDir(import.meta), '../../../uploads')
 const KIE_BASE = 'https://api.kie.ai'
 
+// =====================
+// Photo Studio — pricing & models
+// =====================
+
+export const PHOTO_PRICING: Record<string, Record<string, number>> = {
+  'nano-banana-2':   { '1K': 0.04, '2K': 0.06, '4K': 0.09 },
+  'nano-banana-pro': { '1K': 0.07, '2K': 0.09, '4K': 0.12 },
+}
+
+export const PHOTO_MODELS = {
+  'nano-banana-2':   { label: 'Nano Banana 2', speed: '4-6 сек' },
+  'nano-banana-pro': { label: 'Nano Banana Pro', speed: '10-20 сек' },
+} as const
+
+export type PhotoModelId = keyof typeof PHOTO_MODELS
+
 // --- KIE.ai REST client ---
 
 async function getKieKey(): Promise<string> {
@@ -716,6 +732,143 @@ export async function processVideoTaskResult(
 
   log.info('[KIE] video saved', { businessId: params.businessId, mediaId: mediaFile.id })
   return { mediaFileId: mediaFile.id, resultUrl: mediaFile.url }
+}
+
+// =====================
+// Async Photo Generation (Photo Studio)
+// =====================
+
+export interface CreatePhotoTaskResult {
+  kieTaskId: string
+  translatedPrompt: string
+  costUsd: number
+  model: string
+}
+
+export async function createPhotoTask(params: {
+  prompt: string
+  businessId: string
+  model?: string           // 'nano-banana-2' | 'nano-banana-pro'
+  resolution?: string      // '1K' | '2K' | '4K'
+  aspectRatio?: string     // '1:1' | '2:3' | '3:2' | '3:4' | '4:3' | '4:5' | '5:4' | '9:16' | '16:9' | '21:9'
+  characterId?: string | null
+  userId?: string
+}): Promise<CreatePhotoTaskResult> {
+  const { prompt: rawPrompt, businessId, model = 'nano-banana-2', resolution = '2K', aspectRatio = '1:1', characterId } = params
+
+  const pricing = PHOTO_PRICING[model] || PHOTO_PRICING['nano-banana-2']
+  const costUsd = pricing[resolution] || pricing['2K']
+
+  // Enrich prompt with character context (reuse pattern from generateImage)
+  let enrichedPrompt = rawPrompt
+  let referenceImageUrl: string | undefined
+
+  if (characterId) {
+    const character = await db.character.findUnique({
+      where: { id: characterId },
+      include: { referenceMedia: { select: { url: true } } },
+    })
+    if (character) {
+      const charContext = character.description
+        ? `${character.name} (${character.description})`
+        : character.name
+      enrichedPrompt = `${rawPrompt}. Главный персонаж: ${charContext}`
+      if (character.style) enrichedPrompt += `. Стиль: ${character.style}`
+
+      if (character.referenceMedia?.url) {
+        referenceImageUrl = resolvePublicUrl(character.referenceMedia.url)
+      }
+    }
+  }
+
+  // Auto-translate to English for better quality
+  const prompt = await translatePrompt(enrichedPrompt, businessId, params.userId)
+
+  log.info('[KIE] createPhotoTask', { businessId, model, resolution, aspectRatio, prompt: prompt.slice(0, 80) })
+
+  const input: any = {
+    prompt,
+    aspect_ratio: aspectRatio,
+    resolution: resolution,
+    output_format: 'png',
+  }
+
+  if (referenceImageUrl) {
+    input.image_input = [referenceImageUrl]
+  }
+
+  const response = await kiePost('/api/v1/jobs/createTask', { model, input })
+  const kieTaskId = response?.data?.taskId || response?.taskId
+  if (!kieTaskId) throw new Error('KIE.ai не вернул taskId для фото')
+
+  log.info('[KIE] photo task created', { kieTaskId, costUsd })
+  return { kieTaskId, translatedPrompt: prompt, costUsd, model }
+}
+
+/** Check photo task status (same as video — uses Jobs API) */
+export async function checkPhotoTaskStatus(kieTaskId: string): Promise<{ state: string; data?: any }> {
+  const result = await kieGet(`/api/v1/jobs/recordInfo?taskId=${kieTaskId}`)
+  const d = result?.data || result
+  const state = d?.state || d?.status || 'pending'
+  return { state, data: d }
+}
+
+/** Download completed photo, save to disk, create MediaFile + AiUsageLog */
+export async function processPhotoTaskResult(
+  kieData: any,
+  params: { businessId: string; prompt: string; costUsd: number; model: string; userId?: string },
+): Promise<{ mediaFileId: string; resultUrl: string; thumbUrl: string | null }> {
+  let outputUrl: string | undefined
+  if (kieData?.resultJson) {
+    try {
+      const parsed = typeof kieData.resultJson === 'string' ? JSON.parse(kieData.resultJson) : kieData.resultJson
+      outputUrl = parsed?.resultUrls?.[0] || parsed?.resultImageUrl
+    } catch {}
+  }
+  if (!outputUrl) {
+    outputUrl = kieData?.resultImageUrl || kieData?.image_url || kieData?.output?.image_url
+  }
+  if (!outputUrl) throw new Error('KIE.ai не вернул изображение')
+
+  const { filename, thumbFilename, pngBuffer } = await downloadAndSave(outputUrl, params.businessId, 'kie_photo')
+
+  const mediaFile = await db.mediaFile.create({
+    data: {
+      businessId: params.businessId,
+      filename: `AI Photo: ${params.prompt.slice(0, 50).replace(/[\r\n\t]/g, ' ')}`,
+      url: `/uploads/${params.businessId}/${filename}`,
+      thumbUrl: `/uploads/${params.businessId}/${thumbFilename}`,
+      mimeType: 'image/png',
+      sizeBytes: pngBuffer.length,
+      altText: params.prompt,
+      aiModel: params.model,
+      aiCostUsd: params.costUsd,
+    },
+  })
+
+  const markup = await getMarkupPercent()
+  const photoLog = await db.aiUsageLog.create({
+    data: {
+      businessId: params.businessId,
+      userId: params.userId || null,
+      action: 'generate_photo',
+      model: params.model,
+      tokensIn: 0, tokensOut: 0, cachedTokens: 0,
+      costUsd: params.costUsd,
+      markupPercent: markup,
+      chargedRub: await getChargedRub(params.costUsd, markup),
+      status: 'success',
+      prompt: (params.prompt || '').slice(0, 2000),
+      durationMs: null,
+    },
+  })
+  if (params.userId) {
+    const u = await db.user.findUnique({ where: { id: params.userId }, select: { role: true } })
+    if (u) await chargeUser({ userId: params.userId, role: u.role, costUsd: params.costUsd, markupPercent: markup, aiUsageLogId: photoLog.id, description: 'generate_photo' })
+  }
+
+  log.info('[KIE] photo saved', { businessId: params.businessId, mediaId: mediaFile.id })
+  return { mediaFileId: mediaFile.id, resultUrl: mediaFile.url, thumbUrl: mediaFile.thumbUrl }
 }
 
 // Legacy sync wrapper (kept for generateImage compatibility)
