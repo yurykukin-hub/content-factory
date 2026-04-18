@@ -32,7 +32,7 @@ const files = ref<MediaFile[]>([])
 const loading = ref(false)
 const search = ref('')
 const selectedId = ref<string | null>(null)
-const selectedIds = ref<Set<string>>(new Set())
+const selectedIds = ref<string[]>([])
 
 async function loadMedia() {
   loading.value = true
@@ -50,13 +50,12 @@ async function loadMedia() {
 
 function toggleSelect(id: string) {
   if (props.multiSelect) {
-    if (selectedIds.value.has(id)) {
-      selectedIds.value.delete(id)
-    } else if (selectedIds.value.size < props.maxSelect) {
-      selectedIds.value.add(id)
+    const idx = selectedIds.value.indexOf(id)
+    if (idx >= 0) {
+      selectedIds.value.splice(idx, 1)
+    } else if (selectedIds.value.length < props.maxSelect) {
+      selectedIds.value.push(id)
     }
-    // Force reactivity
-    selectedIds.value = new Set(selectedIds.value)
   } else {
     selectedId.value = selectedId.value === id ? null : id
   }
@@ -64,11 +63,11 @@ function toggleSelect(id: string) {
 
 function confirm() {
   if (props.multiSelect) {
-    const selected = files.value.filter(f => selectedIds.value.has(f.id))
+    const selected = files.value.filter(f => selectedIds.value.includes(f.id))
     if (selected.length) {
       emit('selectedMulti', selected)
       emit('close')
-      selectedIds.value = new Set()
+      selectedIds.value = []
       search.value = ''
     }
   } else {
@@ -82,8 +81,8 @@ function confirm() {
   }
 }
 
-const isSelected = (id: string) => props.multiSelect ? selectedIds.value.has(id) : selectedId.value === id
-const selectionCount = computed(() => props.multiSelect ? selectedIds.value.size : (selectedId.value ? 1 : 0))
+const isSelected = (id: string) => props.multiSelect ? selectedIds.value.includes(id) : selectedId.value === id
+const selectionCount = computed(() => props.multiSelect ? selectedIds.value.length : (selectedId.value ? 1 : 0))
 const canConfirm = computed(() => selectionCount.value > 0)
 
 function formatSize(bytes: number) {
@@ -96,7 +95,7 @@ function formatSize(bytes: number) {
 watch(() => props.visible, (v) => {
   if (v) {
     selectedId.value = null
-    selectedIds.value = new Set()
+    selectedIds.value = []
     search.value = ''
     loadMedia()
   }
