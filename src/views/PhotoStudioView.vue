@@ -64,6 +64,12 @@ const selectedCharacterId = ref<string | null>(null)
 const referenceImages = ref<{ url: string; thumbUrl?: string | null; filename: string; altText?: string | null }[]>([])
 const showMediaPicker = ref(false)
 const showAddMenu = ref(false)
+const addBtnRef = ref<HTMLElement | null>(null)
+const addMenuStyle = computed(() => {
+  if (!addBtnRef.value) return {}
+  const rect = addBtnRef.value.getBoundingClientRect()
+  return { top: `${rect.bottom + 4}px`, left: `${rect.left}px` }
+})
 const previewRef = ref<{ url: string; thumbUrl?: string | null; filename: string; altText?: string | null } | null>(null)
 const describingPreview = ref(false)
 const fileInputRef = ref<HTMLInputElement | null>(null)
@@ -666,29 +672,31 @@ onBeforeUnmount(() => {
             <!-- Reference images FIRST (VideoStudio pattern: 56x56 thumbnails, dropdown, preview) -->
             <div class="flex items-center gap-2 shrink-0 overflow-x-auto pb-1">
               <!-- Add button with dropdown -->
-              <div v-if="referenceImages.length < maxRefs" class="relative shrink-0">
-                <button @click="showAddMenu = !showAddMenu" :disabled="generating"
+              <div v-if="referenceImages.length < maxRefs" class="shrink-0">
+                <button ref="addBtnRef" @click="showAddMenu = !showAddMenu" :disabled="generating"
                   class="w-14 h-14 rounded-xl border-2 border-dashed border-gray-300 dark:border-gray-700 flex flex-col items-center justify-center hover:border-fuchsia-400 transition-colors disabled:opacity-50">
                   <Plus :size="16" class="text-gray-400" />
                   <span class="text-[7px] text-gray-400 mt-0.5">Фото</span>
                 </button>
                 <!-- Hidden file input -->
                 <input ref="fileInputRef" type="file" accept="image/*" class="hidden" @change="onFileUpload" />
-                <!-- Dropdown menu -->
-                <div v-if="showAddMenu" class="fixed inset-0 z-10" @click="showAddMenu = false" />
-                <div v-if="showAddMenu"
-                  class="absolute top-full left-0 mt-1 w-48 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl z-20 py-1 overflow-hidden">
-                  <button @click="onUploadClick"
-                    class="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
-                    <Upload :size="14" class="text-gray-400" />
-                    Загрузить
-                  </button>
-                  <button @click="onLibraryClick"
-                    class="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
-                    <FolderOpen :size="14" class="text-gray-400" />
-                    Из медиатеки
-                  </button>
-                </div>
+                <!-- Dropdown via Teleport (parent has overflow-y-auto which clips absolute) -->
+                <Teleport to="body">
+                  <div v-if="showAddMenu" class="fixed inset-0 z-40" @click="showAddMenu = false" />
+                  <div v-if="showAddMenu" :style="addMenuStyle"
+                    class="fixed w-48 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl z-50 py-1 overflow-hidden">
+                    <button @click="onUploadClick"
+                      class="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+                      <Upload :size="14" class="text-gray-400" />
+                      Загрузить
+                    </button>
+                    <button @click="onLibraryClick"
+                      class="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+                      <FolderOpen :size="14" class="text-gray-400" />
+                      Из медиатеки
+                    </button>
+                  </div>
+                </Teleport>
               </div>
 
               <!-- Ref image thumbnails (clickable -> preview popup) -->
