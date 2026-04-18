@@ -662,17 +662,8 @@ onBeforeUnmount(() => {
 
           <!-- Editor tab (stretches to fill) -->
           <div v-else class="px-4 py-2 flex-1 min-h-0 flex flex-col gap-2 overflow-y-auto">
-            <div class="flex-1 flex flex-col min-h-0">
-              <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wide shrink-0">
-                Промпт
-              </label>
-              <textarea v-model="prompt" :disabled="generating"
-                placeholder="Опиши изображение, которое хочешь создать. Чем детальнее описание, тем лучше результат."
-                class="w-full mt-0.5 px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-fuchsia-500/40 resize-y disabled:opacity-50 flex-1 min-h-[60px]"
-              />
-            </div>
 
-            <!-- Reference images (VideoStudio pattern: 56x56 thumbnails, dropdown, preview) -->
+            <!-- Reference images FIRST (VideoStudio pattern: 56x56 thumbnails, dropdown, preview) -->
             <div class="flex items-center gap-2 shrink-0 overflow-x-auto pb-1">
               <!-- Add button with dropdown -->
               <div v-if="referenceImages.length < maxRefs" class="relative shrink-0">
@@ -745,6 +736,17 @@ onBeforeUnmount(() => {
                 </div>
               </div>
             </Teleport>
+
+            <!-- Prompt textarea -->
+            <div class="flex-1 flex flex-col min-h-0">
+              <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wide shrink-0">
+                Промпт
+              </label>
+              <textarea v-model="prompt" :disabled="generating"
+                placeholder="Опиши изображение, которое хочешь создать. Чем детальнее описание, тем лучше результат."
+                class="w-full mt-0.5 px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-fuchsia-500/40 resize-y disabled:opacity-50 flex-1 min-h-[60px]"
+              />
+            </div>
 
             <!-- Enhance menu -->
             <div class="flex items-center gap-2 pb-2 shrink-0">
