@@ -5,7 +5,7 @@
  * Brand color: fuchsia (matching Content Factory).
  */
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
-import { ChevronDown, ChevronUp, Camera, ImagePlus, X } from 'lucide-vue-next'
+import { ChevronDown, ChevronUp, Camera, Plus, Upload, FolderOpen, X, Sparkles, Loader2 } from 'lucide-vue-next'
 import MediaPickerModal from '@/components/MediaPickerModal.vue'
 import { http, TAB_ID } from '@/api/client'
 import { useBusinessesStore } from '@/stores/businesses'
@@ -63,6 +63,10 @@ const photoAspectRatio = ref('1:1')
 const selectedCharacterId = ref<string | null>(null)
 const referenceImages = ref<{ url: string; thumbUrl?: string | null; filename: string; altText?: string | null }[]>([])
 const showMediaPicker = ref(false)
+const showAddMenu = ref(false)
+const previewRef = ref<{ url: string; thumbUrl?: string | null; filename: string; altText?: string | null } | null>(null)
+const describingPreview = ref(false)
+const fileInputRef = ref<HTMLInputElement | null>(null)
 
 // Max reference images per model
 const maxRefs = computed(() => photoModel.value === 'nano-banana-pro' ? 8 : 14)
@@ -497,6 +501,66 @@ function onAddRefsMulti(files: { url: string; thumbUrl: string | null; filename:
   }
 }
 
+function onUploadClick() {
+  showAddMenu.value = false
+  fileInputRef.value?.click()
+}
+
+function onLibraryClick() {
+  showAddMenu.value = false
+  showMediaPicker.value = true
+}
+
+async function onFileUpload(e: Event) {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file || !selectedBizId.value) return
+  input.value = '' // reset
+  if (referenceImages.value.length >= maxRefs.value) return
+
+  const formData = new FormData()
+  formData.append('file', file)
+  formData.append('businessId', selectedBizId.value)
+
+  try {
+    const resp = await fetch('/api/media/upload', {
+      method: 'POST',
+      body: formData,
+      credentials: 'include',
+      headers: { 'X-Tab-ID': TAB_ID },
+    })
+    if (!resp.ok) throw new Error('Upload failed')
+    const res = await resp.json()
+    referenceImages.value.push({
+      url: res.url,
+      thumbUrl: res.thumbUrl,
+      filename: res.filename,
+      altText: null,
+    })
+  } catch (err: any) {
+    toast.error(err.message || 'Ошибка загрузки')
+  }
+}
+
+async function describeRefImage(img: { url: string; thumbUrl?: string | null; filename: string; altText?: string | null }) {
+  describingPreview.value = true
+  try {
+    const res = await http.post<{ description: string }>('/ai/describe-image', {
+      imageUrl: img.url,
+      businessId: selectedBizId.value,
+      type: 'auto',
+    })
+    img.altText = res.description
+    // Update in referenceImages array
+    const found = referenceImages.value.find(r => r.url === img.url)
+    if (found) found.altText = res.description
+  } catch (err: any) {
+    toast.error(err.message || 'Ошибка описания')
+  } finally {
+    describingPreview.value = false
+  }
+}
+
 // Agent context summary
 const contextSummary = computed(() => {
   const parts: string[] = []
@@ -608,46 +672,79 @@ onBeforeUnmount(() => {
               />
             </div>
 
-            <!-- Reference images panel -->
-            <div class="shrink-0">
-              <div class="flex items-center justify-between mb-1">
-                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wide">
-                  Референсы
-                  <span v-if="referenceImages.length" class="text-fuchsia-500">({{ referenceImages.length }}/{{ maxRefs }})</span>
-                </label>
-                <button v-if="referenceImages.length < maxRefs" @click="showMediaPicker = true" :disabled="generating"
-                  class="flex items-center gap-1 text-[11px] text-fuchsia-600 hover:text-fuchsia-700 disabled:opacity-50 font-medium">
-                  <ImagePlus :size="13" />
-                  <span>Из медиатеки</span>
+            <!-- Reference images (VideoStudio pattern: 56x56 thumbnails, dropdown, preview) -->
+            <div class="flex items-center gap-2 shrink-0 overflow-x-auto pb-1">
+              <!-- Add button with dropdown -->
+              <div v-if="referenceImages.length < maxRefs" class="relative shrink-0">
+                <button @click="showAddMenu = !showAddMenu" :disabled="generating"
+                  class="w-14 h-14 rounded-xl border-2 border-dashed border-gray-300 dark:border-gray-700 flex flex-col items-center justify-center hover:border-fuchsia-400 transition-colors disabled:opacity-50">
+                  <Plus :size="16" class="text-gray-400" />
+                  <span class="text-[7px] text-gray-400 mt-0.5">Фото</span>
                 </button>
-              </div>
-
-              <!-- Empty state -->
-              <div v-if="!referenceImages.length"
-                class="flex items-center justify-center border border-dashed border-gray-300 dark:border-gray-700 rounded-lg py-3 cursor-pointer hover:border-fuchsia-400 hover:bg-fuchsia-50/30 dark:hover:bg-fuchsia-900/10 transition-colors"
-                @click="showMediaPicker = true">
-                <span class="text-xs text-gray-400">Добавь фото для img2img генерации</span>
-              </div>
-
-              <!-- Thumbnails grid -->
-              <div v-else class="flex gap-2 flex-wrap">
-                <div v-for="(img, idx) in referenceImages" :key="idx"
-                  class="relative group w-14 h-14 rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700">
-                  <img :src="img.thumbUrl || img.url" :alt="img.filename"
-                    class="w-full h-full object-cover" />
-                  <button @click="referenceImages.splice(idx, 1)" :disabled="generating"
-                    class="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center disabled:cursor-not-allowed">
-                    <X :size="16" class="text-white" />
+                <!-- Hidden file input -->
+                <input ref="fileInputRef" type="file" accept="image/*" class="hidden" @change="onFileUpload" />
+                <!-- Dropdown menu -->
+                <div v-if="showAddMenu" class="fixed inset-0 z-10" @click="showAddMenu = false" />
+                <div v-if="showAddMenu"
+                  class="absolute top-full left-0 mt-1 w-48 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl z-20 py-1 overflow-hidden">
+                  <button @click="onUploadClick"
+                    class="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+                    <Upload :size="14" class="text-gray-400" />
+                    Загрузить
+                  </button>
+                  <button @click="onLibraryClick"
+                    class="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+                    <FolderOpen :size="14" class="text-gray-400" />
+                    Из медиатеки
                   </button>
                 </div>
+              </div>
 
-                <!-- Add more button -->
-                <button v-if="referenceImages.length < maxRefs" @click="showMediaPicker = true" :disabled="generating"
-                  class="w-14 h-14 rounded-lg border-2 border-dashed border-gray-300 dark:border-gray-600 flex items-center justify-center hover:border-fuchsia-400 transition-colors disabled:opacity-50">
-                  <ImagePlus :size="18" class="text-gray-400" />
+              <!-- Ref image thumbnails (clickable -> preview popup) -->
+              <div v-for="(r, idx) in referenceImages" :key="idx" class="relative group shrink-0">
+                <button @click="previewRef = r"
+                  class="w-14 h-14 rounded-xl overflow-hidden border-2 border-fuchsia-200 dark:border-fuchsia-800 cursor-pointer">
+                  <img :src="r.thumbUrl || r.url" class="w-full h-full object-cover" />
+                  <span class="absolute bottom-0.5 left-0.5 px-1 py-0.5 bg-black/70 text-white text-[7px] rounded font-mono">
+                    @{{ idx + 1 }}
+                  </span>
+                </button>
+                <button @click="referenceImages.splice(idx, 1)"
+                  class="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                  <X :size="8" class="text-white" />
                 </button>
               </div>
             </div>
+
+            <!-- Reference preview popup -->
+            <Teleport to="body">
+              <div v-if="previewRef" class="fixed inset-0 z-50 flex items-center justify-center bg-black/60" @click.self="previewRef = null">
+                <div class="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl max-w-sm w-full mx-4 overflow-hidden">
+                  <img :src="previewRef.url" :alt="previewRef.altText || previewRef.filename"
+                    class="w-full max-h-[360px] object-contain bg-black" />
+                  <div class="p-4">
+                    <div class="text-sm font-medium mb-1 truncate">{{ previewRef.filename }}</div>
+                    <p v-if="previewRef.altText" class="text-xs text-gray-500 dark:text-gray-400 leading-relaxed mb-1">
+                      {{ previewRef.altText }}
+                    </p>
+                    <p v-else class="text-xs text-gray-400 italic mb-1">Нет описания</p>
+                    <button @click="describeRefImage(previewRef!)"
+                      :disabled="describingPreview"
+                      class="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium bg-purple-100 dark:bg-purple-900/50 text-purple-600 dark:text-purple-400 hover:bg-purple-200 dark:hover:bg-purple-800 disabled:opacity-50 transition-colors">
+                      <Loader2 v-if="describingPreview" :size="10" class="animate-spin" />
+                      <Sparkles v-else :size="10" />
+                      {{ previewRef.altText ? 'Перегенерировать описание' : 'AI-описание' }}
+                    </button>
+                  </div>
+                  <div class="px-4 pb-4">
+                    <button @click="previewRef = null; describingPreview = false"
+                      class="w-full py-2 rounded-lg bg-gray-100 dark:bg-gray-800 text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">
+                      Закрыть
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </Teleport>
 
             <!-- Enhance menu -->
             <div class="flex items-center gap-2 pb-2 shrink-0">
