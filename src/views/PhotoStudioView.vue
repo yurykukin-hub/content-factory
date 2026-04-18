@@ -350,10 +350,10 @@ async function confirmGenerate() {
       businessId: selectedBizId.value,
       sessionId: currentSessionId.value,
       prompt: prompt.value,
-      photoModel: photoModel.value,
-      photoResolution: photoResolution.value,
+      model: photoModel.value,
+      resolution: photoResolution.value,
       batchSize: batchSize.value,
-      photoAspectRatio: photoAspectRatio.value,
+      aspectRatio: photoAspectRatio.value,
       characterId: selectedCharacterId.value || undefined,
       referenceImageUrls: referenceImages.value.length ? referenceImages.value.map(r => r.url) : undefined,
     })
@@ -458,12 +458,17 @@ function connectSSE() {
           if (event.status === 'completed') {
             generating.value = false
             generatingStartedAt.value = null
+            autoSavePaused = false
             toast.success('Фото готово!')
             // Reload full session to get results
-            http.get<any>(`/sessions/${currentSessionId.value}`).then(loadSessionIntoState)
+            http.get<any>(`/sessions/${currentSessionId.value}`).then((s: any) => {
+              loadSessionIntoState(s)
+              loadImageResults()
+            })
           } else if (event.status === 'failed') {
             generating.value = false
             generatingStartedAt.value = null
+            autoSavePaused = false
             toast.error('Генерация не удалась')
           }
         }
