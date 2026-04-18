@@ -37,6 +37,7 @@ const generateSchema = z.object({
   aspectRatio: z.string().default('1:1'),
   batchSize: z.number().int().min(1).max(4).default(1),
   characterId: z.string().optional(),
+  referenceImageUrls: z.array(z.string()).max(14).optional(),
 })
 
 photos.post('/generate', async (c) => {
@@ -81,6 +82,7 @@ photos.post('/generate', async (c) => {
         resolution: data.resolution,
         aspectRatio: data.aspectRatio,
         characterId: data.characterId,
+        referenceImageUrls: data.referenceImageUrls,
         userId: user.userId,
       })
     )

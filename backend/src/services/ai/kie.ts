@@ -752,9 +752,10 @@ export async function createPhotoTask(params: {
   resolution?: string      // '1K' | '2K' | '4K'
   aspectRatio?: string     // '1:1' | '2:3' | '3:2' | '3:4' | '4:3' | '4:5' | '5:4' | '9:16' | '16:9' | '21:9'
   characterId?: string | null
+  referenceImageUrls?: string[]  // Direct reference images (up to 14 for NB2, 8 for Pro)
   userId?: string
 }): Promise<CreatePhotoTaskResult> {
-  const { prompt: rawPrompt, businessId, model = 'nano-banana-2', resolution = '2K', aspectRatio = '1:1', characterId } = params
+  const { prompt: rawPrompt, businessId, model = 'nano-banana-2', resolution = '2K', aspectRatio = '1:1', characterId, referenceImageUrls } = params
 
   const pricing = PHOTO_PRICING[model] || PHOTO_PRICING['nano-banana-2']
   const costUsd = pricing[resolution] || pricing['2K']
@@ -793,15 +794,24 @@ export async function createPhotoTask(params: {
     output_format: 'png',
   }
 
-  if (referenceImageUrl) {
-    input.image_input = [referenceImageUrl]
+  // Collect all reference images: character + direct refs
+  const allRefs: string[] = []
+  if (referenceImageUrl) allRefs.push(referenceImageUrl)
+  if (referenceImageUrls?.length) {
+    const maxRefs = model === 'nano-banana-pro' ? 8 : 14
+    for (const url of referenceImageUrls.slice(0, maxRefs)) {
+      allRefs.push(resolvePublicUrl(url))
+    }
+  }
+  if (allRefs.length > 0) {
+    input.image_input = allRefs
   }
 
   const response = await kiePost('/api/v1/jobs/createTask', { model, input })
   const kieTaskId = response?.data?.taskId || response?.taskId
   if (!kieTaskId) throw new Error('KIE.ai не вернул taskId для фото')
 
-  log.info('[KIE] photo task created', { kieTaskId, costUsd })
+  log.info('[KIE] photo task created', { kieTaskId, costUsd, refCount: allRefs.length })
   return { kieTaskId, translatedPrompt: prompt, costUsd, model }
 }
 

@@ -5,7 +5,8 @@
  * Brand color: fuchsia (matching Content Factory).
  */
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
-import { ChevronDown, ChevronUp, Camera } from 'lucide-vue-next'
+import { ChevronDown, ChevronUp, Camera, ImagePlus, X } from 'lucide-vue-next'
+import MediaPickerModal from '@/components/MediaPickerModal.vue'
 import { http, TAB_ID } from '@/api/client'
 import { useBusinessesStore } from '@/stores/businesses'
 import { useAuthStore } from '@/stores/auth'
@@ -60,6 +61,11 @@ const photoResolution = ref<'1K' | '2K' | '4K'>('1K')
 const batchSize = ref<1 | 2 | 4>(1)
 const photoAspectRatio = ref('1:1')
 const selectedCharacterId = ref<string | null>(null)
+const referenceImages = ref<{ url: string; thumbUrl?: string | null; filename: string; altText?: string | null }[]>([])
+const showMediaPicker = ref(false)
+
+// Max reference images per model
+const maxRefs = computed(() => photoModel.value === 'nano-banana-pro' ? 8 : 14)
 
 // --- Generation state ---
 const generating = ref(false)
@@ -119,6 +125,7 @@ function buildSavePayload() {
     batchSize: batchSize.value,
     photoAspectRatio: photoAspectRatio.value,
     characterId: selectedCharacterId.value,
+    referenceImages: referenceImages.value.length ? referenceImages.value : null,
     chatHistory: chatMessages.value.length ? chatMessages.value : null,
   }
 }
@@ -161,7 +168,7 @@ function flushBeforeUnload() {
   }
 }
 
-watch([prompt, photoModel, photoResolution, batchSize, photoAspectRatio, chatMessages], scheduleAutoSave, { deep: true })
+watch([prompt, photoModel, photoResolution, batchSize, photoAspectRatio, referenceImages, chatMessages], scheduleAutoSave, { deep: true })
 
 // --- Session CRUD ---
 async function loadSessions() {
@@ -217,6 +224,7 @@ function loadSessionIntoState(session: any) {
   batchSize.value = session.batchSize || 1
   photoAspectRatio.value = session.photoAspectRatio || '1:1'
   selectedCharacterId.value = session.characterId || null
+  referenceImages.value = (session.referenceImages as any[]) || []
   chatMessages.value = session.chatHistory || []
   generating.value = session.status === 'generating'
   generatingStartedAt.value = session.kieTaskCreatedAt || null
@@ -232,6 +240,7 @@ function resetState() {
   batchSize.value = 1
   photoAspectRatio.value = '1:1'
   selectedCharacterId.value = null
+  referenceImages.value = []
   chatMessages.value = []
   generating.value = false
   generatingStartedAt.value = null
@@ -336,6 +345,7 @@ async function confirmGenerate() {
       batchSize: batchSize.value,
       photoAspectRatio: photoAspectRatio.value,
       characterId: selectedCharacterId.value || undefined,
+      referenceImageUrls: referenceImages.value.length ? referenceImages.value.map(r => r.url) : undefined,
     })
     toast.info('Генерация запущена...')
     await loadSessions()
@@ -455,6 +465,21 @@ function connectSSE() {
   }
 }
 
+// --- Reference images ---
+function onAddRefFromLibrary(file: { url: string; thumbUrl: string | null; filename: string; altText?: string | null }) {
+  if (referenceImages.value.length >= maxRefs.value) {
+    toast.error(`Максимум ${maxRefs.value} референсов для ${photoModel.value === 'nano-banana-pro' ? 'Pro' : 'NB2'}`)
+    return
+  }
+  referenceImages.value.push({
+    url: file.url,
+    thumbUrl: file.thumbUrl,
+    filename: file.filename,
+    altText: file.altText || null,
+  })
+  showMediaPicker.value = false
+}
+
 // Agent context summary
 const contextSummary = computed(() => {
   const parts: string[] = []
@@ -566,6 +591,47 @@ onBeforeUnmount(() => {
               />
             </div>
 
+            <!-- Reference images panel -->
+            <div class="shrink-0">
+              <div class="flex items-center justify-between mb-1">
+                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wide">
+                  Референсы
+                  <span v-if="referenceImages.length" class="text-fuchsia-500">({{ referenceImages.length }}/{{ maxRefs }})</span>
+                </label>
+                <button v-if="referenceImages.length < maxRefs" @click="showMediaPicker = true" :disabled="generating"
+                  class="flex items-center gap-1 text-[11px] text-fuchsia-600 hover:text-fuchsia-700 disabled:opacity-50 font-medium">
+                  <ImagePlus :size="13" />
+                  <span>Из медиатеки</span>
+                </button>
+              </div>
+
+              <!-- Empty state -->
+              <div v-if="!referenceImages.length"
+                class="flex items-center justify-center border border-dashed border-gray-300 dark:border-gray-700 rounded-lg py-3 cursor-pointer hover:border-fuchsia-400 hover:bg-fuchsia-50/30 dark:hover:bg-fuchsia-900/10 transition-colors"
+                @click="showMediaPicker = true">
+                <span class="text-xs text-gray-400">Добавь фото для img2img генерации</span>
+              </div>
+
+              <!-- Thumbnails grid -->
+              <div v-else class="flex gap-2 flex-wrap">
+                <div v-for="(img, idx) in referenceImages" :key="idx"
+                  class="relative group w-14 h-14 rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700">
+                  <img :src="img.thumbUrl || img.url" :alt="img.filename"
+                    class="w-full h-full object-cover" />
+                  <button @click="referenceImages.splice(idx, 1)" :disabled="generating"
+                    class="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center disabled:cursor-not-allowed">
+                    <X :size="16" class="text-white" />
+                  </button>
+                </div>
+
+                <!-- Add more button -->
+                <button v-if="referenceImages.length < maxRefs" @click="showMediaPicker = true" :disabled="generating"
+                  class="w-14 h-14 rounded-lg border-2 border-dashed border-gray-300 dark:border-gray-600 flex items-center justify-center hover:border-fuchsia-400 transition-colors disabled:opacity-50">
+                  <ImagePlus :size="18" class="text-gray-400" />
+                </button>
+              </div>
+            </div>
+
             <!-- Enhance menu -->
             <div class="flex items-center gap-2 pb-2 shrink-0">
               <PsEnhanceMenu
@@ -635,6 +701,14 @@ onBeforeUnmount(() => {
       :cost-usd="costUsd"
       @confirm="confirmGenerate"
       @cancel="showPreGenModal = false"
+    />
+
+    <!-- Media picker for reference images -->
+    <MediaPickerModal
+      :visible="showMediaPicker"
+      :business-id="selectedBizId || ''"
+      @close="showMediaPicker = false"
+      @selected="onAddRefFromLibrary"
     />
   </div>
 </template>
