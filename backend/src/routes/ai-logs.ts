@@ -2,21 +2,20 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import { db } from '../db'
 import type { AuthUser } from '../middleware/auth'
-import { ACTION_CATEGORIES, getActionCategory, getActionLabel, CATEGORY_LABELS, type ActionCategory } from '../shared/ai-actions'
+import { ACTION_CATEGORIES, getActionCategory, getActionLabel, CATEGORY_LABELS, getApiService, type ActionCategory, type ApiService } from '../shared/ai-actions'
 import { fetchOpenRouterBalance } from '../services/ai/openrouter'
+import { getUsdRubRate, KIE_CREDIT_PRICE } from '../services/billing'
 import { Prisma } from '@prisma/client'
 
 const aiLogs = new Hono()
-
-const USD_RUB = 95
-const KIE_CREDIT_PRICE = 0.005
 
 // --- Shared filter builder ---
 
 const filtersSchema = z.object({
   businessId: z.string().optional(),
   userId: z.string().optional(),
-  category: z.enum(['text', 'image', 'video', 'vision']).optional(),
+  category: z.enum(['text', 'image', 'video', 'music', 'vision', 'voice']).optional(),
+  apiService: z.enum(['OpenRouter', 'OpenAI', 'KIE.ai']).optional(),
   action: z.string().optional(),
   model: z.string().optional(),
   status: z.enum(['success', 'error']).optional(),
@@ -42,15 +41,33 @@ function buildWhere(filters: z.infer<typeof filtersSchema>, user: AuthUser) {
   if (filters.category) {
     const actions = ACTION_CATEGORIES[filters.category as ActionCategory]
     if (actions) {
-      // Include enhance_video_prompt_* variants for text category
+      // Include dynamic prefix variants for text category
       if (filters.category === 'text') {
         where.OR = [
           { action: { in: [...actions] } },
           { action: { startsWith: 'enhance_video_prompt_' } },
+          { action: { startsWith: 'enhance_music_prompt_' } },
+          { action: { startsWith: 'agent_chat_' } },
         ]
       } else {
         where.action = { in: [...actions] }
       }
+    }
+  }
+
+  // API service filter
+  if (filters.apiService) {
+    const kieActions = ['edit_image', 'remove_background', 'generate_video', 'generate_music']
+    if (filters.apiService === 'OpenAI') {
+      where.action = 'transcribe_voice'
+    } else if (filters.apiService === 'KIE.ai') {
+      where.OR = [
+        { action: { in: kieActions } },
+        { action: 'generate_image', model: { not: { startsWith: 'google/' } } },
+      ]
+    } else {
+      // OpenRouter: exclude KIE and OpenAI actions
+      where.action = { notIn: [...kieActions, 'transcribe_voice'] }
     }
   }
 
@@ -95,8 +112,14 @@ aiLogs.get('/', async (c) => {
     db.aiUsageLog.count({ where }),
   ])
 
+  // Add computed apiService field
+  const enrichedLogs = logs.map(log => ({
+    ...log,
+    apiService: getApiService(log.action, log.model),
+  }))
+
   return c.json({
-    logs,
+    logs: enrichedLogs,
     total,
     page,
     limit,
@@ -110,6 +133,7 @@ aiLogs.get('/stats', async (c) => {
   const user = c.get('user') as AuthUser
   const filters = filtersSchema.parse(c.req.query())
   const where = buildWhere(filters, user)
+  const usdRub = await getUsdRubRate()
 
   const [totals, errorCount, byAction, byModel] = await Promise.all([
     db.aiUsageLog.aggregate({
@@ -225,7 +249,7 @@ aiLogs.get('/stats', async (c) => {
   if (user.role === 'ADMIN') {
     const orBalance = await fetchOpenRouterBalance()
     const kieSpent = await db.aiUsageLog.aggregate({
-      where: { action: { in: ['generate_image', 'edit_image', 'remove_background', 'generate_video'] } },
+      where: { action: { in: ['generate_image', 'edit_image', 'remove_background', 'generate_video', 'generate_music'] } },
       _sum: { costUsd: true },
     })
     const kieInitialConfig = await db.appConfig.findUnique({ where: { key: 'kie_initial_credits' } })
@@ -243,7 +267,7 @@ aiLogs.get('/stats', async (c) => {
     totals: {
       count: totals._count,
       costUsd: totals._sum.costUsd || 0,
-      costRub: Math.round((totals._sum.costUsd || 0) * USD_RUB * 100) / 100,
+      costRub: Math.round((totals._sum.costUsd || 0) * usdRub * 100) / 100,
       tokensIn: totals._sum.tokensIn || 0,
       tokensOut: totals._sum.tokensOut || 0,
       cachedTokens: totals._sum.cachedTokens || 0,

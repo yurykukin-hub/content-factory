@@ -142,7 +142,10 @@ const modelLabel = computed(() => MODELS.find(m => m.id === props.sunoModel)?.la
         <div class="flex-1" />
 
         <!-- Cost -->
-        <span class="text-sm font-bold text-fuchsia-600 dark:text-fuchsia-400 shrink-0">{{ costRub }} &#8381;</span>
+        <div class="text-right shrink-0">
+          <span class="text-sm font-bold text-fuchsia-600 dark:text-fuchsia-400">{{ costRub }} &#8381;</span>
+          <p class="text-[9px] text-gray-400 leading-tight">2 трека</p>
+        </div>
 
         <!-- Generate button -->
         <button @click="emit('generate')" :disabled="generating || !canGenerate"

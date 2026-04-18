@@ -11,6 +11,9 @@ import { db } from '../db'
 const DEFAULT_USD_RUB = 95
 const DEFAULT_MARKUP_PERCENT = 50
 
+/** KIE.ai: 1 credit = $0.005 (fixed by KIE.ai platform) */
+export const KIE_CREDIT_PRICE = 0.005
+
 /** Получить курс USD/RUB из AppConfig (default 95) */
 export async function getUsdRubRate(): Promise<number> {
   try {
@@ -42,9 +45,15 @@ export function calculateChargedKopecks(costUsd: number, markupPercent: number, 
   return Math.ceil(withMarkup * 100) // ceil — округляем в пользу владельца
 }
 
-/** Рассчитать стоимость с наценкой в рублях (float) */
+/** Рассчитать стоимость с наценкой в рублях (float) — sync, с дефолтным курсом */
 export function calculateChargedRub(costUsd: number, markupPercent: number, usdRubRate = DEFAULT_USD_RUB): number {
   return calculateChargedKopecks(costUsd, markupPercent, usdRubRate) / 100
+}
+
+/** Рассчитать стоимость с наценкой в рублях — async, читает курс из AppConfig */
+export async function getChargedRub(costUsd: number, markupPercent: number): Promise<number> {
+  const rate = await getUsdRubRate()
+  return calculateChargedKopecks(costUsd, markupPercent, rate) / 100
 }
 
 /** Проверить, хватает ли баланса (ADMIN всегда true) */
@@ -69,7 +78,8 @@ export async function chargeUser(params: {
   aiUsageLogId: string
   description: string
 }): Promise<{ chargedRub: number; chargedKopecks: number }> {
-  const chargedKopecks = calculateChargedKopecks(params.costUsd, params.markupPercent)
+  const rate = await getUsdRubRate()
+  const chargedKopecks = calculateChargedKopecks(params.costUsd, params.markupPercent, rate)
   const chargedRub = chargedKopecks / 100
 
   // ADMIN не списываем — у него безлимит

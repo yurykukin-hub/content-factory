@@ -13,7 +13,7 @@ AI-контент-фабрика для автоматизации SMM. Гене
 - **Backend:** Bun + Hono + TypeScript
 - **Frontend:** Vue 3 + Tailwind CSS + Lucide Icons + Pinia
 - **ORM/DB:** Prisma + PostgreSQL 16
-- **AI:** OpenRouter (Haiku для адаптации, Sonnet для генерации, Gemini Flash для vision) + KIE.ai (Nano Banana 2 для text2img/img2img, FLUX Kontext Pro для img2img, recraft для удаления фона, Seedance 2 для видео, **Suno V4/V4_5/V5_5 для музыки — API v2, 17.04.2026**)
+- **AI:** OpenRouter (Haiku для адаптации, Sonnet для генерации, Gemini Flash для vision) + KIE.ai (Nano Banana 2 для text2img/img2img, FLUX Kontext Pro для img2img, recraft для удаления фона, Seedance 2 для видео, **Suno V4/V4_5/V5_5 для музыки — API v2**) + **OpenAI Whisper** (голосовой ввод)
 - **Audio:** wavesurfer.js v7 (waveform visualization)
 - **Testing:** Vitest (96 тестов — 7 файлов)
 - **Deploy:** Docker Compose + Caddy (SSL auto)
@@ -49,7 +49,7 @@ content-factory/
 │   │   │   ├── platforms.ts    # platformsByBiz + platformsById
 │   │   │   ├── posts.ts        # CRUD + approve + versions (access checks)
 │   │   │   ├── content-plans.ts # CRUD + create-post/ai-generate + batch
-│   │   │   ├── ai.ts           # generate-post/image/video/scenario, adapt, enhance-prompt, describe-image, suggest-templates, agent-chat
+│   │   │   ├── ai.ts           # generate-post/image/video/scenario, adapt, enhance-prompt, describe-image, suggest-templates, agent-chat, transcribe (Whisper)
 │   │   │   ├── publish.ts      # publish + schedule (access checks)
 │   │   │   ├── media.ts        # upload/delete/attach + library + tags
 │   │   │   ├── settings.ts     # AppConfig CRUD (ADMIN-only, .env fallback)
@@ -71,7 +71,8 @@ content-factory/
 │   │   │   │   ├── prompt-builder.ts  # Промпт-конструктор + video/music agent prompts + 8 music enhance modes
 │   │   │   │   ├── suno.ts           # KIE.ai Suno client: createMusicTask, processMusicResult, generatePersona
 │   │   │   │   ├── image-generation.ts # AI image gen (Gemini 2.5 Flash Image)
-│   │   │   │   └── fal.ts            # FAL.ai SDK (image editing, remove bg)
+│   │   │   │   ├── fal.ts            # FAL.ai SDK (image editing, remove bg)
+│   │   │   │   └── whisper.ts        # OpenAI Whisper STT (voice transcription, AppConfig + .env key)
 │   │   │   └── publishers/
 │   │   │       ├── base.ts     # Publisher interface
 │   │   │       ├── vk.ts       # VK wall.post + photo/video + Stories
@@ -86,7 +87,7 @@ content-factory/
 │   ├── api/client.ts           # HTTP client (auto-refresh on 401)
 │   ├── router/index.ts         # 15 routes + auth guard + section access guard
 │   ├── stores/                 # auth (+ sectionAccess), businesses, theme, sidebar
-│   ├── composables/            # useToast, useFormatters, useStatus, usePlatform, useSectionAccess, useRates
+│   ├── composables/            # useToast, useFormatters, useStatus, usePlatform, useSectionAccess, useRates, useVoiceInput
 │   ├── views/
 │   │   ├── BusinessesView      # Grid карточек проектов (клик → detail)
 │   │   ├── BusinessDetailView  # Хаб проекта: 3 таба (профиль/каналы/обзор+доступы)
@@ -200,8 +201,9 @@ cp backend/.env.example backend/.env
 10. **AI Agent чат** (Haiku Simple / Sonnet Advanced) → multi-turn диалог для крафта видео-промптов. Знает контекст (refs, duration, resolution, audio). Quick reply suggestions. Промпт переносится в Editor одной кнопкой
 11. **Музыка-генерация** (KIE.ai Suno V4/V4_5/V5_5) → **async** (background poller), Custom mode (Simple скрыт), lyrics+style, до 8 мин, voice clone (V5.5 Generate Persona), **2 трека на генерацию** (results JSON append)
 12. **Music AI Agent** (Haiku/Sonnet) → multi-turn диалог для крафта музыкальных промптов, текстов, стилей. 8 enhance modes (lyrics, improve, rhyme, structure, style, translate, enhance, simplify)
+13. **Голосовой ввод** (OpenAI Whisper) → микрофон в Agent Chat (Video + Sound Studio), toggle recording → transcribe → текст в textarea. useVoiceInput composable. ~$0.006/мин
 
-API keys: OpenRouter — из БД (AppConfig) или .env. FAL — из .env (FAL_API_KEY). KIE — из .env (KIE_API_KEY)
+API keys: OpenRouter — из БД (AppConfig) или .env. FAL — из .env (FAL_API_KEY). KIE — из .env (KIE_API_KEY). **OpenAI** — AppConfig `openai_api_key` или .env `OPENAI_API_KEY` (Whisper STT)
 
 ## Auth
 - Access token: 1 час (httpOnly cookie `token`)
@@ -231,9 +233,9 @@ API keys: OpenRouter — из БД (AppConfig) или .env. FAL — из .env (F
 - **Timer** — считает от `kieTaskCreatedAt` (реальное время начала), не сбрасывается при переключении сессий
 - **VsRichPrompt** — contenteditable + draggable @ImageN badge chips (desktop drag + mobile touch drag), resize-y
 - **VsEnhanceMenu** — split-button dropdown: 8 режимов enhance. Промпты на языке ввода (русский/английский), auto-translate при генерации
-- **Auto-save** — debounced 2sec PUT, only for draft sessions
+- **Auto-save** — debounced 2sec PUT for draft sessions, chatHistory-only for failed. beforeunload (fetch+keepalive) + onBeforeUnmount flush. No auto-create empty sessions
 - **Missing refs hint** — кнопка "Вставить референсы" когда бейджи потеряны из промпта
-- **KeepAlive** — VideoStudioView preserved on navigation (App.vue)
+- **KeepAlive** — VideoStudioView + SoundStudioView preserved on navigation (App.vue)
 - **AI Agent mode** — два таба (Agent / Editor) в VsPromptTabs. Agent: multi-turn чат (aiChat endpoint, Haiku/Sonnet), контекст-aware system prompt (buildAgentSystemPrompt — refs, duration, resolution, audio, Seedance 2.0 expert). Quick reply suggestions. Кнопка "Использовать промпт" переносит в Editor. Chat history persisted в GenerationSession.chatHistory (JSON)
 - **Pre-gen modal** — VsPreGenModal показывается перед каждой генерацией, отображает formatted prompt sections для подтверждения
 - **Security** — escapeHtml в markdown-рендеринге (XSS-safe), Zod validation на agent-chat, assertBusinessAccess checks

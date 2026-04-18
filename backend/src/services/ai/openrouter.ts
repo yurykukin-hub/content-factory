@@ -1,6 +1,6 @@
 import { config } from '../../config'
 import { db } from '../../db'
-import { getMarkupPercent, calculateChargedRub, chargeUser } from '../billing'
+import { getMarkupPercent, getChargedRub, chargeUser } from '../billing'
 
 /**
  * Получить OpenRouter API key: сначала из БД (AppConfig), потом fallback на .env
@@ -93,7 +93,7 @@ async function logAndCharge(params: {
   start: number
 }): Promise<void> {
   const markup = await getMarkupPercent()
-  const chargedRub = calculateChargedRub(params.result.costUsd, markup)
+  const chargedRub = await getChargedRub(params.result.costUsd, markup)
 
   const log = await db.aiUsageLog.create({
     data: {

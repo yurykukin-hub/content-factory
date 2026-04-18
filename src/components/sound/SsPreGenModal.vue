@@ -121,7 +121,10 @@ const genderLabel = computed(() => {
 
         <!-- Footer -->
         <div class="px-5 py-4 border-t border-gray-100 dark:border-gray-800 flex items-center justify-between">
-          <span class="text-lg font-bold text-fuchsia-600">{{ costRub }} &#8381;</span>
+          <div>
+            <span class="text-lg font-bold text-fuchsia-600">{{ costRub }} &#8381;</span>
+            <p class="text-[10px] text-gray-400 mt-0.5">2 трека по {{ Math.round(costRub / 2) }} ₽</p>
+          </div>
           <div class="flex gap-2">
             <button @click="emit('cancel')"
               class="px-4 py-2 rounded-xl text-sm font-medium text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">

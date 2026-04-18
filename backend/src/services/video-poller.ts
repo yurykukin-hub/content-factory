@@ -72,7 +72,21 @@ async function pollPendingTasks() {
               if (!kieAudioId) kieAudioId = data?.audioId || data?.audio_id || data?.id
             }
 
-            // Build new results from this generation
+            // Build new results — split cost evenly between all tracks
+            const totalTracks = 1 + result.extraTracks.length
+            const perTrackCost = (session.costUsd || MUSIC_COST_DEFAULT) / totalTracks
+            const now = new Date().toISOString()
+
+            // Snapshot generation params (frozen at generation time)
+            const genSnapshot = {
+              musicStyle: session.musicStyle || '',
+              lyrics: session.lyrics || '',
+              prompt: session.prompt || '',
+              sunoModel: session.sunoModel || '',
+              instrumental: session.instrumental ?? false,
+              vocalGender: session.vocalGender || null,
+            }
+
             const newResults = [
               {
                 resultUrl: result.audioUrl,
@@ -81,8 +95,9 @@ async function pollPendingTasks() {
                 kieAudioId: kieAudioId || null,
                 title: result.title || session.musicTitle,
                 duration: result.duration,
-                costUsd: session.costUsd || MUSIC_COST_DEFAULT,
-                createdAt: new Date().toISOString(),
+                costUsd: perTrackCost,
+                createdAt: now,
+                ...genSnapshot,
               },
               ...result.extraTracks.map(t => ({
                 resultUrl: t.audioUrl,
@@ -91,8 +106,9 @@ async function pollPendingTasks() {
                 kieAudioId: t.kieAudioId || null,
                 title: t.title || session.musicTitle,
                 duration: t.duration,
-                costUsd: 0,
-                createdAt: new Date().toISOString(),
+                costUsd: perTrackCost,
+                createdAt: now,
+                ...genSnapshot,
               })),
             ]
 
@@ -136,7 +152,7 @@ async function pollPendingTasks() {
           log.info(`${logPrefix} completed`, { sessionId: session.id })
 
         } else if (state === 'fail' || state === 'failed') {
-          const errMsg = data?.failMsg || data?.errorMessage || 'KIE.ai: генерация не удалась'
+          const errMsg = data?._extractedError || data?.failMsg || data?.errorMessage || data?.error || data?.message || 'KIE.ai: генерация не удалась'
           await db.generationSession.update({
             where: { id: session.id },
             data: { status: 'failed', errorMessage: errMsg, kieTaskId: null },

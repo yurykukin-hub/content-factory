@@ -105,8 +105,13 @@ app.route('/api/users', users)
 // --- Public settings (before section guards, available to all authenticated users) ---
 app.get('/api/settings/public', async (c) => {
   const { getUsdRubRate, getMarkupPercent } = await import('./services/billing')
-  const [usdRubRate, markupPercent] = await Promise.all([getUsdRubRate(), getMarkupPercent()])
-  return c.json({ usdRubRate, markupPercent })
+  const { isWhisperAvailable } = await import('./services/ai/whisper')
+  const [usdRubRate, markupPercent, voiceInputEnabled] = await Promise.all([
+    getUsdRubRate(),
+    getMarkupPercent(),
+    isWhisperAvailable(),
+  ])
+  return c.json({ usdRubRate, markupPercent, voiceInputEnabled })
 })
 
 // --- Section-level access guards ---

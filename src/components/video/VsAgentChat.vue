@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { ref, nextTick, watch, computed } from 'vue'
-import { SendHorizontal, ChevronDown, Loader2, Bot, Sparkles } from 'lucide-vue-next'
+import { SendHorizontal, ChevronDown, Loader2, Bot, Sparkles, Mic, Square } from 'lucide-vue-next'
 import VsAgentMessage from './VsAgentMessage.vue'
 import type { AgentMessage } from './VsAgentMessage.vue'
+import { useVoiceInput } from '../../composables/useVoiceInput'
+import { useRates } from '../../composables/useRates'
+import { useToast } from '../../composables/useToast'
 
 const props = defineProps<{
   messages: AgentMessage[]
@@ -22,6 +25,35 @@ const emit = defineEmits<{
 const inputText = ref('')
 const messagesContainer = ref<HTMLDivElement | null>(null)
 const showModeMenu = ref(false)
+const textareaRef = ref<HTMLTextAreaElement | null>(null)
+
+const { recording, transcribing, elapsedSeconds, isSupported, toggleRecording, error: voiceError } = useVoiceInput()
+const { voiceInputEnabled } = useRates()
+const toast = useToast()
+
+const showMic = computed(() => voiceInputEnabled.value && isSupported.value)
+
+async function onMicClick() {
+  try {
+    const text = await toggleRecording()
+    if (typeof text === 'string' && text) {
+      inputText.value = inputText.value ? inputText.value + ' ' + text : text
+      // Auto-grow textarea
+      nextTick(() => {
+        if (textareaRef.value) {
+          textareaRef.value.style.height = 'auto'
+          textareaRef.value.style.height = Math.min(textareaRef.value.scrollHeight, 120) + 'px'
+        }
+      })
+    }
+    // Show toast for short recording
+    if (voiceError.value) {
+      toast.info(voiceError.value)
+    }
+  } catch (err: any) {
+    toast.error(err.message || 'Ошибка голосового ввода')
+  }
+}
 
 const modeLabel = computed(() => props.mode === 'simple' ? 'Простой' : 'Продвинутый')
 
@@ -151,16 +183,35 @@ watch(() => props.loading, () => {
     <div class="px-4 pb-3">
       <div class="flex gap-2 items-end">
         <textarea
+          ref="textareaRef"
           v-model="inputText"
           @keydown="onKeydown"
           :placeholder="mode === 'simple' ? 'Опиши видео в двух словах...' : 'Подробно опиши, что хочешь увидеть...'"
-          :disabled="disabled || loading"
+          :disabled="disabled || loading || recording"
           rows="1"
-          class="flex-1 resize-none px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm text-gray-800 dark:text-gray-200 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/40 focus:border-emerald-400 disabled:opacity-50 transition-colors"
+          :class="['flex-1 resize-none px-3 py-2 rounded-xl border bg-white dark:bg-gray-900 text-sm text-gray-800 dark:text-gray-200 placeholder-gray-400 focus:outline-none focus:ring-2 disabled:opacity-50 transition-colors',
+            recording ? 'border-red-300 dark:border-red-700 focus:ring-red-500/40 focus:border-red-400' : 'border-gray-200 dark:border-gray-700 focus:ring-emerald-500/40 focus:border-emerald-400']"
           style="min-height: 38px; max-height: 120px;"
           @input="(e: Event) => { const t = e.target as HTMLTextAreaElement; t.style.height = 'auto'; t.style.height = Math.min(t.scrollHeight, 120) + 'px' }" />
+        <!-- Mic button -->
+        <button v-if="showMic"
+          @click="onMicClick"
+          :disabled="loading || disabled || transcribing"
+          :class="['shrink-0 w-9 h-9 rounded-xl flex items-center justify-center transition-all relative',
+            recording ? 'bg-red-500 hover:bg-red-600 text-white animate-pulse' :
+            transcribing ? 'bg-gray-200 dark:bg-gray-700 text-gray-400' :
+            'bg-gray-100 dark:bg-gray-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 text-gray-500 hover:text-emerald-600 dark:hover:text-emerald-400']">
+          <Loader2 v-if="transcribing" :size="16" class="animate-spin" />
+          <Square v-else-if="recording" :size="14" />
+          <Mic v-else :size="16" />
+          <!-- Elapsed timer badge -->
+          <span v-if="recording"
+            class="absolute -top-2 -right-1 px-1.5 py-0.5 rounded-full bg-red-600 text-white text-[9px] font-bold leading-none tabular-nums">
+            {{ elapsedSeconds }}s
+          </span>
+        </button>
         <button @click="sendMessage()"
-          :disabled="!inputText.trim() || loading || disabled"
+          :disabled="!inputText.trim() || loading || disabled || recording || transcribing"
           class="shrink-0 w-9 h-9 rounded-xl bg-emerald-500 hover:bg-emerald-600 disabled:bg-gray-300 dark:disabled:bg-gray-700 text-white flex items-center justify-center transition-colors">
           <SendHorizontal :size="16" />
         </button>

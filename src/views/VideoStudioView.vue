@@ -58,21 +58,13 @@ function scheduleAutoSave() {
   autoSaveTimer = setTimeout(saveSession, 2000)
 }
 
-async function saveSession() {
-  if (!selectedBizId.value || autoSavePaused) return
-  if (!currentSessionId.value) return
-  // Only auto-save draft sessions — never touch generating/completed/failed
-  // Note: generating sessions are handled by runGeneration directly
-  const current = sessions.value.find(s => s.id === currentSessionId.value)
-  if (current && current.status !== 'draft') return
-  // Auto-generate title from first 40 chars of prompt
+function buildSavePayload(): any {
   const autoTitle = prompt.value.trim().slice(0, 40) || 'Новая сессия'
-  const payload: any = {
+  return {
     businessId: selectedBizId.value,
     title: currentSessionTitle.value || autoTitle,
     prompt: prompt.value,
     promptHistory: (() => {
-      // Ensure current prompt is in history before saving
       const history = [...promptHistory.value]
       if (prompt.value.trim() && (!history.length || history[history.length - 1] !== prompt.value)) {
         history.push(prompt.value)
@@ -92,9 +84,42 @@ async function saveSession() {
     lastFrameUrl: lastFrame.value?.url || null,
     chatHistory: chatMessages.value.length ? chatMessages.value : null,
   }
+}
+
+async function saveSession() {
+  if (!selectedBizId.value || autoSavePaused) return
+  if (!currentSessionId.value) return
+  const current = sessions.value.find(s => s.id === currentSessionId.value)
+  if (current?.status === 'generating' || current?.status === 'completed') return
   try {
-    await http.put(`/sessions/${currentSessionId.value}`, payload)
+    if (current?.status === 'failed') {
+      await http.put(`/sessions/${currentSessionId.value}`, {
+        chatHistory: chatMessages.value.length ? chatMessages.value : null,
+      })
+    } else {
+      await http.put(`/sessions/${currentSessionId.value}`, buildSavePayload())
+    }
   } catch (e) { console.error('[VS] saveSession failed:', e) }
+}
+
+/** Flush pending save on page unload (F5, tab close) */
+function flushBeforeUnload() {
+  if (autoSaveTimer && currentSessionId.value) {
+    clearTimeout(autoSaveTimer)
+    autoSaveTimer = null
+    const current = sessions.value.find(s => s.id === currentSessionId.value)
+    if (current?.status === 'generating' || current?.status === 'completed') return
+    const payload = current?.status === 'failed'
+      ? { chatHistory: chatMessages.value.length ? chatMessages.value : null }
+      : buildSavePayload()
+    fetch(`/api/sessions/${currentSessionId.value}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'X-Tab-ID': TAB_ID },
+      body: JSON.stringify(payload),
+      credentials: 'include',
+      keepalive: true,
+    })
+  }
 }
 
 // fixStuckSessions не нужен — video-poller на бэкенде сам обрабатывает таймауты
@@ -140,12 +165,22 @@ async function loadDraftSession() {
         }, 300)
       }
     } else {
-      // No draft exists — create one automatically
-      try {
-        const session = await http.post<any>('/sessions', { businessId: selectedBizId.value, type: 'video' })
-        currentSessionId.value = session.id
-        viewedSessionId.value = session.id
-      } catch {}
+      // No draft — load most recent session instead of auto-creating empty one
+      if (sessions.value.length > 0) {
+        const latest = sessions.value[0]
+        const full = await http.get<any>(`/sessions/${latest.id}`)
+        currentSessionId.value = full.id
+        viewedSessionId.value = full.id
+        currentSessionTitle.value = full.title || ''
+        prompt.value = full.prompt || ''
+      } else {
+        // Truly empty — create first session
+        try {
+          const session = await http.post<any>('/sessions', { businessId: selectedBizId.value, type: 'video' })
+          currentSessionId.value = session.id
+          viewedSessionId.value = session.id
+        } catch {}
+      }
     }
   } catch {}
   finally { setTimeout(() => { autoSavePaused = false }, 500) }
@@ -239,8 +274,7 @@ const agentLoading = ref(false)
 const agentMode = ref<'simple' | 'advanced'>('simple')
 
 // Auto-save on changes (debounced 2sec)
-// chatMessages autosave triggered explicitly in sendAgentMessage — no deep watch needed
-watch([prompt, duration, audio, resolution, aspectRatio, inputMode, refImages, firstFrame, lastFrame], scheduleAutoSave, { deep: true })
+watch([prompt, duration, audio, resolution, aspectRatio, inputMode, refImages, firstFrame, lastFrame, chatMessages], scheduleAutoSave, { deep: true })
 const showMediaPicker = ref(false)
 const showRefModal = ref(false)
 const editingCharacter = ref<CharacterData | null>(null)
@@ -799,15 +833,22 @@ function connectSSE() {
 }
 
 onMounted(async () => {
+  window.addEventListener('beforeunload', flushBeforeUnload)
   loadCharacters(); loadVideos(); loadSavedPrompts(); loadDraftSession()
   await loadSessions()
   connectSSE()
 })
 
 onBeforeUnmount(() => {
+  window.removeEventListener('beforeunload', flushBeforeUnload)
   sseSource?.close()
   if (sseReconnectTimer) clearTimeout(sseReconnectTimer)
-  if (autoSaveTimer) clearTimeout(autoSaveTimer)
+  // Flush pending auto-save before unmount
+  if (autoSaveTimer) {
+    clearTimeout(autoSaveTimer)
+    autoSaveTimer = null
+    saveSession()
+  }
 })
 </script>
 

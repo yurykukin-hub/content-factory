@@ -34,6 +34,7 @@ const dateTo = ref('')
 const businessId = ref('')
 const userId = ref('')
 const category = ref('')
+const apiService = ref('')
 const model = ref('')
 const status = ref('')
 const users = ref<{ id: string; name: string }[]>([])
@@ -45,10 +46,13 @@ const ACTION_CATEGORIES: Record<string, string[]> = {
   text: ['generate_plan', 'generate_post', 'adapt_platform', 'generate_hashtags',
     'enhance_image_prompt', 'suggest_image_templates', 'suggest_video_templates',
     'generate_story_title', 'generate_story_text', 'generate_scenario',
-    'generate_edit_prompt', 'translate_prompt'],
+    'generate_edit_prompt', 'translate_prompt',
+    'agent_chat_simple', 'agent_chat_advanced'],
   image: ['generate_image', 'edit_image', 'remove_background'],
   video: ['generate_video'],
+  music: ['generate_music'],
   vision: ['describe_reference', 'merge_references'],
+  voice: ['transcribe_voice'],
 }
 
 const ACTION_LABELS: Record<string, string> = {
@@ -60,14 +64,25 @@ const ACTION_LABELS: Record<string, string> = {
   generate_edit_prompt: 'Промпт редактирования', translate_prompt: 'Перевод промпта',
   generate_image: 'Генерация изображения', edit_image: 'Редактирование фото',
   remove_background: 'Удаление фона', generate_video: 'Генерация видео',
+  generate_music: 'Генерация музыки',
   describe_reference: 'Описание референса', merge_references: 'Объединение референсов',
+  agent_chat_simple: 'AI-агент (простой)', agent_chat_advanced: 'AI-агент (продвинутый)',
+  transcribe_voice: 'Голосовой ввод',
 }
 
 const CATEGORY_BADGES: Record<string, { label: string; class: string }> = {
   text: { label: 'Текст', class: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300' },
   image: { label: 'Фото', class: 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300' },
   video: { label: 'Видео', class: 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300' },
+  music: { label: 'Музыка', class: 'bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-900 dark:text-fuchsia-300' },
   vision: { label: 'Vision', class: 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300' },
+  voice: { label: 'Голос', class: 'bg-sky-100 text-sky-700 dark:bg-sky-900 dark:text-sky-300' },
+}
+
+const API_BADGES: Record<string, { label: string; class: string }> = {
+  OpenRouter: { label: 'OpenRouter', class: 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300' },
+  OpenAI: { label: 'OpenAI', class: 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300' },
+  'KIE.ai': { label: 'KIE.ai', class: 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300' },
 }
 
 const DATE_PRESETS = [
@@ -83,7 +98,16 @@ const CATEGORY_PILLS = [
   { key: 'text', label: 'Текст' },
   { key: 'image', label: 'Фото' },
   { key: 'video', label: 'Видео' },
+  { key: 'music', label: 'Музыка' },
   { key: 'vision', label: 'Vision' },
+  { key: 'voice', label: 'Голос' },
+]
+
+const API_PILLS = [
+  { key: '', label: 'Все API' },
+  { key: 'OpenRouter', label: 'OpenRouter' },
+  { key: 'OpenAI', label: 'OpenAI' },
+  { key: 'KIE.ai', label: 'KIE.ai' },
 ]
 
 // --- Helpers ---
@@ -92,6 +116,8 @@ function getActionCategory(action: string): string {
     if (actions.includes(action)) return cat
   }
   if (action.startsWith('enhance_video_prompt_')) return 'text'
+  if (action.startsWith('enhance_music_prompt_')) return 'text'
+  if (action.startsWith('agent_chat_')) return 'text'
   return 'text'
 }
 
@@ -106,7 +132,21 @@ function getActionLabel(action: string): string {
     }
     return `Улучшение видео (${modes[mode] || mode})`
   }
+  if (action.startsWith('enhance_music_prompt_')) {
+    const mode = action.replace('enhance_music_prompt_', '')
+    const modes: Record<string, string> = {
+      enhance: 'базовое', lyrics: 'текст', improve: 'улучшение',
+      style: 'стиль', structure: 'структура', rhyme: 'рифмы',
+      translate: 'перевод', simplify: 'упрощение',
+    }
+    return `Улучшение муз. (${modes[mode] || mode})`
+  }
   return action
+}
+
+function formatCostRub(usd: number): string {
+  const rub = usd * USD_RUB.value
+  return rub < 0.01 ? '<0.01 ₽' : rub.toFixed(2) + ' ₽'
 }
 
 function modelShort(m: string): string { return m.split('/').pop() || m }
@@ -139,6 +179,7 @@ function buildQuery(extra: Record<string, any> = {}): string {
   if (businessId.value) params.set('businessId', businessId.value)
   if (userId.value && isAdmin.value) params.set('userId', userId.value)
   if (category.value) params.set('category', category.value)
+  if (apiService.value) params.set('apiService', apiService.value)
   if (model.value) params.set('model', model.value)
   if (status.value) params.set('status', status.value)
   for (const [k, v] of Object.entries(extra)) { if (v) params.set(k, String(v)) }
@@ -206,7 +247,7 @@ const trendMax = computed(() => {
 })
 
 // --- Watchers ---
-watch([businessId, userId, category, model, status], reload)
+watch([businessId, userId, category, apiService, model, status], reload)
 watch(dateFrom, () => { if (datePreset.value === 'custom') reload() })
 watch(dateTo, () => { if (datePreset.value === 'custom') reload() })
 watch(viewMode, (v) => { if (v === 'summary') loadSummary() })
@@ -320,7 +361,9 @@ onMounted(async () => {
             cat.category === 'text' ? 'bg-gray-400' : '',
             cat.category === 'image' ? 'bg-blue-500' : '',
             cat.category === 'video' ? 'bg-purple-500' : '',
+            cat.category === 'music' ? 'bg-fuchsia-500' : '',
             cat.category === 'vision' ? 'bg-amber-500' : '',
+            cat.category === 'voice' ? 'bg-sky-500' : '',
           ]"
           :title="`${cat.label}: $${cat.costUsd.toFixed(4)}`"
         />
@@ -332,7 +375,9 @@ onMounted(async () => {
             cat.category === 'text' ? 'bg-gray-400' : '',
             cat.category === 'image' ? 'bg-blue-500' : '',
             cat.category === 'video' ? 'bg-purple-500' : '',
+            cat.category === 'music' ? 'bg-fuchsia-500' : '',
             cat.category === 'vision' ? 'bg-amber-500' : '',
+            cat.category === 'voice' ? 'bg-sky-500' : '',
           ]" />
           {{ cat.label }} ${{ cat.costUsd.toFixed(2) }}
         </span>
@@ -390,6 +435,19 @@ onMounted(async () => {
             ]"
           >{{ cp.label }}</button>
         </div>
+        <span class="text-gray-300 dark:text-gray-700">|</span>
+        <div class="flex gap-1">
+          <button
+            v-for="ap in API_PILLS" :key="ap.key"
+            @click="apiService = ap.key; reload()"
+            :class="[
+              'px-3 py-1.5 rounded-full text-xs font-medium transition-colors',
+              apiService === ap.key
+                ? 'bg-gray-800 dark:bg-white text-white dark:text-gray-900'
+                : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700',
+            ]"
+          >{{ ap.label }}</button>
+        </div>
       </div>
       <!-- Row 3: Model + status + export -->
       <div class="flex flex-wrap items-center gap-2">
@@ -444,6 +502,7 @@ onMounted(async () => {
               <th class="px-4 py-3 text-left">Проект</th>
               <th class="px-4 py-3 text-left">Действие</th>
               <th class="px-4 py-3 text-left">Модель</th>
+              <th class="px-4 py-3 text-center">API</th>
               <th class="px-4 py-3 text-right">Токены</th>
               <th v-if="isAdmin" class="px-4 py-3 text-right">Себест.</th>
               <th class="px-4 py-3 text-right">{{ isAdmin ? 'С наценкой' : 'Стоимость' }}</th>
@@ -453,11 +512,11 @@ onMounted(async () => {
           </thead>
           <tbody class="divide-y divide-gray-100 dark:divide-gray-800">
             <template v-if="loading && logs.length === 0">
-              <tr><td :colspan="isAdmin ? 11 : 7" class="px-4 py-12 text-center text-gray-400">Загрузка...</td></tr>
+              <tr><td :colspan="isAdmin ? 12 : 8" class="px-4 py-12 text-center text-gray-400">Загрузка...</td></tr>
             </template>
             <template v-else-if="logs.length === 0">
               <tr>
-                <td :colspan="isAdmin ? 11 : 7" class="px-4 py-12 text-center">
+                <td :colspan="isAdmin ? 12 : 8" class="px-4 py-12 text-center">
                   <Activity :size="48" class="mx-auto text-gray-300 dark:text-gray-600 mb-3" />
                   <p class="text-gray-500">Нет данных за выбранный период</p>
                 </td>
@@ -478,11 +537,20 @@ onMounted(async () => {
                   </span>
                 </td>
                 <td class="px-4 py-3 whitespace-nowrap text-xs font-mono text-gray-500">{{ modelShort(log.model) }}</td>
+                <td class="px-4 py-3 whitespace-nowrap text-center">
+                  <span v-if="log.apiService && API_BADGES[log.apiService]"
+                    :class="['px-1.5 py-0.5 rounded-full text-[10px] font-medium', API_BADGES[log.apiService].class]">
+                    {{ API_BADGES[log.apiService].label }}
+                  </span>
+                </td>
                 <td class="px-4 py-3 whitespace-nowrap text-right text-xs font-mono text-gray-500">
                   <template v-if="log.tokensIn || log.tokensOut">{{ formatNumber(log.tokensIn) }}/{{ formatNumber(log.tokensOut) }}</template>
                   <template v-else>—</template>
                 </td>
-                <td v-if="isAdmin" class="px-4 py-3 whitespace-nowrap text-right text-xs font-mono text-gray-400">{{ formatCost(log.costUsd) }}</td>
+                <td v-if="isAdmin" class="px-4 py-3 whitespace-nowrap text-right text-xs font-mono text-gray-400">
+                  {{ formatCost(log.costUsd) }}
+                  <div class="text-[10px] text-gray-300 dark:text-gray-600">{{ formatCostRub(log.costUsd) }}</div>
+                </td>
                 <td class="px-4 py-3 whitespace-nowrap text-right text-xs font-mono" :class="costColor(log.chargedRub ? log.chargedRub / USD_RUB : log.costUsd)">
                   {{ log.chargedRub ? log.chargedRub.toFixed(2) + ' ₽' : formatCost(log.costUsd) }}
                 </td>
@@ -496,7 +564,7 @@ onMounted(async () => {
               </tr>
               <!-- Expanded detail row -->
               <tr v-if="selectedLog?.id === log.id" class="bg-gray-50 dark:bg-gray-800/30">
-                <td :colspan="isAdmin ? 11 : 7" class="px-6 py-4">
+                <td :colspan="isAdmin ? 12 : 8" class="px-6 py-4">
                   <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm mb-3">
                     <div><span class="text-gray-500 text-xs">Модель</span><br><span class="font-mono text-gray-900 dark:text-white">{{ log.model }}</span></div>
                     <div><span class="text-gray-500 text-xs">Длительность</span><br><span class="text-gray-900 dark:text-white">{{ log.durationMs ? (log.durationMs / 1000).toFixed(1) + ' сек' : '—' }}</span></div>

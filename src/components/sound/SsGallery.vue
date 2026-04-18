@@ -3,8 +3,9 @@
  * Gallery of generated music tracks with waveform players.
  */
 import { ref, computed } from 'vue'
-import { Music, Download, Heart, Loader2 } from 'lucide-vue-next'
+import { Music, Download, Heart, Loader2, ChevronDown } from 'lucide-vue-next'
 import SsTrackPlayer from './SsTrackPlayer.vue'
+import { useRates } from '../../composables/useRates'
 
 interface TrackResult {
   resultUrl: string
@@ -16,6 +17,18 @@ interface TrackResult {
   mediaFileId?: string
   title?: string
   musicStyle?: string
+  lyrics?: string
+  sunoModel?: string
+  instrumental?: boolean
+  vocalGender?: string | null
+  duration?: number | null
+}
+
+const { USD_RUB } = useRates()
+
+function costToRub(usd: number): string {
+  const rub = usd * USD_RUB.value
+  return rub < 1 ? '<1 ₽' : Math.round(rub) + ' ₽'
 }
 
 const props = defineProps<{
@@ -25,6 +38,23 @@ const props = defineProps<{
 
 const activeFilter = ref<'all' | 'favorites'>('all')
 const favorites = ref<Set<string>>(new Set())
+const expandedIdx = ref<number | null>(null)
+
+function toggleExpanded(idx: number) {
+  expandedIdx.value = expandedIdx.value === idx ? null : idx
+}
+
+const MODEL_LABELS: Record<string, string> = {
+  V4: 'Suno V4', V4_5: 'Suno V4.5', V5_5: 'Suno V5.5',
+  'suno/v4': 'Suno V4', 'suno/v4.5': 'Suno V4.5', 'suno/v5.5': 'Suno V5.5',
+}
+
+function formatDuration(sec: number | null | undefined): string {
+  if (!sec) return ''
+  const m = Math.floor(sec / 60)
+  const s = Math.round(sec % 60)
+  return `${m}:${s.toString().padStart(2, '0')}`
+}
 
 function toggleFavorite(url: string) {
   if (favorites.value.has(url)) {
@@ -91,12 +121,18 @@ const filtered = computed(() => {
             </h4>
             <p v-if="track.musicStyle" class="text-[10px] text-gray-400 mt-0.5 truncate">{{ track.musicStyle }}</p>
             <div class="flex items-center gap-2 mt-1 text-[9px] text-gray-400">
-              <span>${{ track.costUsd?.toFixed(2) }}</span>
+              <span>{{ costToRub(track.costUsd || 0) }}</span>
               <span>{{ new Date(track.createdAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) }}</span>
+              <span v-if="track.duration">{{ formatDuration(track.duration) }}</span>
             </div>
           </div>
           <!-- Actions -->
           <div class="flex items-center gap-1 shrink-0">
+            <button @click.stop="toggleExpanded(idx)"
+              :class="expandedIdx === idx ? 'text-fuchsia-500' : 'text-gray-300 hover:text-gray-500'"
+              class="p-1.5 rounded-lg transition-colors" title="Подробности">
+              <ChevronDown :size="14" :class="expandedIdx === idx ? 'rotate-180 transition-transform' : 'transition-transform'" />
+            </button>
             <button @click="toggleFavorite(track.resultUrl || track.audioUrl || '')"
               :class="favorites.has(track.resultUrl || track.audioUrl || '') ? 'text-red-500' : 'text-gray-300 hover:text-red-400'"
               class="p-1.5 rounded-lg transition-colors">
@@ -107,6 +143,32 @@ const filtered = computed(() => {
               class="p-1.5 rounded-lg text-gray-400 hover:text-fuchsia-500 transition-colors">
               <Download :size="14" />
             </a>
+          </div>
+        </div>
+
+        <!-- Expandable details -->
+        <div v-if="expandedIdx === idx" class="px-3 pb-2 space-y-1.5 text-[10px] text-gray-500 border-t border-gray-50 dark:border-gray-800 pt-2">
+          <div class="flex flex-wrap gap-x-4 gap-y-1">
+            <span v-if="track.sunoModel">
+              <span class="text-gray-400">Модель:</span> {{ MODEL_LABELS[track.sunoModel] || track.sunoModel }}
+            </span>
+            <span v-if="track.instrumental != null">
+              {{ track.instrumental ? 'Инструментал' : 'С вокалом' }}
+            </span>
+            <span v-if="track.vocalGender">
+              {{ track.vocalGender === 'f' ? 'Жен. вокал' : 'Муж. вокал' }}
+            </span>
+            <span v-if="track.costUsd">
+              <span class="text-gray-400">Цена:</span> {{ costToRub(track.costUsd) }}
+            </span>
+          </div>
+          <div v-if="track.prompt">
+            <span class="text-gray-400">Промпт:</span>
+            <p class="mt-0.5 text-gray-600 dark:text-gray-400">{{ track.prompt }}</p>
+          </div>
+          <div v-if="track.lyrics">
+            <span class="text-gray-400">Текст:</span>
+            <pre class="mt-0.5 text-gray-600 dark:text-gray-400 whitespace-pre-wrap font-mono text-[9px] max-h-32 overflow-y-auto bg-gray-50 dark:bg-gray-800/50 rounded p-2">{{ track.lyrics }}</pre>
           </div>
         </div>
 

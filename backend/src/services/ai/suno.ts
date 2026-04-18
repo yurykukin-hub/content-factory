@@ -14,7 +14,7 @@
 
 import { config } from '../../config'
 import { db } from '../../db'
-import { getMarkupPercent, calculateChargedRub, chargeUser } from '../billing'
+import { getMarkupPercent, getChargedRub, chargeUser } from '../billing'
 import { nanoid } from 'nanoid'
 import { join } from 'path'
 import { mkdir } from 'fs/promises'
@@ -54,8 +54,14 @@ function resolveModel(sunoModel: string): string {
 
 // --- KIE.ai REST helpers (same as kie.ts) ---
 
-function getKieKey(): string {
-  if (!config.KIE_API_KEY) throw new Error('KIE_API_KEY не настроен. Укажите в .env')
+async function getKieKey(): Promise<string> {
+  try {
+    const row = await db.appConfig.findUnique({ where: { key: 'kie_api_key' } })
+    if (row?.value) return row.value
+  } catch {
+    // DB unavailable — fallback to env
+  }
+  if (!config.KIE_API_KEY) throw new Error('KIE_API_KEY не настроен. Укажите в Настройки → AI или .env')
   return config.KIE_API_KEY
 }
 
@@ -63,7 +69,7 @@ async function kiePost(endpoint: string, body: object): Promise<any> {
   const res = await fetch(`${KIE_BASE}${endpoint}`, {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${getKieKey()}`,
+      'Authorization': `Bearer ${await getKieKey()}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(body),
@@ -82,7 +88,7 @@ async function kiePost(endpoint: string, body: object): Promise<any> {
 
 async function kieGet(endpoint: string): Promise<any> {
   const res = await fetch(`${KIE_BASE}${endpoint}`, {
-    headers: { 'Authorization': `Bearer ${getKieKey()}` },
+    headers: { 'Authorization': `Bearer ${await getKieKey()}` },
   })
   if (!res.ok) {
     const text = await res.text()
@@ -188,8 +194,15 @@ export async function checkMusicTaskStatus(kieTaskId: string): Promise<{ state: 
   let state = 'pending'
   if (rawStatus === 'SUCCESS') state = 'success'
   else if (rawStatus === 'FIRST_SUCCESS') state = 'pending' // keep polling — second track not ready yet
-  else if (rawStatus === 'FAILURE' || rawStatus === 'FAILED') state = 'fail'
+  else if (rawStatus === 'FAILURE' || rawStatus === 'FAILED' || rawStatus === 'ERROR') state = 'fail'
 
+  // Extract error message from various KIE response fields
+  if (state === 'fail') {
+    const errMsg = d?.failMsg || d?.errorMessage || d?.error || d?.message || d?.response?.errorMessage || ''
+    if (errMsg) d._extractedError = errMsg
+  }
+
+  log.info('[Suno] checkMusicTaskStatus', { kieTaskId, rawStatus, state })
   return { state, data: d }
 }
 
@@ -360,7 +373,7 @@ export async function processMusicTaskResult(
       cachedTokens: 0,
       costUsd: params.costUsd,
       markupPercent: markup,
-      chargedRub: calculateChargedRub(params.costUsd, markup),
+      chargedRub: await getChargedRub(params.costUsd, markup),
       status: 'success',
       prompt: (params.prompt || '').slice(0, 2000),
       durationMs: null,

@@ -3,12 +3,13 @@ import { z } from 'zod'
 import { db } from '../db'
 import { config } from '../config'
 import { aiComplete, aiVision, aiChat } from '../services/ai/openrouter'
+import { transcribeAudio } from '../services/ai/whisper'
 import { buildBrandContext, buildPlanPrompt, buildPostPrompt, buildAdaptPrompt, buildHashtagPrompt, buildImageEnhancerPrompt, buildEditEnhancerPrompt, buildStoryTitlePrompt, buildScenarioPrompt, buildVideoPromptEnhancer, buildVideoPromptEnhancerAdaptive, buildVideoPromptDirector, buildVideoPromptStructure, buildVideoPromptFocus, buildVideoPromptAudio, buildVideoPromptCamera, buildVideoPromptTranslate, buildVideoPromptSimplify, analyzeVideoPrompt, buildAgentSystemPrompt } from '../services/ai/prompt-builder'
 import { generateImage, editImage, removeBackground, createVideoTask, EDIT_MODELS } from '../services/ai/kie'
 import { emitEvent } from '../eventBus'
 import type { AuthUser } from '../middleware/auth'
 import { verifyPostAccess, assertBusinessAccess } from '../middleware/resource-access'
-import { canAfford } from '../services/billing'
+import { canAfford, getMarkupPercent, getChargedRub, chargeUser } from '../services/billing'
 
 const ai = new Hono()
 
@@ -1028,6 +1029,88 @@ ai.post('/agent-chat', async (c) => {
   })
 
   return c.json({ content: result.content })
+})
+
+// POST /api/ai/transcribe — voice-to-text via OpenAI Whisper
+const MAX_AUDIO_SIZE = 25 * 1024 * 1024 // 25 MB (Whisper API limit)
+
+ai.post('/transcribe', async (c) => {
+  const user = c.get('user') as AuthUser
+  const start = Date.now()
+
+  const body = await c.req.parseBody()
+  const file = body['file']
+  if (!file || typeof file === 'string') {
+    return c.json({ error: 'Audio file required' }, 400)
+  }
+
+  const blob = file as File
+  if (blob.size > MAX_AUDIO_SIZE) {
+    return c.json({ error: 'File too large (max 25 MB)' }, 400)
+  }
+  if (blob.size < 100) {
+    return c.json({ error: 'File too small' }, 400)
+  }
+
+  try {
+    const audioBuffer = await blob.arrayBuffer()
+    const mimeType = blob.type || 'audio/webm'
+    const result = await transcribeAudio(audioBuffer, mimeType, blob.name || 'voice.webm')
+
+    if (!result.text) {
+      return c.json({ error: 'No speech detected' }, 422)
+    }
+
+    // Log & charge (same pattern as logAndCharge in openrouter.ts)
+    if (result.costUsd > 0) {
+      const markup = await getMarkupPercent()
+      const chargedRub = await getChargedRub(result.costUsd, markup)
+
+      const log = await db.aiUsageLog.create({
+        data: {
+          userId: user.userId,
+          action: 'transcribe_voice',
+          model: 'whisper-1',
+          tokensIn: 0,
+          tokensOut: 0,
+          costUsd: result.costUsd,
+          markupPercent: markup,
+          chargedRub,
+          status: 'success',
+          prompt: `(voice ${Math.round(result.durationSeconds)}s)`,
+          durationMs: Date.now() - start,
+        },
+      })
+
+      await chargeUser({
+        userId: user.userId,
+        role: user.role,
+        costUsd: result.costUsd,
+        markupPercent: markup,
+        aiUsageLogId: log.id,
+        description: 'transcribe_voice',
+      })
+    }
+
+    return c.json({ text: result.text })
+  } catch (err: any) {
+    // Log error
+    await db.aiUsageLog.create({
+      data: {
+        userId: user.userId,
+        action: 'transcribe_voice',
+        model: 'whisper-1',
+        tokensIn: 0,
+        tokensOut: 0,
+        costUsd: 0,
+        status: 'error',
+        prompt: err.message?.slice(0, 2000) || 'Unknown error',
+        durationMs: Date.now() - start,
+      },
+    }).catch(() => {})
+
+    return c.json({ error: err.message || 'Transcription failed' }, 500)
+  }
 })
 
 export { ai }

@@ -93,7 +93,7 @@ const trackResults = ref<any[]>([])
 const MUSIC_COST_USD = 0.11
 const costRub = computed(() => {
   const rub = MUSIC_COST_USD * USD_RUB.value * (1 + markupPercent.value / 100)
-  return Math.ceil(rub * 100) / 100
+  return Math.round(rub)
 })
 
 const canGenerate = computed(() => {
@@ -112,29 +112,61 @@ function scheduleAutoSave() {
   autoSaveTimer = setTimeout(saveSession, 2000)
 }
 
+function buildSavePayload() {
+  return {
+    title: musicTitle.value || prompt.value.slice(0, 40) || '',
+    prompt: prompt.value,
+    customMode: musicMode.value === 'custom',
+    instrumental: instrumental.value,
+    lyrics: lyrics.value,
+    musicStyle: musicStyle.value,
+    musicTitle: musicTitle.value,
+    negativeTags: negativeTags.value,
+    vocalGender: vocalGender.value,
+    styleWeight: styleWeight.value,
+    weirdnessConstraint: weirdnessConstraint.value,
+    sunoModel: sunoModel.value,
+    personaId: selectedPersonaId.value,
+    chatHistory: chatMessages.value.length ? chatMessages.value : null,
+  }
+}
+
 async function saveSession() {
   if (!currentSessionId.value || autoSavePaused) return
   const current = sessions.value.find(s => s.id === currentSessionId.value)
-  if (current && current.status !== 'draft') return
+  // Allow saving for draft (full save) and failed (chat only — so user can continue chatting)
+  if (current && current.status === 'generating' || current?.status === 'completed') return
 
   try {
-    await http.put(`/sessions/${currentSessionId.value}`, {
-      title: musicTitle.value || prompt.value.slice(0, 40) || '',
-      prompt: prompt.value,
-      customMode: musicMode.value === 'custom',
-      instrumental: instrumental.value,
-      lyrics: lyrics.value,
-      musicStyle: musicStyle.value,
-      musicTitle: musicTitle.value,
-      negativeTags: negativeTags.value,
-      vocalGender: vocalGender.value,
-      styleWeight: styleWeight.value,
-      weirdnessConstraint: weirdnessConstraint.value,
-      sunoModel: sunoModel.value,
-      personaId: selectedPersonaId.value,
-      chatHistory: chatMessages.value.length ? chatMessages.value : null,
-    })
+    if (current?.status === 'failed') {
+      // Only save chat for failed sessions (don't overwrite other fields)
+      await http.put(`/sessions/${currentSessionId.value}`, {
+        chatHistory: chatMessages.value.length ? chatMessages.value : null,
+      })
+    } else {
+      await http.put(`/sessions/${currentSessionId.value}`, buildSavePayload())
+    }
   } catch {}
+}
+
+/** Flush pending save on page unload (F5, tab close) */
+function flushBeforeUnload() {
+  if (autoSaveTimer && currentSessionId.value) {
+    clearTimeout(autoSaveTimer)
+    autoSaveTimer = null
+    const current = sessions.value.find(s => s.id === currentSessionId.value)
+    if (current?.status === 'generating' || current?.status === 'completed') return
+    const payload = current?.status === 'failed'
+      ? { chatHistory: chatMessages.value.length ? chatMessages.value : null }
+      : buildSavePayload()
+    fetch(`/api/sessions/${currentSessionId.value}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', 'X-Tab-ID': TAB_ID },
+      body: JSON.stringify(payload),
+      credentials: 'include',
+      keepalive: true,
+    })
+  }
 }
 
 watch([prompt, lyrics, musicStyle, musicTitle, negativeTags, instrumental, vocalGender, sunoModel, styleWeight, weirdnessConstraint, musicMode, selectedPersonaId, chatMessages], scheduleAutoSave, { deep: true })
@@ -150,14 +182,24 @@ async function loadSessions() {
 async function loadDraftSession() {
   if (!selectedBizId.value) return
   autoSavePaused = true
+  // Try loading existing draft first
   const draft = await http.get<any>(`/sessions/draft?businessId=${selectedBizId.value}&type=music`)
   if (draft) {
     loadSessionIntoState(draft)
     autoSavePaused = false
-  } else {
-    await createNewSession()
-    autoSavePaused = false
+    return
   }
+  // No draft — load the most recent session (any status) instead of auto-creating empty one
+  if (sessions.value.length > 0) {
+    const latest = sessions.value[0] // already sorted by updatedAt desc
+    const full = await http.get<any>(`/sessions/${latest.id}`)
+    loadSessionIntoState(full)
+    autoSavePaused = false
+    return
+  }
+  // Truly empty — create first session
+  await createNewSession()
+  autoSavePaused = false
 }
 
 async function createNewSession() {
@@ -246,6 +288,16 @@ async function loadTrackResults() {
   const completed = sessions.value.filter(s => s.status === 'completed' && s.audioUrl)
 
   for (const s of completed) {
+    // Session-level fallback details
+    const sessionFallback = {
+      prompt: s.prompt || '',
+      musicStyle: s.musicStyle || '',
+      lyrics: s.lyrics || '',
+      sunoModel: s.sunoModel || '',
+      instrumental: s.instrumental ?? false,
+      vocalGender: s.vocalGender || null,
+    }
+
     // Check results JSON for multiple variants (new API returns 2 tracks)
     const results = s.results as any[] | null
     if (Array.isArray(results) && results.length > 0) {
@@ -254,11 +306,17 @@ async function loadTrackResults() {
           resultUrl: r.resultUrl,
           audioUrl: r.resultUrl,
           coverImageUrl: r.coverImageUrl,
-          prompt: s.prompt || '',
           costUsd: r.costUsd ?? s.costUsd ?? MUSIC_COST_USD,
           createdAt: r.createdAt || s.updatedAt,
           title: r.title || s.musicTitle || s.title || '',
-          musicStyle: s.musicStyle || '',
+          duration: r.duration || null,
+          // Prefer per-result snapshot, fallback to session
+          prompt: r.prompt || sessionFallback.prompt,
+          musicStyle: r.musicStyle || sessionFallback.musicStyle,
+          lyrics: r.lyrics || sessionFallback.lyrics,
+          sunoModel: r.sunoModel || sessionFallback.sunoModel,
+          instrumental: r.instrumental ?? sessionFallback.instrumental,
+          vocalGender: r.vocalGender ?? sessionFallback.vocalGender,
         })
       }
     } else {
@@ -267,14 +325,16 @@ async function loadTrackResults() {
         resultUrl: s.audioUrl,
         audioUrl: s.audioUrl,
         coverImageUrl: s.coverImageUrl,
-        prompt: s.prompt || '',
         costUsd: s.costUsd || MUSIC_COST_USD,
         createdAt: s.updatedAt,
         title: s.musicTitle || s.title || '',
-        musicStyle: s.musicStyle || '',
+        duration: null,
+        ...sessionFallback,
       })
     }
   }
+  // Sort newest first
+  tracks.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
   trackResults.value = tracks
 }
 
@@ -480,15 +540,22 @@ onMounted(async () => {
     selectedBizId.value = businesses.businesses[0].id
     businesses.setCurrent(selectedBizId.value)
   }
+  window.addEventListener('beforeunload', flushBeforeUnload)
   connectSSE()
   await loadSessions()
   await loadDraftSession()
 })
 
 onBeforeUnmount(() => {
+  window.removeEventListener('beforeunload', flushBeforeUnload)
   sseSource?.close()
   if (sseReconnectTimer) clearTimeout(sseReconnectTimer)
-  if (autoSaveTimer) clearTimeout(autoSaveTimer)
+  // Flush pending auto-save before unmount
+  if (autoSaveTimer) {
+    clearTimeout(autoSaveTimer)
+    autoSaveTimer = null
+    saveSession()
+  }
 })
 </script>
 

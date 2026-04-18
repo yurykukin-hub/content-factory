@@ -3,6 +3,7 @@ import { db } from '../db'
 import type { AuthUser } from '../middleware/auth'
 import { getUserBusinessIds } from '../middleware/business-access'
 import { fetchOpenRouterBalance } from '../services/ai/openrouter'
+import { KIE_CREDIT_PRICE } from '../services/billing'
 
 const dashboard = new Hono()
 
@@ -10,7 +11,7 @@ const USD_RUB = 95
 const IMAGE_ACTIONS = ['generate_image', 'edit_image', 'remove_background']
 const VIDEO_ACTIONS = ['generate_video']
 const KIE_ACTIONS = [...IMAGE_ACTIONS, ...VIDEO_ACTIONS]
-const KIE_CREDIT_PRICE = 0.005 // 1 credit = $0.005
+// KIE_CREDIT_PRICE imported from billing.ts
 
 // Simple in-memory cache (60s TTL)
 let aiStatsCache: { data: any; ts: number } | null = null

@@ -26,9 +26,15 @@ settings.get('/config', async (c) => {
     }
   }
 
-  // Fallback: show .env key if not in DB
+  // Fallback: show .env keys if not in DB
   if (!result['openrouter_api_key'] && config.OPENROUTER_API_KEY) {
     result['openrouter_api_key'] = maskSecret(config.OPENROUTER_API_KEY) + ' (.env)'
+  }
+  if (!result['kie_api_key'] && config.KIE_API_KEY) {
+    result['kie_api_key'] = maskSecret(config.KIE_API_KEY) + ' (.env)'
+  }
+  if (!result['openai_api_key'] && config.OPENAI_API_KEY) {
+    result['openai_api_key'] = maskSecret(config.OPENAI_API_KEY) + ' (.env)'
   }
 
   return c.json(result)

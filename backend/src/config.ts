@@ -6,6 +6,7 @@ const envSchema = z.object({
   PORT: z.coerce.number().default(3800),
   OPENROUTER_API_KEY: z.string().default(''),  // Можно задать через UI (Settings → AI)
   KIE_API_KEY: z.string().default(''),            // KIE.ai — image editing, video generation
+  OPENAI_API_KEY: z.string().default(''),          // OpenAI Whisper (voice transcription)
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
 })
 

@@ -1,7 +1,7 @@
 import { config } from '../../config'
 import { db } from '../../db'
 import { calculateCost, getApiKey } from './openrouter'
-import { getMarkupPercent, calculateChargedRub, chargeUser } from '../billing'
+import { getMarkupPercent, getChargedRub, chargeUser } from '../billing'
 import { nanoid } from 'nanoid'
 import sharp from 'sharp'
 import { join } from 'path'
@@ -171,7 +171,7 @@ export async function generateImage(params: GenerateImageParams): Promise<Genera
       cachedTokens: 0,
       costUsd: imgCost,
       markupPercent: imgMarkup,
-      chargedRub: calculateChargedRub(imgCost, imgMarkup),
+      chargedRub: await getChargedRub(imgCost, imgMarkup),
       userId: params.userId || null,
       status: 'success',
       prompt: (prompt || '').slice(0, 2000),

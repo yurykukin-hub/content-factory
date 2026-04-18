@@ -91,3 +91,38 @@ User, UserBusiness, Business, BrandProfile, PlatformAccount, ContentPlan, Conten
 - [2026-04-17] wavesurfer.js v7 — useSurfer.ts composable для waveform visualization (fuchsia brand)
 - [2026-04-17] Section access: soundStudio (ADMIN-only по умолчанию). Routes: /api/music/* с requireSection guard
 - [2026-04-17] VIDEO-POLLER переименован логически в generation-poller (обрабатывает video+music). Ветвление по session.type
+
+## Voice Input — Whisper Transcription (2026-04-17)
+- [2026-04-17] feat: голосовой ввод в Agent Chat (Video Studio + Sound Studio). Кнопка микрофона: toggle recording → Whisper → текст в textarea
+- [2026-04-17] Backend: whisper.ts сервис (getOpenAiKey из AppConfig + .env fallback), POST /api/ai/transcribe (multipart, 25MB limit, billing)
+- [2026-04-17] Frontend: useVoiceInput composable (MediaRecorder, MIME detection, auto-stop 120s, cleanup). useRates +voiceInputEnabled
+- [2026-04-17] Активация: AppConfig key `openai_api_key` или env `OPENAI_API_KEY`. Кнопка скрыта если ключ не задан
+- [2026-04-17] Billing: action `transcribe_voice`, model `whisper-1`, ~$0.006/мин. AiUsageLog + chargeUser
+
+## AI Logs Improvements + Billing Bugfix (2026-04-18)
+- [2026-04-18] **BUGFIX: USD/RUB курс** — calculateChargedRub() всегда использовал default 95, игнорируя AppConfig. Добавлен `getChargedRub()` async (читает из AppConfig). Обновлены все 8 callers + chargeUser()
+- [2026-04-18] feat: колонка API в логах (OpenRouter/OpenAI/KIE.ai) — computed из action+model, цветные бейджи, фильтр pills
+- [2026-04-18] feat: себестоимость в рублях (ADMIN) — `$0.06 / 5 ₽` в таблице, динамический курс
+- [2026-04-18] feat: категории music/voice/agent_chat в ai-actions.ts + labels + CATEGORY_BADGES
+- [2026-04-18] feat: Settings → AI — карточки OpenAI Key, KIE.ai Key, курс USD/RUB (5 карточек итого)
+- [2026-04-18] refactor: KIE_CREDIT_PRICE вынесен в billing.ts, убрано дублирование из ai-logs.ts/dashboard.ts
+- [2026-04-18] refactor: KIE API key из AppConfig + .env fallback (kie.ts, suno.ts) — управление через Settings UI
+
+## Sound Studio UX Fixes (2026-04-18)
+- [2026-04-18] fix: стоимость округлена до рублей (везде кроме логов). Генерация: "14 ₽ / 2 трека"
+- [2026-04-18] fix: стоимость делится на 2 трека (было: первый $0.11, второй $0.00)
+- [2026-04-18] feat: раскрывающиеся подробности трека (ChevronDown) — модель, вокал, промпт, текст песни
+- [2026-04-18] fix: треки отсортированы по дате (новые вверху), было: без сортировки
+- [2026-04-18] fix: musicStyle/lyrics/prompt снапшотятся в results JSON при генерации (раньше брались из текущей сессии)
+
+## Chat Persistence Fix (2026-04-18)
+- [2026-04-18] fix: beforeunload handler — fetch с keepalive:true сохраняет чат при F5/закрытии вкладки
+- [2026-04-18] fix: onBeforeUnmount flush — saveSession() вызывается при навигации (раньше clearTimeout без save)
+- [2026-04-18] fix: chatMessages добавлен в watch VideoStudioView (раньше auto-save не триггерился при изменении чата)
+- [2026-04-18] fix: saveSession() сохраняет chatHistory для failed сессий (раньше пропускал всё кроме draft)
+- [2026-04-18] fix: loadDraftSession() не создаёт пустую сессию автоматически — загружает последнюю вместо этого
+
+## Poller Error Handling (2026-04-18)
+- [2026-04-18] fix: поллер обрабатывает статус ERROR (помимо FAILURE/FAILED) от KIE.ai
+- [2026-04-18] fix: расширено извлечение ошибки из ответа KIE (failMsg, errorMessage, error, message, response.errorMessage)
+- [2026-04-18] feat: логирование rawStatus в checkMusicTaskStatus() для отладки

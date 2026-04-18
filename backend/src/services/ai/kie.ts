@@ -1,7 +1,7 @@
 import { config } from '../../config'
 import { db } from '../../db'
 import { aiComplete } from './openrouter'
-import { getMarkupPercent, calculateChargedRub, chargeUser } from '../billing'
+import { getMarkupPercent, getChargedRub, chargeUser } from '../billing'
 import { nanoid } from 'nanoid'
 import sharp from 'sharp'
 import { join } from 'path'
@@ -14,8 +14,14 @@ const KIE_BASE = 'https://api.kie.ai'
 
 // --- KIE.ai REST client ---
 
-function getKieKey(): string {
-  if (!config.KIE_API_KEY) throw new Error('KIE_API_KEY не настроен. Укажите в .env')
+async function getKieKey(): Promise<string> {
+  try {
+    const row = await db.appConfig.findUnique({ where: { key: 'kie_api_key' } })
+    if (row?.value) return row.value
+  } catch {
+    // DB unavailable — fallback to env
+  }
+  if (!config.KIE_API_KEY) throw new Error('KIE_API_KEY не настроен. Укажите в Настройки → AI или .env')
   return config.KIE_API_KEY
 }
 
@@ -23,7 +29,7 @@ async function kiePost(endpoint: string, body: object): Promise<any> {
   const res = await fetch(`${KIE_BASE}${endpoint}`, {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${getKieKey()}`,
+      'Authorization': `Bearer ${await getKieKey()}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify(body),
@@ -42,7 +48,7 @@ async function kiePost(endpoint: string, body: object): Promise<any> {
 
 async function kieGet(endpoint: string): Promise<any> {
   const res = await fetch(`${KIE_BASE}${endpoint}`, {
-    headers: { 'Authorization': `Bearer ${getKieKey()}` },
+    headers: { 'Authorization': `Bearer ${await getKieKey()}` },
   })
   if (!res.ok) {
     const text = await res.text()
@@ -276,7 +282,7 @@ export async function generateImage(params: GenerateImageParams): Promise<Genera
       tokensIn: 0, tokensOut: 0, cachedTokens: 0,
       costUsd: 0.06,
       markupPercent: markup,
-      chargedRub: calculateChargedRub(0.06, markup),
+      chargedRub: await getChargedRub(0.06, markup),
       status: 'success',
       prompt: (prompt || '').slice(0, 2000),
       durationMs: Date.now() - start,
@@ -416,7 +422,7 @@ export async function editImage(params: EditImageParams): Promise<KieImageResult
       tokensIn: 0, tokensOut: 0, cachedTokens: 0,
       costUsd: modelInfo.cost,
       markupPercent: editMarkup,
-      chargedRub: calculateChargedRub(modelInfo.cost, editMarkup),
+      chargedRub: await getChargedRub(modelInfo.cost, editMarkup),
       status: 'success',
       prompt: (prompt || '').slice(0, 2000),
       durationMs: Date.now() - start,
@@ -512,7 +518,7 @@ export async function removeBackground(params: RemoveBgParams): Promise<KieImage
       tokensIn: 0, tokensOut: 0, cachedTokens: 0,
       costUsd: 0.01,
       markupPercent: bgMarkup,
-      chargedRub: calculateChargedRub(0.01, bgMarkup),
+      chargedRub: await getChargedRub(0.01, bgMarkup),
       status: 'success',
       prompt: null,
       durationMs: Date.now() - start,
@@ -697,7 +703,7 @@ export async function processVideoTaskResult(
       tokensIn: 0, tokensOut: 0, cachedTokens: 0,
       costUsd: params.costUsd,
       markupPercent: vidMarkup,
-      chargedRub: calculateChargedRub(params.costUsd, vidMarkup),
+      chargedRub: await getChargedRub(params.costUsd, vidMarkup),
       status: 'success',
       prompt: (params.prompt || '').slice(0, 2000),
       durationMs: null,

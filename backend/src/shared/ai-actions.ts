@@ -13,10 +13,17 @@ export const ACTION_CATEGORIES = {
     'enhance_video_prompt_structure', 'enhance_video_prompt_focus',
     'enhance_video_prompt_audio', 'enhance_video_prompt_camera',
     'enhance_video_prompt_translate', 'enhance_video_prompt_simplify',
+    'agent_chat_simple', 'agent_chat_advanced',
+    'enhance_music_prompt_enhance', 'enhance_music_prompt_lyrics',
+    'enhance_music_prompt_improve', 'enhance_music_prompt_style',
+    'enhance_music_prompt_structure', 'enhance_music_prompt_rhyme',
+    'enhance_music_prompt_translate', 'enhance_music_prompt_simplify',
   ],
   image: ['generate_image', 'edit_image', 'remove_background'],
   video: ['generate_video'],
+  music: ['generate_music'],
   vision: ['describe_reference', 'merge_references'],
+  voice: ['transcribe_voice'],
 } as const
 
 export type ActionCategory = keyof typeof ACTION_CATEGORIES
@@ -38,9 +45,13 @@ export const ACTION_LABELS: Record<string, string> = {
   edit_image: 'Редактирование фото',
   remove_background: 'Удаление фона',
   generate_video: 'Генерация видео',
+  generate_music: 'Генерация музыки',
   describe_reference: 'Описание референса',
   merge_references: 'Объединение референсов',
-  // enhance_video_prompt_* — handled by getActionLabel()
+  agent_chat_simple: 'AI-агент (простой)',
+  agent_chat_advanced: 'AI-агент (продвинутый)',
+  transcribe_voice: 'Голосовой ввод',
+  // enhance_video_prompt_* and enhance_music_prompt_* — handled by getActionLabel()
 }
 
 /** Get action category */
@@ -48,8 +59,10 @@ export function getActionCategory(action: string): ActionCategory {
   for (const [cat, actions] of Object.entries(ACTION_CATEGORIES)) {
     if ((actions as readonly string[]).includes(action)) return cat as ActionCategory
   }
-  // Fallback: enhance_video_prompt_* are text operations
+  // Fallback: enhance_*_prompt_* are text operations
   if (action.startsWith('enhance_video_prompt_')) return 'text'
+  if (action.startsWith('enhance_music_prompt_')) return 'text'
+  if (action.startsWith('agent_chat_')) return 'text'
   return 'text'
 }
 
@@ -65,6 +78,15 @@ export function getActionLabel(action: string): string {
     }
     return `Улучшение видео-промпта (${modeLabels[mode] || mode})`
   }
+  if (action.startsWith('enhance_music_prompt_')) {
+    const mode = action.replace('enhance_music_prompt_', '')
+    const modeLabels: Record<string, string> = {
+      enhance: 'базовое', lyrics: 'текст', improve: 'улучшение',
+      style: 'стиль', structure: 'структура', rhyme: 'рифмы',
+      translate: 'перевод', simplify: 'упрощение',
+    }
+    return `Улучшение муз. промпта (${modeLabels[mode] || mode})`
+  }
   return action
 }
 
@@ -72,5 +94,20 @@ export const CATEGORY_LABELS: Record<ActionCategory, string> = {
   text: 'Текст',
   image: 'Фото',
   video: 'Видео',
+  music: 'Музыка',
   vision: 'Vision',
+  voice: 'Голос',
+}
+
+export type ApiService = 'OpenRouter' | 'OpenAI' | 'KIE.ai'
+
+const KIE_ACTIONS = new Set(['edit_image', 'remove_background', 'generate_video', 'generate_music'])
+const KIE_IMAGE_MODELS = ['nano-banana', 'flux-kontext', 'recraft']
+
+/** Determine which API service handled the request */
+export function getApiService(action: string, model: string): ApiService {
+  if (action === 'transcribe_voice') return 'OpenAI'
+  if (KIE_ACTIONS.has(action)) return 'KIE.ai'
+  if (action === 'generate_image' && KIE_IMAGE_MODELS.some(m => model.startsWith(m))) return 'KIE.ai'
+  return 'OpenRouter'
 }
