@@ -692,7 +692,7 @@ async function uploadFrame(event: Event, which: 'first' | 'last') {
   fd.append('businessId', selectedBizId.value)
   fd.append('tags', JSON.stringify(['video-frame']))
   try {
-    const res = await fetch('/api/media/upload', { method: 'POST', credentials: 'include', body: fd })
+    const res = await fetch('/api/media/upload', { method: 'POST', credentials: 'include', headers: { 'X-Tab-ID': TAB_ID }, body: fd })
     if (!res.ok) throw new Error()
     const m = await res.json()
     const frame = { url: m.url, thumbUrl: m.thumbUrl, filename: m.filename }
@@ -709,7 +709,7 @@ async function addRef(event: Event) {
   fd.append('businessId', selectedBizId.value)
   fd.append('tags', JSON.stringify(['video-reference']))
   try {
-    const res = await fetch('/api/media/upload', { method: 'POST', credentials: 'include', body: fd })
+    const res = await fetch('/api/media/upload', { method: 'POST', credentials: 'include', headers: { 'X-Tab-ID': TAB_ID }, body: fd })
     if (!res.ok) throw new Error()
     const m = await res.json()
     addRefImage({ url: m.url, thumbUrl: m.thumbUrl, filename: m.filename, altText: m.altText || null })
