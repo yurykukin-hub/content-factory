@@ -1,6 +1,6 @@
 <script setup lang="ts">
 defineOptions({ name: 'VideoStudioView' })
-import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, onDeactivated, nextTick, watch } from 'vue'
 import { http, TAB_ID } from '@/api/client'
 import { useToast } from '@/composables/useToast'
 import { formatDate } from '@/composables/useFormatters'
@@ -843,12 +843,20 @@ onBeforeUnmount(() => {
   window.removeEventListener('beforeunload', flushBeforeUnload)
   sseSource?.close()
   if (sseReconnectTimer) clearTimeout(sseReconnectTimer)
-  // Flush pending auto-save before unmount
   if (autoSaveTimer) {
     clearTimeout(autoSaveTimer)
     autoSaveTimer = null
     saveSession()
   }
+})
+
+// KeepAlive deactivate — flush save when navigating away
+onDeactivated(() => {
+  if (autoSaveTimer) {
+    clearTimeout(autoSaveTimer)
+    autoSaveTimer = null
+  }
+  saveSession()
 })
 </script>
 

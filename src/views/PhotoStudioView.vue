@@ -4,7 +4,7 @@
  * Pattern follows SoundStudioView: 50/50 layout, sessions, SSE, auto-save.
  * Brand color: fuchsia (matching Content Factory).
  */
-import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount, onDeactivated } from 'vue'
 import { ChevronDown, ChevronUp, Camera, Plus, Upload, FolderOpen, X, Sparkles, Loader2 } from 'lucide-vue-next'
 import MediaPickerModal from '@/components/MediaPickerModal.vue'
 import { http, TAB_ID } from '@/api/client'
@@ -179,6 +179,15 @@ function flushBeforeUnload() {
 }
 
 watch([prompt, photoModel, photoResolution, batchSize, photoAspectRatio, referenceImages, chatMessages], scheduleAutoSave, { deep: true })
+
+// Flush save immediately when switching tabs (don't wait 2s debounce)
+watch(activeTab, () => {
+  if (autoSaveTimer) {
+    clearTimeout(autoSaveTimer)
+    autoSaveTimer = null
+  }
+  saveSession()
+})
 
 // --- Session CRUD ---
 async function loadSessions() {
@@ -606,6 +615,15 @@ onBeforeUnmount(() => {
     saveSession()
   }
 })
+
+// KeepAlive deactivate — flush save when navigating away
+onDeactivated(() => {
+  if (autoSaveTimer) {
+    clearTimeout(autoSaveTimer)
+    autoSaveTimer = null
+  }
+  saveSession()
+})
 </script>
 
 <template>
@@ -659,8 +677,8 @@ onBeforeUnmount(() => {
             <PsPromptTabs v-model="activeTab" />
           </div>
 
-          <!-- Agent tab (stretches to fill) -->
-          <PsAgentChat v-if="activeTab === 'agent'" class="flex-1 min-h-0"
+          <!-- Agent tab (v-show: keep alive, don't destroy on tab switch) -->
+          <PsAgentChat v-show="activeTab === 'agent'" class="flex-1 min-h-0"
             :messages="chatMessages"
             :loading="agentLoading"
             :mode="agentMode"
@@ -671,8 +689,8 @@ onBeforeUnmount(() => {
             @update:mode="agentMode = $event"
           />
 
-          <!-- Editor tab (stretches to fill) -->
-          <div v-else class="px-4 py-2 flex-1 min-h-0 flex flex-col gap-2 overflow-y-auto">
+          <!-- Editor tab (v-show: keep alive, don't destroy on tab switch) -->
+          <div v-show="activeTab === 'editor'" class="px-4 py-2 flex-1 min-h-0 flex flex-col gap-2 overflow-y-auto">
 
             <!-- Reference images FIRST (VideoStudio pattern: 56x56 thumbnails, dropdown, preview) -->
             <div class="flex items-center gap-2 shrink-0 overflow-x-auto pb-1">

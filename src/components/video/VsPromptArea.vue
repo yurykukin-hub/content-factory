@@ -161,9 +161,9 @@ defineExpose({ insertBadge, openPreview, setContentWithBadges })
       <VsPromptTabs v-model="activeTab" />
     </div>
 
-    <!-- Agent tab -->
+    <!-- Agent tab (v-show: keep alive, don't destroy on tab switch) -->
     <VsAgentChat
-      v-if="activeTab === 'agent'"
+      v-show="activeTab === 'agent'"
       :messages="chatMessages || []"
       :loading="agentLoading || false"
       :mode="agentMode || 'simple'"
@@ -173,8 +173,8 @@ defineExpose({ insertBadge, openPreview, setContentWithBadges })
       @use-prompt="onAgentUsePrompt"
       @update:mode="emit('update:agentMode', $event)" />
 
-    <!-- Editor tab (existing content) -->
-    <div v-else class="px-4 py-3 space-y-3">
+    <!-- Editor tab (v-show: keep alive, don't destroy on tab switch) -->
+    <div v-show="activeTab === 'editor'" class="px-4 py-3 space-y-3">
 
     <!-- 1. INPUT IMAGES (above prompt, Kling-style) -->
 

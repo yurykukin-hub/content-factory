@@ -4,7 +4,7 @@
  * Pattern follows VideoStudioView: 50/50 layout, sessions, SSE, auto-save.
  * Brand color: fuchsia (matching Content Factory).
  */
-import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount, onDeactivated, nextTick } from 'vue'
 import { ChevronDown, ChevronUp, Music } from 'lucide-vue-next'
 import { http, TAB_ID } from '@/api/client'
 import { useBusinessesStore } from '@/stores/businesses'
@@ -170,6 +170,15 @@ function flushBeforeUnload() {
 }
 
 watch([prompt, lyrics, musicStyle, musicTitle, negativeTags, instrumental, vocalGender, sunoModel, styleWeight, weirdnessConstraint, musicMode, selectedPersonaId, chatMessages], scheduleAutoSave, { deep: true })
+
+// Flush save immediately when switching tabs
+watch(activeTab, () => {
+  if (autoSaveTimer) {
+    clearTimeout(autoSaveTimer)
+    autoSaveTimer = null
+  }
+  saveSession()
+})
 
 // --- Session CRUD ---
 async function loadSessions() {
@@ -550,12 +559,20 @@ onBeforeUnmount(() => {
   window.removeEventListener('beforeunload', flushBeforeUnload)
   sseSource?.close()
   if (sseReconnectTimer) clearTimeout(sseReconnectTimer)
-  // Flush pending auto-save before unmount
   if (autoSaveTimer) {
     clearTimeout(autoSaveTimer)
     autoSaveTimer = null
     saveSession()
   }
+})
+
+// KeepAlive deactivate — flush save when navigating away
+onDeactivated(() => {
+  if (autoSaveTimer) {
+    clearTimeout(autoSaveTimer)
+    autoSaveTimer = null
+  }
+  saveSession()
 })
 </script>
 
@@ -612,8 +629,8 @@ onBeforeUnmount(() => {
             <SsPromptTabs v-model="activeTab" />
           </div>
 
-          <!-- Agent tab (stretches to fill) -->
-          <SsAgentChat v-if="activeTab === 'agent'" class="flex-1 min-h-0"
+          <!-- Agent tab (v-show: keep alive, don't destroy on tab switch) -->
+          <SsAgentChat v-show="activeTab === 'agent'" class="flex-1 min-h-0"
             :messages="chatMessages"
             :loading="agentLoading"
             :mode="agentMode"
@@ -626,8 +643,8 @@ onBeforeUnmount(() => {
             @update:mode="agentMode = $event"
           />
 
-          <!-- Editor tab (stretches to fill) -->
-          <div v-else class="px-4 py-2 flex-1 min-h-0 flex flex-col gap-2 overflow-y-auto">
+          <!-- Editor tab (v-show: keep alive, don't destroy on tab switch) -->
+          <div v-show="activeTab === 'editor'" class="px-4 py-2 flex-1 min-h-0 flex flex-col gap-2 overflow-y-auto">
             <!-- Simple mode: just prompt -->
             <div :class="musicMode === 'simple' ? 'flex-1 flex flex-col min-h-0' : ''">
               <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wide shrink-0">
