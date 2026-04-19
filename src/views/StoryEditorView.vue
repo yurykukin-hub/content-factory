@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed, watch, nextTick, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { http } from '@/api/client'
+import { http, TAB_ID } from '@/api/client'
 import { useAuthStore } from '@/stores/auth'
 import { useBusinessesStore } from '@/stores/businesses'
 import { useToast } from '@/composables/useToast'
@@ -552,7 +552,7 @@ async function uploadPhoto(e: Event) {
     formData.append('file', input.files[0])
     formData.append('businessId', post.value.businessId)
     formData.append('postId', post.value.id)
-    const res = await fetch('/api/media/upload', { method: 'POST', body: formData, credentials: 'include' })
+    const res = await fetch('/api/media/upload', { method: 'POST', body: formData, credentials: 'include', headers: { 'X-Tab-ID': TAB_ID } })
     const mf = await res.json() as MediaFile
     post.value.mediaFiles = [mf]
     loadImage(mf.url)
@@ -698,7 +698,7 @@ async function addRefImage(event: Event) {
   formData.append('businessId', post.value.businessId)
   formData.append('tags', JSON.stringify(['video-reference']))
   try {
-    const res = await fetch('/api/media/upload', { method: 'POST', credentials: 'include', body: formData })
+    const res = await fetch('/api/media/upload', { method: 'POST', credentials: 'include', headers: { 'X-Tab-ID': TAB_ID }, body: formData })
     if (!res.ok) throw new Error('Файл не загружен')
     const media = await res.json()
     videoRefImages.value.push({ url: media.url, thumbUrl: media.thumbUrl, filename: media.filename })
@@ -719,7 +719,7 @@ async function pickFrame(event: Event, which: 'first' | 'last') {
   formData.append('businessId', post.value.businessId)
   formData.append('tags', JSON.stringify(['video-frame']))
   try {
-    const res = await fetch('/api/media/upload', { method: 'POST', credentials: 'include', body: formData })
+    const res = await fetch('/api/media/upload', { method: 'POST', credentials: 'include', headers: { 'X-Tab-ID': TAB_ID }, body: formData })
     if (!res.ok) throw new Error('Файл не загружен')
     const media = await res.json()
     const frame = { url: media.url, thumbUrl: media.thumbUrl, filename: media.filename }
@@ -808,7 +808,7 @@ async function confirmPublish() {
     formData.append('file', previewBlob.value, 'story-rendered.jpg')
     formData.append('businessId', post.value.businessId)
     // НЕ привязываем к postId — это временный файл для публикации
-    const uploadRes = await fetch('/api/media/upload', { method: 'POST', body: formData, credentials: 'include' })
+    const uploadRes = await fetch('/api/media/upload', { method: 'POST', body: formData, credentials: 'include', headers: { 'X-Tab-ID': TAB_ID } })
     const renderedFile = await uploadRes.json() as MediaFile
 
     // 2. Сохранить пост
@@ -876,7 +876,7 @@ async function schedulePublish() {
     const formData = new FormData()
     formData.append('file', previewBlob.value, 'story-rendered.jpg')
     formData.append('businessId', post.value.businessId)
-    const uploadRes = await fetch('/api/media/upload', { method: 'POST', body: formData, credentials: 'include' })
+    const uploadRes = await fetch('/api/media/upload', { method: 'POST', body: formData, credentials: 'include', headers: { 'X-Tab-ID': TAB_ID } })
     const renderedFile = await uploadRes.json() as MediaFile
 
     await http.put(`/posts/${post.value.id}`, { body: overlayText.value, title: storyTitle.value || null })

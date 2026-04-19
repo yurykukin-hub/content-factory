@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
-import { http } from '@/api/client'
+import { http, TAB_ID } from '@/api/client'
 import { useToast } from '@/composables/useToast'
 import { X, Upload, Plus, Loader2, Sparkles } from 'lucide-vue-next'
 
@@ -80,7 +80,7 @@ async function uploadPhoto(event: Event, target: 'main' | 'additional') {
   fd.append('businessId', props.businessId)
   fd.append('tags', JSON.stringify(['reference']))
   try {
-    const res = await fetch('/api/media/upload', { method: 'POST', credentials: 'include', body: fd })
+    const res = await fetch('/api/media/upload', { method: 'POST', credentials: 'include', headers: { 'X-Tab-ID': TAB_ID }, body: fd })
     if (!res.ok) throw new Error()
     const m = await res.json()
     const photo = { url: m.url, thumbUrl: m.thumbUrl, filename: m.filename }

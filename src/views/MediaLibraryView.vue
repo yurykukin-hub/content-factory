@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
-import { http } from '@/api/client'
+import { http, TAB_ID } from '@/api/client'
 import { useBusinessesStore } from '@/stores/businesses'
 import { useToast } from '@/composables/useToast'
 import { formatDate } from '@/composables/useFormatters'
@@ -231,7 +231,7 @@ async function uploadFile(e: Event) {
       formData.append('file', file)
       formData.append('businessId', businesses.currentBusiness.id)
       if (currentFolderId.value) formData.append('folderId', currentFolderId.value)
-      await fetch('/api/media/upload', { method: 'POST', body: formData, credentials: 'include' })
+      await fetch('/api/media/upload', { method: 'POST', body: formData, credentials: 'include', headers: { 'X-Tab-ID': TAB_ID } })
     }
     toast.success(`${input.files.length} файл(ов) загружено`)
     await loadFiles()
