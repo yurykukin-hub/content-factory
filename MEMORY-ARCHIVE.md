@@ -73,3 +73,23 @@
 - analyzeVideoPrompt() — анализ сложности, адаптивный enhance
 - Director mode (Sonnet, timeline), VsEnhanceMenu split-button, debug info bar
 - Seedance 2.0 best practices в промптах
+
+## Архив: Security Hardening + Code Review 2026-04-16
+
+- 96 тестов (7 файлов). Path traversal fix (resolve+startsWith). Zod все PUT
+- CSRF X-Tab-ID. Rate limiting login. Billing race condition ($transaction)
+- Graceful shutdown. Frontend 401 shared promise. Docker limits. Backup gunzip -t
+- USD/RUB: AppConfig + getUsdRubRate(). AiUsageLog +userId +status +prompt +chargedRub
+
+## Архив: Русификация AI + Media Library 2026-04-16
+
+- translatePrompt() с 15 камерных терминов. Enhance на языке ввода. describe-image на русском
+- MIME extensionToMime() fallback. Cursor pagination 40/page. ffmpeg thumbnails
+- isImage()/isVideo() fallback. 4 консьюмера → res.files
+
+## Архив: AI Agent + Sound Studio + Voice Input 2026-04-17
+
+- AI Agent Mode: VsAgentChat + multi-turn aiChat(). Simple (Haiku) / Advanced (Sonnet)
+- Sound Studio MVP: suno.ts, 13 Ss* компонентов, wavesurfer.js. KIE Suno API v2
+- MusicPersona voice clone (V5.5 Generate Persona). 8 music enhance modes
+- Voice Input: useVoiceInput composable, Whisper STT, ~$0.006/мин

@@ -273,7 +273,7 @@ API keys: OpenRouter — из БД (AppConfig) или .env. FAL — из .env (F
 - **Mode switcher** — Simple/Custom скрыт, forced Custom mode (SsModeTabs commented out). Легко вернуть
 - **Session type isolation** — VideoStudio: `&type=video`, SoundStudio: `&type=music` (фикс mixing bug)
 
-## Photo Studio Architecture (2026-04-18)
+## Photo Studio Architecture (2026-04-18, updated 19.04)
 - **GenerationSession type="photo"** — расширение той же модели (type discriminator). 5 photo-полей: photoModel, photoResolution, batchSize, photoAspectRatio, batchTaskIds
 - **Две модели:** `nano-banana-2` (быстрая, 4-6 сек, $0.04-0.09) и `nano-banana-pro` (качественная, 10-20 сек, $0.07-0.12)
 - **Три разрешения:** 1K, 2K (default), 4K. Цена зависит от модели + разрешения (`PHOTO_PRICING`)
@@ -281,11 +281,13 @@ API keys: OpenRouter — из БД (AppConfig) или .env. FAL — из .env (F
 - **10 aspect ratios:** 1:1, 2:3, 3:2, 3:4, 4:3, 4:5, 5:4, 9:16, 16:9, 21:9
 - **Async generation** — тот же поллер (video-poller.ts), ветвление по session.type='photo'. `pollPhotoSession()` ждёт завершения ВСЕХ задач batch перед completed
 - **8 enhance modes:** enhance, style, lighting, composition, mood, detail, translate, simplify
-- **Photo AI Agent** — buildPhotoAgentSystemPrompt (NB2/Pro expert, aspect ratios, resolution, character references). Simple/Advanced modes
-- **Character references** — переиспользует Character model, enrichment prompt + image_input для img2img
+- **Photo AI Agent** — buildPhotoAgentSystemPrompt (NB2/Pro expert, aspect ratios, resolution, character references). Simple/Advanced modes. Агент видит загруженные референсы (filename + altText в контексте)
+- **Reference images** — VideoStudio-style UI: 56×56 thumbnails с @N метками, dropdown (Загрузить/Из медиатеки), click → preview popup с AI-описание (Gemini Vision). До 14 refs для NB2, до 8 для Pro. MediaPickerModal с multi-select. Референсы передаются в KIE.ai как `image_input` массив
 - **img2img + remove-bg** — делегируют в существующие `editImage()` и `removeBackground()` через `/api/photos/edit-image` и `/api/photos/remove-background`
 - **Layout** — 50/50, KeepAlive, SSE. Auto-save 2s debounce. Gallery: responsive grid (1 col mobile, 2 cols desktop) + lightbox
+- **Tab persistence** — v-show (не v-if) для Agent/Editor, немедленный flush при переключении таба, onDeactivated flush при навигации
 - **Session type isolation** — PhotoStudio: `&type=photo`
+- **Generate payload mapping:** frontend sends `model`/`resolution`/`aspectRatio` (не photoModel/photoResolution/photoAspectRatio) чтобы совпадать с Zod schema
 
 ## Media Library
 - **Upload MIME detection**: extensionToMime() fallback when blob.type is empty/octet-stream (MOV, AVI, MKV etc.)
