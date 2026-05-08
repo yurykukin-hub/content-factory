@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import { http } from '@/api/client'
 import { useToast } from '@/composables/useToast'
+import { useBusinessesStore } from '@/stores/businesses'
 import { Film, Send, Clock, Sparkles } from 'lucide-vue-next'
 
 const toast = useToast()
+const businesses = useBusinessesStore()
 
 interface DashboardData {
   totalBusinesses: number
@@ -23,15 +25,21 @@ interface DashboardData {
 const data = ref<DashboardData | null>(null)
 const loading = ref(true)
 
-onMounted(async () => {
+async function loadDashboard() {
+  loading.value = true
   try {
-    data.value = await http.get<DashboardData>('/dashboard')
+    const bizId = businesses.currentBusinessId
+    const query = bizId ? `?businessId=${bizId}` : ''
+    data.value = await http.get<DashboardData>(`/dashboard${query}`)
   } catch (e) {
     toast.error('Ошибка загрузки дашборда')
   } finally {
     loading.value = false
   }
-})
+}
+
+onMounted(loadDashboard)
+watch(() => businesses.currentBusinessId, loadDashboard)
 </script>
 
 <template>

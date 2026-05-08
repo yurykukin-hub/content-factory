@@ -21,9 +21,18 @@ const CACHE_TTL = 60_000
 dashboard.get('/', async (c) => {
   const user = c.get('user') as AuthUser
   const bizIds = await getUserBusinessIds(user)
+  const requestedBizId = c.req.query('businessId')
 
-  // Фильтр: null = ADMIN (все бизнесы), массив = EDITOR (только доступные)
-  const bizFilter = bizIds ? { businessId: { in: bizIds } } : {}
+  // Фильтр по конкретному бизнесу или все доступные
+  let bizFilter: Record<string, any>
+  if (requestedBizId) {
+    if (bizIds && !bizIds.includes(requestedBizId)) {
+      return c.json({ error: 'Forbidden' }, 403)
+    }
+    bizFilter = { businessId: requestedBizId }
+  } else {
+    bizFilter = bizIds ? { businessId: { in: bizIds } } : {}
+  }
 
   const now = new Date()
   const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
@@ -37,7 +46,7 @@ dashboard.get('/', async (c) => {
     scheduledPosts,
     aiUsageMonth,
   ] = await Promise.all([
-    db.business.count({ where: { isActive: true, ...(bizIds ? { id: { in: bizIds } } : {}) } }),
+    db.business.count({ where: { isActive: true, ...(requestedBizId ? { id: requestedBizId } : bizIds ? { id: { in: bizIds } } : {}) } }),
     db.post.count({ where: bizFilter }),
     db.post.count({ where: { ...bizFilter, createdAt: { gte: weekAgo } } }),
     db.postVersion.count({ where: { status: 'PUBLISHED', publishedAt: { gte: weekAgo }, post: bizFilter } }),

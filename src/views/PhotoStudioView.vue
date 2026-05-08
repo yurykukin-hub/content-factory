@@ -5,7 +5,7 @@
  * Brand color: fuchsia (matching Content Factory).
  */
 import { ref, computed, watch, onMounted, onBeforeUnmount, onDeactivated } from 'vue'
-import { ChevronDown, ChevronUp, Camera, Plus, Upload, FolderOpen, X, Sparkles, Loader2 } from 'lucide-vue-next'
+import { ChevronUp, Camera, Plus, Upload, FolderOpen, X, Sparkles, Loader2 } from 'lucide-vue-next'
 import MediaPickerModal from '@/components/MediaPickerModal.vue'
 import { http, TAB_ID } from '@/api/client'
 import { useBusinessesStore } from '@/stores/businesses'
@@ -13,6 +13,9 @@ import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/composables/useToast'
 import { useRates } from '@/composables/useRates'
 
+import SharedCharacterCarousel from '@/components/shared/SharedCharacterCarousel.vue'
+import SharedRefModal from '@/components/shared/SharedRefModal.vue'
+import type { CharacterData } from '@/components/shared/SharedRefModal.vue'
 import PsSettingsPanel from '@/components/photo/PsSettingsPanel.vue'
 import PsSessionBar from '@/components/photo/PsSessionBar.vue'
 import PsGallery from '@/components/photo/PsGallery.vue'
@@ -37,18 +40,10 @@ http.get<{ usdRubRate: number; markupPercent: number }>('/settings/public')
   .then((data) => { if (data.markupPercent >= 0) markupPercent.value = data.markupPercent })
   .catch(() => {})
 
-// --- Business selector ---
-const selectedBizId = ref<string | null>(businesses.currentBusinessId)
-const showBizDropdown = ref(false)
-const currentBizName = computed(() =>
-  businesses.businesses.find(b => b.id === selectedBizId.value)?.name || 'Выберите проект'
-)
-function selectBiz(id: string) {
-  selectedBizId.value = id
-  businesses.setCurrent(id)
-  showBizDropdown.value = false
-  onBusinessChange()
-}
+// Business change watcher (global selector in header)
+watch(() => businesses.currentBusinessId, (newId, oldId) => {
+  if (newId && newId !== oldId) onBusinessChange()
+})
 
 // --- Session state ---
 const sessions = ref<PhotoSession[]>([])
@@ -76,6 +71,54 @@ const fileInputRef = ref<HTMLInputElement | null>(null)
 
 // Max reference images per model
 const maxRefs = computed(() => photoModel.value === 'nano-banana-pro' ? 8 : 14)
+
+// --- Characters ---
+const characters = ref<any[]>([])
+const showRefModal = ref(false)
+const editingCharacter = ref<CharacterData | null>(null)
+
+async function loadCharacters() {
+  if (!businesses.currentBusinessId) return
+  try {
+    characters.value = await http.get<any[]>(`/businesses/${businesses.currentBusinessId}/characters`)
+  } catch { characters.value = [] }
+}
+
+function onCreateRef() {
+  editingCharacter.value = null
+  showRefModal.value = true
+}
+
+function onCharacterSelect(id: string | null) {
+  if (!id) return
+  const char = characters.value.find(c => c.id === id)
+  if (!char) return
+
+  // If character's main image already in refs → open modal to view/edit
+  const charUrl = char.referenceMedia?.url || char.images?.[0]?.url
+  if (charUrl && referenceImages.value.some(r => r.url === charUrl)) {
+    editingCharacter.value = char as CharacterData
+    showRefModal.value = true
+    return
+  }
+
+  // Add character's main image to refs
+  if (charUrl && referenceImages.value.length < maxRefs.value) {
+    referenceImages.value.push({
+      url: charUrl,
+      thumbUrl: char.referenceMedia?.thumbUrl || char.images?.[0]?.thumbUrl || null,
+      filename: char.name,
+      altText: char.description || null,
+    })
+    selectedCharacterId.value = id
+  }
+}
+
+function onRefSaved() {
+  loadCharacters()
+  showRefModal.value = false
+  editingCharacter.value = null
+}
 
 // --- Generation state ---
 const generating = ref(false)
@@ -112,7 +155,7 @@ const costRub = computed(() => {
 })
 
 const canGenerate = computed(() => {
-  if (!selectedBizId.value) return false
+  if (!businesses.currentBusinessId) return false
   return prompt.value.trim().length > 0
 })
 
@@ -191,17 +234,17 @@ watch(activeTab, () => {
 
 // --- Session CRUD ---
 async function loadSessions() {
-  if (!selectedBizId.value) return
+  if (!businesses.currentBusinessId) return
   try {
-    sessions.value = await http.get<PhotoSession[]>(`/sessions?businessId=${selectedBizId.value}&type=photo`)
+    sessions.value = await http.get<PhotoSession[]>(`/sessions?businessId=${businesses.currentBusinessId}&type=photo`)
   } catch {}
 }
 
 async function loadDraftSession() {
-  if (!selectedBizId.value) return
+  if (!businesses.currentBusinessId) return
   autoSavePaused = true
   // Try loading existing draft first
-  const draft = await http.get<any>(`/sessions/draft?businessId=${selectedBizId.value}&type=photo`).catch(() => null)
+  const draft = await http.get<any>(`/sessions/draft?businessId=${businesses.currentBusinessId}&type=photo`).catch(() => null)
   if (draft) {
     loadSessionIntoState(draft)
     autoSavePaused = false
@@ -223,11 +266,11 @@ async function loadDraftSession() {
 }
 
 async function createNewSession() {
-  if (!selectedBizId.value) return
+  if (!businesses.currentBusinessId) return
   resetState()
   try {
     const session = await http.post<any>('/sessions', {
-      businessId: selectedBizId.value,
+      businessId: businesses.currentBusinessId,
       type: 'photo',
     })
     currentSessionId.value = session.id
@@ -339,6 +382,7 @@ async function onBusinessChange() {
   resetState()
   loadSessions()
   loadDraftSession()
+  loadCharacters()
 }
 
 // --- Generation ---
@@ -348,7 +392,7 @@ function requestGenerate() {
 
 async function confirmGenerate() {
   showPreGenModal.value = false
-  if (!selectedBizId.value || !currentSessionId.value) return
+  if (!businesses.currentBusinessId || !currentSessionId.value) return
 
   autoSavePaused = true
   generating.value = true
@@ -356,7 +400,7 @@ async function confirmGenerate() {
 
   try {
     await http.post('/photos/generate', {
-      businessId: selectedBizId.value,
+      businessId: businesses.currentBusinessId,
       sessionId: currentSessionId.value,
       prompt: prompt.value,
       model: photoModel.value,
@@ -379,12 +423,12 @@ async function confirmGenerate() {
 
 // --- Enhance ---
 async function onEnhance(mode: PhotoEnhanceMode) {
-  if (!selectedBizId.value) return
+  if (!businesses.currentBusinessId) return
   enhancing.value = true
   try {
     const res = await http.post<any>('/photos/enhance-prompt', {
       prompt: prompt.value,
-      businessId: selectedBizId.value,
+      businessId: businesses.currentBusinessId,
       mode,
     })
     prompt.value = res.enhancedPrompt
@@ -426,7 +470,7 @@ async function onSendAgentMessage(userText: string) {
         referenceImages: referenceImages.value.map(r => ({ filename: r.filename, altText: r.altText })),
       },
       mode: agentMode.value,
-      businessId: selectedBizId.value,
+      businessId: businesses.currentBusinessId,
     })
 
     const parsed = parseAgentResponse(res.content)
@@ -534,13 +578,13 @@ function onLibraryClick() {
 async function onFileUpload(e: Event) {
   const input = e.target as HTMLInputElement
   const file = input.files?.[0]
-  if (!file || !selectedBizId.value) return
+  if (!file || !businesses.currentBusinessId) return
   input.value = '' // reset
   if (referenceImages.value.length >= maxRefs.value) return
 
   const formData = new FormData()
   formData.append('file', file)
-  formData.append('businessId', selectedBizId.value)
+  formData.append('businessId', businesses.currentBusinessId)
 
   try {
     const resp = await fetch('/api/media/upload', {
@@ -567,7 +611,7 @@ async function describeRefImage(img: { url: string; thumbUrl?: string | null; fi
   try {
     const res = await http.post<{ description: string }>('/ai/describe-image', {
       imageUrl: img.url,
-      businessId: selectedBizId.value,
+      businessId: businesses.currentBusinessId,
       type: 'auto',
     })
     img.altText = res.description
@@ -594,14 +638,11 @@ const contextSummary = computed(() => {
 
 // --- Lifecycle ---
 onMounted(async () => {
-  if (!selectedBizId.value && businesses.businesses.length) {
-    selectedBizId.value = businesses.businesses[0].id
-    businesses.setCurrent(selectedBizId.value)
-  }
   window.addEventListener('beforeunload', flushBeforeUnload)
   connectSSE()
   await loadSessions()
   await loadDraftSession()
+  loadCharacters()
 })
 
 onBeforeUnmount(() => {
@@ -635,24 +676,6 @@ onDeactivated(() => {
         Фото-студия
       </h1>
 
-      <!-- Business dropdown -->
-      <div class="relative">
-        <button @click="showBizDropdown = !showBizDropdown"
-          class="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800">
-          {{ currentBizName }}
-          <ChevronDown :size="14" :class="['transition-transform', showBizDropdown ? 'rotate-180' : '']" />
-        </button>
-        <div v-if="showBizDropdown" class="fixed inset-0 z-10" @click="showBizDropdown = false" />
-        <div v-if="showBizDropdown"
-          class="absolute right-0 top-full mt-1 w-48 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl z-20 py-1">
-          <button v-for="b in businesses.businesses" :key="b.id"
-            @click="selectBiz(b.id)"
-            :class="['w-full text-left px-3 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors',
-              b.id === selectedBizId ? 'text-fuchsia-600 font-medium' : 'text-gray-600 dark:text-gray-400']">
-            {{ b.name }}
-          </button>
-        </div>
-      </div>
     </div>
 
     <!-- Main 50/50 layout -->
@@ -668,6 +691,16 @@ onDeactivated(() => {
           @delete="onDeleteSession"
           @create="createNewSession"
           @rename="onRenameSession"
+        />
+
+        <!-- Character Carousel -->
+        <SharedCharacterCarousel
+          v-if="characters.length > 0 || true"
+          :characters="characters"
+          :model-value="selectedCharacterId"
+          color-scheme="fuchsia"
+          @update:model-value="onCharacterSelect"
+          @create-new="onCreateRef"
         />
 
         <!-- Controls (fills remaining space) -->
@@ -853,12 +886,22 @@ onDeactivated(() => {
     <!-- Media picker for reference images -->
     <MediaPickerModal
       :visible="showMediaPicker"
-      :business-id="selectedBizId || ''"
+      :business-id="businesses.currentBusinessId || ''"
       multi-select
       :max-select="maxRefs - referenceImages.length"
       @close="showMediaPicker = false"
       @selected="onAddRefFromLibrary"
       @selected-multi="onAddRefsMulti"
+    />
+
+    <!-- Character Reference Modal -->
+    <SharedRefModal
+      :visible="showRefModal"
+      :business-id="businesses.currentBusinessId || ''"
+      :character="editingCharacter"
+      color-scheme="fuchsia"
+      @close="showRefModal = false; editingCharacter = null"
+      @saved="onRefSaved()"
     />
   </div>
 </template>

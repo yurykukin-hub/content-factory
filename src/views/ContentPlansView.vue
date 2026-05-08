@@ -9,7 +9,6 @@ import {
   ClipboardList, Sparkles, Plus, Loader2, Table, CalendarDays,
   Pencil, Wand2, ExternalLink, X, ChevronLeft, ChevronRight, Trash2
 } from 'lucide-vue-next'
-import BusinessFilter from '@/components/BusinessFilter.vue'
 import { useSectionAccess } from '@/composables/useSectionAccess'
 import { postTypeLabel } from '@/composables/useLabels'
 
@@ -245,12 +244,6 @@ watch(() => businesses.currentBusiness?.id, loadPlans)
 
 <template>
   <div>
-    <!-- Business filter -->
-    <BusinessFilter
-      :model-value="businesses.currentBusinessId!"
-      @update:model-value="(id: string) => { businesses.setCurrent(id); loadPlans() }"
-    />
-
     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
       <h1 class="text-xl md:text-2xl font-bold">Контент-планы</h1>
       <button v-if="canEditSection('plans')" @click="showAiModal = true"

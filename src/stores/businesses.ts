@@ -45,9 +45,9 @@ export const useBusinessesStore = defineStore('businesses', () => {
 
   async function load() {
     businesses.value = await http.get<Business[]>('/businesses')
-    // Если текущий бизнес не найден, выбрать первый
-    if (currentBusinessId.value && !businesses.value.find((b) => b.id === currentBusinessId.value)) {
-      currentBusinessId.value = businesses.value[0]?.id || null
+    // Гарантируем что currentBusinessId всегда выбран
+    if (!businesses.value.find((b) => b.id === currentBusinessId.value) && businesses.value.length > 0) {
+      setCurrent(businesses.value[0].id)
     }
   }
 

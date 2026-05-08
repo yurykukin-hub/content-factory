@@ -4,7 +4,6 @@ import { http } from '@/api/client'
 import { useToast } from '@/composables/useToast'
 import { useBusinessesStore } from '@/stores/businesses'
 import { formatDate } from '@/composables/useFormatters'
-import BusinessFilter from '@/components/BusinessFilter.vue'
 import { useRouter } from 'vue-router'
 import { useSectionAccess } from '@/composables/useSectionAccess'
 import {
@@ -42,7 +41,6 @@ const businesses = useBusinessesStore()
 
 const scenarios = ref<Scenario[]>([])
 const loading = ref(true)
-const selectedBizId = ref<string | null>(businesses.currentBusinessId)
 
 // AI generation
 const showAiModal = ref(false)
@@ -75,8 +73,8 @@ const statusColors: Record<string, string> = {
 }
 
 const filteredScenarios = computed(() => {
-  if (!selectedBizId.value) return scenarios.value
-  return scenarios.value.filter(s => s.businessId === selectedBizId.value)
+  if (!businesses.currentBusinessId) return scenarios.value
+  return scenarios.value.filter(s => s.businessId === businesses.currentBusinessId)
 })
 
 const totalDuration = (scenes: Scene[]) =>
@@ -85,7 +83,7 @@ const totalDuration = (scenes: Scene[]) =>
 async function loadScenarios() {
   loading.value = true
   try {
-    const query = selectedBizId.value ? `?businessId=${selectedBizId.value}` : ''
+    const query = businesses.currentBusinessId ? `?businessId=${businesses.currentBusinessId}` : ''
     scenarios.value = await http.get<Scenario[]>(`/scenarios${query}`)
   } catch (e) {
     toast.error('Ошибка загрузки сценариев')
@@ -95,13 +93,13 @@ async function loadScenarios() {
 }
 
 async function createScenario() {
-  if (!selectedBizId.value) {
+  if (!businesses.currentBusinessId) {
     toast.error('Выберите бизнес')
     return
   }
   try {
     const scenario = await http.post<Scenario>('/scenarios', {
-      businessId: selectedBizId.value,
+      businessId: businesses.currentBusinessId,
       title: 'Новый сценарий',
       scenes: [{ sceneNumber: 1, description: '', voiceover: '', durationSec: 5, imagePrompt: '' }],
     })
@@ -116,11 +114,11 @@ async function createScenario() {
 
 // AI generation
 async function generateScenario() {
-  if (!selectedBizId.value || !aiTopic.value.trim()) return
+  if (!businesses.currentBusinessId || !aiTopic.value.trim()) return
   generating.value = true
   try {
     const result = await http.post<{ title: string; scenes: Scene[] }>('/ai/generate-scenario', {
-      businessId: selectedBizId.value,
+      businessId: businesses.currentBusinessId,
       topic: aiTopic.value.trim(),
       sceneCount: aiSceneCount.value,
       style: aiStyle.value || undefined,
@@ -128,7 +126,7 @@ async function generateScenario() {
 
     // Create scenario with AI-generated content
     const scenario = await http.post<Scenario>('/scenarios', {
-      businessId: selectedBizId.value,
+      businessId: businesses.currentBusinessId,
       title: result.title || aiTopic.value,
       description: `AI-сценарий: ${aiTopic.value}`,
       scenes: result.scenes,
@@ -274,7 +272,7 @@ async function updateScenarioStatus(scenarioId: string, status: string) {
   }
 }
 
-watch(selectedBizId, () => loadScenarios())
+watch(() => businesses.currentBusinessId, () => loadScenarios())
 onMounted(loadScenarios)
 </script>
 
@@ -303,9 +301,6 @@ onMounted(loadScenarios)
         </button>
       </div>
     </div>
-
-    <!-- Business filter -->
-    <BusinessFilter v-model="selectedBizId" />
 
     <!-- Loading -->
     <div v-if="loading" class="space-y-3">
@@ -534,7 +529,7 @@ onMounted(loadScenarios)
             </button>
             <button
               @click="generateScenario"
-              :disabled="generating || !aiTopic.trim() || !selectedBizId"
+              :disabled="generating || !aiTopic.trim() || !businesses.currentBusinessId"
               class="flex-1 px-3 py-2.5 rounded-lg bg-gradient-to-r from-purple-600 to-brand-600 text-white text-sm font-medium disabled:opacity-50 flex items-center justify-center gap-2"
             >
               <Loader2 v-if="generating" :size="14" class="animate-spin" />

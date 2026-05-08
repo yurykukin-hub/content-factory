@@ -8,7 +8,6 @@ import { statusColor, statusLabel } from '@/composables/useStatus'
 import { formatDate } from '@/composables/useFormatters'
 import { platformColor } from '@/composables/usePlatform'
 import { Film, Plus, Send, Trash2, Loader2, ChevronDown } from 'lucide-vue-next'
-import BusinessFilter from '@/components/BusinessFilter.vue'
 import { useSectionAccess } from '@/composables/useSectionAccess'
 
 const { canEdit: canEditPosts } = useSectionAccess()
@@ -132,12 +131,6 @@ watch(statusFilter, loadPosts)
         Создать историю
       </button>
     </div>
-
-    <!-- Business filter -->
-    <BusinessFilter
-      :model-value="businesses.currentBusinessId!"
-      @update:model-value="(id: string) => { businesses.setCurrent(id); loadPosts() }"
-    />
 
     <!-- Status filter -->
     <div class="mb-4">

@@ -5,6 +5,7 @@ import { useThemeStore } from '@/stores/theme'
 import { useSidebarStore } from '@/stores/sidebar'
 import { LogOut, Sun, Moon, Menu } from 'lucide-vue-next'
 import UsageBadge from './UsageBadge.vue'
+import GlobalBusinessSelector from './GlobalBusinessSelector.vue'
 
 const auth = useAuthStore()
 const theme = useThemeStore()
@@ -28,6 +29,7 @@ async function handleLogout() {
         <Menu :size="20" />
       </button>
       <span class="md:hidden text-sm font-bold text-brand-600 dark:text-brand-400">CF</span>
+      <GlobalBusinessSelector class="ml-1" />
     </div>
 
     <!-- Right side -->

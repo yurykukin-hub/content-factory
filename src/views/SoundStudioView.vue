@@ -5,7 +5,7 @@
  * Brand color: fuchsia (matching Content Factory).
  */
 import { ref, computed, watch, onMounted, onBeforeUnmount, onDeactivated, nextTick } from 'vue'
-import { ChevronDown, ChevronUp, Music } from 'lucide-vue-next'
+import { ChevronUp, Music } from 'lucide-vue-next'
 import { http, TAB_ID } from '@/api/client'
 import { useBusinessesStore } from '@/stores/businesses'
 import { useAuthStore } from '@/stores/auth'
@@ -41,18 +41,10 @@ http.get<{ usdRubRate: number; markupPercent: number }>('/settings/public')
   .then((data) => { if (data.markupPercent >= 0) markupPercent.value = data.markupPercent })
   .catch(() => {})
 
-// --- Business selector ---
-const selectedBizId = ref<string | null>(businesses.currentBusinessId)
-const showBizDropdown = ref(false)
-const currentBizName = computed(() =>
-  businesses.businesses.find(b => b.id === selectedBizId.value)?.name || 'Выберите проект'
-)
-function selectBiz(id: string) {
-  selectedBizId.value = id
-  businesses.setCurrent(id)
-  showBizDropdown.value = false
-  onBusinessChange()
-}
+// Business change watcher (global selector in header)
+watch(() => businesses.currentBusinessId, (newId, oldId) => {
+  if (newId && newId !== oldId) onBusinessChange()
+})
 
 // --- Session state ---
 const sessions = ref<MusicSession[]>([])
@@ -97,7 +89,7 @@ const costRub = computed(() => {
 })
 
 const canGenerate = computed(() => {
-  if (!selectedBizId.value) return false
+  if (!businesses.currentBusinessId) return false
   if (musicMode.value === 'simple') return prompt.value.trim().length > 0
   return (lyrics.value.trim().length > 0 || prompt.value.trim().length > 0)
 })
@@ -182,17 +174,17 @@ watch(activeTab, () => {
 
 // --- Session CRUD ---
 async function loadSessions() {
-  if (!selectedBizId.value) return
+  if (!businesses.currentBusinessId) return
   try {
-    sessions.value = await http.get<MusicSession[]>(`/sessions?businessId=${selectedBizId.value}&type=music`)
+    sessions.value = await http.get<MusicSession[]>(`/sessions?businessId=${businesses.currentBusinessId}&type=music`)
   } catch {}
 }
 
 async function loadDraftSession() {
-  if (!selectedBizId.value) return
+  if (!businesses.currentBusinessId) return
   autoSavePaused = true
   // Try loading existing draft first
-  const draft = await http.get<any>(`/sessions/draft?businessId=${selectedBizId.value}&type=music`)
+  const draft = await http.get<any>(`/sessions/draft?businessId=${businesses.currentBusinessId}&type=music`)
   if (draft) {
     loadSessionIntoState(draft)
     autoSavePaused = false
@@ -212,10 +204,10 @@ async function loadDraftSession() {
 }
 
 async function createNewSession() {
-  if (!selectedBizId.value) return
+  if (!businesses.currentBusinessId) return
   resetState()
   const session = await http.post<any>('/sessions', {
-    businessId: selectedBizId.value,
+    businessId: businesses.currentBusinessId,
     type: 'music',
   })
   currentSessionId.value = session.id
@@ -369,7 +361,7 @@ function requestGenerate() {
 
 async function confirmGenerate() {
   showPreGenModal.value = false
-  if (!selectedBizId.value || !currentSessionId.value) return
+  if (!businesses.currentBusinessId || !currentSessionId.value) return
 
   autoSavePaused = true
   generating.value = true
@@ -377,7 +369,7 @@ async function confirmGenerate() {
 
   try {
     await http.post('/music/generate', {
-      businessId: selectedBizId.value,
+      businessId: businesses.currentBusinessId,
       sessionId: currentSessionId.value,
       prompt: musicMode.value === 'custom' ? (lyrics.value || prompt.value) : prompt.value,
       customMode: musicMode.value === 'custom',
@@ -403,7 +395,7 @@ async function confirmGenerate() {
 
 // --- Enhance ---
 async function onEnhance(mode: MusicEnhanceMode) {
-  if (!selectedBizId.value) return
+  if (!businesses.currentBusinessId) return
   enhancing.value = true
   try {
     const input = (mode === 'improve' || mode === 'structure' || mode === 'rhyme' || mode === 'translate')
@@ -413,7 +405,7 @@ async function onEnhance(mode: MusicEnhanceMode) {
     const res = await http.post<any>('/music/enhance-prompt', {
       prompt: input || prompt.value,
       lyrics: lyrics.value || undefined,
-      businessId: selectedBizId.value,
+      businessId: businesses.currentBusinessId,
       mode,
     })
 
@@ -474,7 +466,7 @@ async function onSendAgentMessage(userText: string) {
         weirdnessConstraint: weirdnessConstraint.value,
       },
       mode: agentMode.value,
-      businessId: selectedBizId.value,
+      businessId: businesses.currentBusinessId,
     })
 
     const parsed = parseAgentResponse(res.content)
@@ -545,10 +537,6 @@ const contextSummary = computed(() => {
 
 // --- Lifecycle ---
 onMounted(async () => {
-  if (!selectedBizId.value && businesses.businesses.length) {
-    selectedBizId.value = businesses.businesses[0].id
-    businesses.setCurrent(selectedBizId.value)
-  }
   window.addEventListener('beforeunload', flushBeforeUnload)
   connectSSE()
   await loadSessions()
@@ -585,24 +573,6 @@ onDeactivated(() => {
         Звуковая студия
       </h1>
 
-      <!-- Business dropdown -->
-      <div class="relative">
-        <button @click="showBizDropdown = !showBizDropdown"
-          class="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800">
-          {{ currentBizName }}
-          <ChevronDown :size="14" :class="['transition-transform', showBizDropdown ? 'rotate-180' : '']" />
-        </button>
-        <div v-if="showBizDropdown" class="fixed inset-0 z-10" @click="showBizDropdown = false" />
-        <div v-if="showBizDropdown"
-          class="absolute right-0 top-full mt-1 w-48 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl z-20 py-1">
-          <button v-for="b in businesses.businesses" :key="b.id"
-            @click="selectBiz(b.id)"
-            :class="['w-full text-left px-3 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors',
-              b.id === selectedBizId ? 'text-fuchsia-600 font-medium' : 'text-gray-600 dark:text-gray-400']">
-            {{ b.name }}
-          </button>
-        </div>
-      </div>
     </div>
 
     <!-- Main 50/50 layout -->

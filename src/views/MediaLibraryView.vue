@@ -7,7 +7,7 @@ import { formatDate } from '@/composables/useFormatters'
 import {
   Image, Video, Upload, Search, Tag, X, Loader2, Trash2,
   Grid3X3, Link, ExternalLink, Wand2, Eraser,
-  FolderPlus, Folder, FolderOpen, ChevronRight, Home, ChevronDown, Sparkles,
+  FolderPlus, Folder, FolderOpen, ChevronRight, Home, Sparkles,
   Pencil, Grid2X2, LayoutGrid, Check, ArrowRightLeft,
 } from 'lucide-vue-next'
 import ImageEditModal from '@/components/ai/ImageEditModal.vue'
@@ -58,7 +58,6 @@ const uploading = ref(false)
 const removingBgId = ref<string | null>(null)
 const editingFile = ref<MediaFile | null>(null)
 const previewFile = ref<MediaFile | null>(null)
-const showBizDropdown = ref(false)
 const describingPreviewId = ref<string | null>(null)
 
 async function describePreviewFile() {
@@ -438,24 +437,6 @@ watch([typeFilter, tagFilter, showUnattached], loadFiles)
     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
       <div class="flex items-center gap-3">
         <h1 class="text-xl md:text-2xl font-bold">Медиа-библиотека</h1>
-        <!-- Business dropdown -->
-        <div v-if="businesses.businesses.length > 1" class="relative">
-          <button @click="showBizDropdown = !showBizDropdown"
-            class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-sm hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
-            <span class="truncate max-w-[160px]">{{ businesses.currentBusiness?.name || 'Проект' }}</span>
-            <ChevronDown :size="14" :class="['transition-transform', showBizDropdown ? 'rotate-180' : '']" />
-          </button>
-          <div v-if="showBizDropdown" class="fixed inset-0 z-10" @click="showBizDropdown = false" />
-          <div v-if="showBizDropdown"
-            class="absolute top-full left-0 mt-1 min-w-[200px] bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl shadow-lg z-20 py-1">
-            <button v-for="biz in businesses.businesses" :key="biz.id"
-              @click="businesses.setCurrent(biz.id); currentFolderId = null; breadcrumbs = []; loadAll(); showBizDropdown = false"
-              :class="['w-full text-left px-3 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors',
-                businesses.currentBusinessId === biz.id ? 'text-brand-600 dark:text-brand-400 font-medium bg-brand-50 dark:bg-brand-900/20' : 'text-gray-700 dark:text-gray-300']">
-              {{ biz.name }}
-            </button>
-          </div>
-        </div>
       </div>
       <div class="flex items-center gap-2">
         <!-- Card size toggle -->

@@ -7,7 +7,7 @@ import { formatDate } from '@/composables/useFormatters'
 import { useRates } from '@/composables/useRates'
 import { useBusinessesStore } from '@/stores/businesses'
 import VsModeTabs from '@/components/video/VsModeTabs.vue'
-import VsCharacterCarousel from '@/components/video/VsCharacterCarousel.vue'
+import SharedCharacterCarousel from '@/components/shared/SharedCharacterCarousel.vue'
 import VsPromptArea from '@/components/video/VsPromptArea.vue'
 import VsSettingsPanel from '@/components/video/VsSettingsPanel.vue'
 import VsGallery from '@/components/video/VsGallery.vue'
@@ -15,9 +15,9 @@ import VsSessionBar from '@/components/video/VsSessionBar.vue'
 import VsConstructorDrawer from '@/components/video/VsConstructorDrawer.vue'
 import VsPreGenModal from '@/components/video/VsPreGenModal.vue'
 import MediaPickerModal from '@/components/MediaPickerModal.vue'
-import VsRefModal from '@/components/video/VsRefModal.vue'
-import type { CharacterData } from '@/components/video/VsRefModal.vue'
-import { Video, ChevronDown } from 'lucide-vue-next'
+import SharedRefModal from '@/components/shared/SharedRefModal.vue'
+import type { CharacterData } from '@/components/shared/SharedRefModal.vue'
+import { Video } from 'lucide-vue-next'
 import { useAuthStore } from '@/stores/auth'
 import { useThemeStore } from '@/stores/theme'
 import type { EnhanceMode } from '@/components/video/VsEnhanceMenu.vue'
@@ -31,17 +31,11 @@ const isAdmin = computed(() => auth.user?.role === 'ADMIN')
 const isProMode = computed(() => theme.devMode)
 const lastEnhanceDebug = ref<EnhanceDebugInfo | null>(null)
 const businesses = useBusinessesStore()
-const selectedBizId = ref<string | null>(businesses.currentBusinessId)
 
-// --- Business dropdown ---
-const showBizDropdown = ref(false)
-const currentBizName = computed(() => businesses.businesses.find(b => b.id === selectedBizId.value)?.name || 'Выберите проект')
-function selectBiz(id: string) {
-  selectedBizId.value = id
-  businesses.setCurrent(id)
-  showBizDropdown.value = false
-  onBusinessChange()
-}
+// Business change watcher (global selector in header)
+watch(() => businesses.currentBusinessId, (newId, oldId) => {
+  if (newId && newId !== oldId) onBusinessChange()
+})
 
 // --- Session persistence (DB-backed) ---
 const currentSessionId = ref<string | null>(null)
@@ -61,7 +55,7 @@ function scheduleAutoSave() {
 function buildSavePayload(): any {
   const autoTitle = prompt.value.trim().slice(0, 40) || 'Новая сессия'
   return {
-    businessId: selectedBizId.value,
+    businessId: businesses.currentBusinessId,
     title: currentSessionTitle.value || autoTitle,
     prompt: prompt.value,
     promptHistory: (() => {
@@ -87,7 +81,7 @@ function buildSavePayload(): any {
 }
 
 async function saveSession() {
-  if (!selectedBizId.value || autoSavePaused) return
+  if (!businesses.currentBusinessId || autoSavePaused) return
   if (!currentSessionId.value) return
   const current = sessions.value.find(s => s.id === currentSessionId.value)
   if (current?.status === 'generating' || current?.status === 'completed') return
@@ -125,10 +119,10 @@ function flushBeforeUnload() {
 // fixStuckSessions не нужен — video-poller на бэкенде сам обрабатывает таймауты
 
 async function loadDraftSession() {
-  if (!selectedBizId.value) return
+  if (!businesses.currentBusinessId) return
   autoSavePaused = true
   try {
-    const draft = await http.get<any>(`/sessions/draft?businessId=${selectedBizId.value}&type=video`)
+    const draft = await http.get<any>(`/sessions/draft?businessId=${businesses.currentBusinessId}&type=video`)
     if (draft) {
       currentSessionId.value = draft.id
       viewedSessionId.value = draft.id
@@ -176,7 +170,7 @@ async function loadDraftSession() {
       } else {
         // Truly empty — create first session
         try {
-          const session = await http.post<any>('/sessions', { businessId: selectedBizId.value, type: 'video' })
+          const session = await http.post<any>('/sessions', { businessId: businesses.currentBusinessId, type: 'video' })
           currentSessionId.value = session.id
           viewedSessionId.value = session.id
         } catch {}
@@ -219,9 +213,9 @@ async function deleteSession(id: string) {
 
 async function createNewSession() {
   startNewSession()
-  if (!selectedBizId.value) return
+  if (!businesses.currentBusinessId) return
   try {
-    const session = await http.post<any>('/sessions', { businessId: selectedBizId.value, type: 'video' })
+    const session = await http.post<any>('/sessions', { businessId: businesses.currentBusinessId, type: 'video' })
     currentSessionId.value = session.id
     viewedSessionId.value = session.id
     await loadSessions()
@@ -308,7 +302,7 @@ function parseAgentResponse(raw: string): { text: string; prompts: string[]; sug
 }
 
 async function sendAgentMessage(userText: string) {
-  if (!selectedBizId.value || agentLoading.value) return
+  if (!businesses.currentBusinessId || agentLoading.value) return
 
   chatMessages.value.push({
     role: 'user',
@@ -339,7 +333,7 @@ async function sendAgentMessage(userText: string) {
       messages: recentMessages,
       context,
       mode: agentMode.value,
-      businessId: selectedBizId.value,
+      businessId: businesses.currentBusinessId,
     })
 
     const parsed = parseAgentResponse(res.content)
@@ -408,8 +402,8 @@ const AUDIO_MULT = 2.0
 const { USD_RUB } = useRates()
 
 async function loadSessions() {
-  if (!selectedBizId.value) return
-  try { sessions.value = await http.get<Session[]>(`/sessions?businessId=${selectedBizId.value}&type=video`) } catch { sessions.value = [] }
+  if (!businesses.currentBusinessId) return
+  try { sessions.value = await http.get<Session[]>(`/sessions?businessId=${businesses.currentBusinessId}&type=video`) } catch { sessions.value = [] }
 }
 
 async function loadSession(session: Session) {
@@ -487,14 +481,14 @@ const costRub = computed(() => {
 // --- API functions ---
 
 async function loadCharacters() {
-  if (!selectedBizId.value) return
-  try { characters.value = await http.get<CharacterRef[]>(`/businesses/${selectedBizId.value}/characters`) } catch { characters.value = [] }
+  if (!businesses.currentBusinessId) return
+  try { characters.value = await http.get<CharacterRef[]>(`/businesses/${businesses.currentBusinessId}/characters`) } catch { characters.value = [] }
 }
 
 async function loadVideos() {
-  if (!selectedBizId.value) return
+  if (!businesses.currentBusinessId) return
   try {
-    const res = await http.get<{ files: any[] }>(`/media/library/${selectedBizId.value}`)
+    const res = await http.get<{ files: any[] }>(`/media/library/${businesses.currentBusinessId}`)
     generatedVideos.value = res.files
       .filter((f: any) => f.mimeType?.startsWith('video/') && f.aiModel)
       .map((f: any) => ({ id: f.id, url: f.url, filename: f.filename, durationSec: f.durationSec, aiModel: f.aiModel, aiCostUsd: f.aiCostUsd, altText: f.altText, createdAt: f.createdAt }))
@@ -502,16 +496,16 @@ async function loadVideos() {
 }
 
 async function loadSavedPrompts() {
-  if (!selectedBizId.value) return
-  try { savedPrompts.value = await http.get<PromptEntry[]>(`/prompt-library?businessId=${selectedBizId.value}&type=video`) } catch { savedPrompts.value = [] }
+  if (!businesses.currentBusinessId) return
+  try { savedPrompts.value = await http.get<PromptEntry[]>(`/prompt-library?businessId=${businesses.currentBusinessId}&type=video`) } catch { savedPrompts.value = [] }
 }
 
 async function loadAiTemplates() {
-  if (templatesLoaded.value || !selectedBizId.value) return
+  if (templatesLoaded.value || !businesses.currentBusinessId) return
   loadingTemplates.value = true
   try {
     const res = await http.post<{ suggestions: AiTemplate[] }>('/ai/suggest-video-templates', {
-      businessId: selectedBizId.value,
+      businessId: businesses.currentBusinessId,
     })
     aiTemplates.value = res.suggestions
     templatesLoaded.value = true
@@ -552,7 +546,7 @@ const MODE_LABELS: Record<EnhanceMode, string> = {
 }
 
 async function enhance(mode: EnhanceMode = 'enhance') {
-  if (!prompt.value.trim() || !selectedBizId.value) return
+  if (!prompt.value.trim() || !businesses.currentBusinessId) return
   enhancing.value = true
   lastEnhanceDebug.value = null
   try {
@@ -567,7 +561,7 @@ async function enhance(mode: EnhanceMode = 'enhance') {
       analysis?: Record<string, unknown>
       debug?: EnhanceDebugInfo
     }>('/ai/enhance-video-prompt', {
-      prompt: prompt.value, duration: duration.value, businessId: selectedBizId.value,
+      prompt: prompt.value, duration: duration.value, businessId: businesses.currentBusinessId,
       mode,
       debug: isProMode.value,
       elements: elements.length ? elements : undefined,
@@ -590,7 +584,7 @@ async function enhance(mode: EnhanceMode = 'enhance') {
 }
 
 function onGenerateClick() {
-  if (!prompt.value.trim() || !selectedBizId.value) return
+  if (!prompt.value.trim() || !businesses.currentBusinessId) return
   showPreGenModal.value = true
 }
 
@@ -600,7 +594,7 @@ function onPreGenConfirm() {
 }
 
 async function generate() {
-  if (!prompt.value.trim() || !selectedBizId.value) return
+  if (!prompt.value.trim() || !businesses.currentBusinessId) return
   const sessionId = currentSessionId.value
   if (!sessionId) return
   if (generating.value) return // уже генерируется (из БД)
@@ -608,7 +602,7 @@ async function generate() {
   // Capture all state at click time (user may switch sessions)
   const sessionTitle = currentSessionTitle.value || prompt.value.slice(0, 30) || 'Сессия'
   const capturedState = {
-    businessId: selectedBizId.value,
+    businessId: businesses.currentBusinessId,
     prompt: prompt.value,
     duration: duration.value,
     aspectRatio: aspectRatio.value,
@@ -686,10 +680,10 @@ function historyForward() {
 
 async function uploadFrame(event: Event, which: 'first' | 'last') {
   const input = event.target as HTMLInputElement
-  if (!input.files?.length || !selectedBizId.value) return
+  if (!input.files?.length || !businesses.currentBusinessId) return
   const fd = new FormData()
   fd.append('file', input.files[0])
-  fd.append('businessId', selectedBizId.value)
+  fd.append('businessId', businesses.currentBusinessId)
   fd.append('tags', JSON.stringify(['video-frame']))
   try {
     const res = await fetch('/api/media/upload', { method: 'POST', credentials: 'include', headers: { 'X-Tab-ID': TAB_ID }, body: fd })
@@ -703,10 +697,10 @@ async function uploadFrame(event: Event, which: 'first' | 'last') {
 
 async function addRef(event: Event) {
   const input = event.target as HTMLInputElement
-  if (!input.files?.length || !selectedBizId.value || refImages.value.length >= 9) return
+  if (!input.files?.length || !businesses.currentBusinessId || refImages.value.length >= 9) return
   const fd = new FormData()
   fd.append('file', input.files[0])
-  fd.append('businessId', selectedBizId.value)
+  fd.append('businessId', businesses.currentBusinessId)
   fd.append('tags', JSON.stringify(['video-reference']))
   try {
     const res = await fetch('/api/media/upload', { method: 'POST', credentials: 'include', headers: { 'X-Tab-ID': TAB_ID }, body: fd })
@@ -870,29 +864,6 @@ onDeactivated(() => {
           Видео-студия
         </h1>
 
-        <!-- Business dropdown -->
-        <div v-if="businesses.businesses.length > 1" class="relative">
-          <button @click="showBizDropdown = !showBizDropdown"
-            class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-sm hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
-            <span class="truncate max-w-[160px]">{{ currentBizName }}</span>
-            <ChevronDown :size="14" :class="['transition-transform', showBizDropdown ? 'rotate-180' : '']" />
-          </button>
-          <!-- Backdrop -->
-          <div v-if="showBizDropdown" class="fixed inset-0 z-10" @click="showBizDropdown = false" />
-          <!-- Menu -->
-          <div v-if="showBizDropdown"
-            class="absolute top-full left-0 mt-1 min-w-[200px] bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl shadow-lg z-20 py-1 overflow-hidden">
-            <button v-for="biz in businesses.businesses" :key="biz.id"
-              @click="selectBiz(biz.id)"
-              :class="[
-                'w-full text-left px-3 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors',
-                selectedBizId === biz.id ? 'text-emerald-600 dark:text-emerald-400 font-medium bg-emerald-50 dark:bg-emerald-900/20' : 'text-gray-700 dark:text-gray-300'
-              ]">
-              {{ biz.name }}
-            </button>
-          </div>
-        </div>
-
       </div>
     </div>
 
@@ -913,9 +884,10 @@ onDeactivated(() => {
         <!-- Prompt block (pinned to bottom) -->
         <div class="shrink-0 border-t border-gray-200 dark:border-gray-800">
         <VsModeTabs v-model="inputMode" />
-        <VsCharacterCarousel
+        <SharedCharacterCarousel
           :characters="characters"
           :model-value="selectedCharacterId"
+          color-scheme="emerald"
           @update:model-value="onCharacterSelect"
           @create-new="onCreateRef" />
         <div>
@@ -938,6 +910,7 @@ onDeactivated(() => {
             :chat-messages="chatMessages"
             :agent-loading="agentLoading"
             :agent-mode="agentMode"
+            :characters="characters?.map(c => ({ id: c.id, name: c.name, thumbUrl: c.referenceMedia?.thumbUrl || null }))"
             @enhance="enhance"
             @history-back="historyBack"
             @history-forward="historyForward"
@@ -962,7 +935,7 @@ onDeactivated(() => {
           :cost-rub="costRub"
           :generating="generating"
           :generating-started-at="generatingStartedAt"
-          :can-generate="!!prompt.trim() && !!selectedBizId"
+          :can-generate="!!prompt.trim() && !!businesses.currentBusinessId"
           @update:duration="duration = $event"
           @update:audio="audio = $event"
           @update:resolution="resolution = $event"
@@ -986,17 +959,18 @@ onDeactivated(() => {
       :reference-images="inputMode === 'references' ? refImages : []" />
 
     <!-- Reference Modal (create / view+edit) -->
-    <VsRefModal
+    <SharedRefModal
       :visible="showRefModal"
-      :business-id="selectedBizId || ''"
+      :business-id="businesses.currentBusinessId || ''"
       :character="editingCharacter"
+      color-scheme="emerald"
       @close="showRefModal = false; editingCharacter = null"
       @saved="onRefSaved()" />
 
     <!-- Media Picker Modal -->
     <MediaPickerModal
       :visible="showMediaPicker"
-      :business-id="selectedBizId || ''"
+      :business-id="businesses.currentBusinessId || ''"
       @close="showMediaPicker = false"
       @selected="(f: any) => addRefFromLibrary(f)" />
 
