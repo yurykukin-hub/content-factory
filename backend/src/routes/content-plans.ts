@@ -7,6 +7,61 @@ import { verifyPlanAccess, verifyPlanItemAccess, assertBusinessAccess } from '..
 
 const contentPlans = new Hono()
 
+// POST /api/plans/import — импорт плана с готовыми items (без AI)
+const importSchema = z.object({
+  businessId: z.string(),
+  title: z.string().min(1),
+  startDate: z.string().transform((s) => new Date(s)),
+  endDate: z.string().transform((s) => new Date(s)),
+  items: z.array(z.object({
+    date: z.string(),
+    dayOfWeek: z.string(),
+    topic: z.string(),
+    postType: z.enum(['TEXT', 'PHOTO', 'VIDEO', 'REELS', 'STORIES']).default('PHOTO'),
+    description: z.string().optional(),
+  })).min(1).max(100),
+  skipPastDates: z.boolean().default(true),
+})
+
+contentPlans.post('/plans/import', async (c) => {
+  const data = importSchema.parse(await c.req.json())
+  const user = c.get('user') as AuthUser
+  try {
+    await assertBusinessAccess(user, data.businessId)
+  } catch (e: any) {
+    if (e.message === 'FORBIDDEN') return c.json({ error: 'Нет доступа' }, 403)
+    throw e
+  }
+
+  const today = new Date().toISOString().slice(0, 10)
+
+  const plan = await db.contentPlan.create({
+    data: {
+      businessId: data.businessId,
+      title: data.title,
+      startDate: data.startDate,
+      endDate: data.endDate,
+      generatedBy: 'import',
+      items: {
+        create: data.items.map((item) => ({
+          date: new Date(item.date),
+          dayOfWeek: item.dayOfWeek,
+          topic: item.topic,
+          postType: item.postType,
+          description: item.description || null,
+          status: data.skipPastDates && item.date < today ? 'SKIPPED' : 'PLANNED',
+        })),
+      },
+    },
+    include: {
+      items: { orderBy: { date: 'asc' } },
+    },
+  })
+
+  emitEvent({ type: 'plan_created', tabId: c.req.header('X-Tab-ID') || '', planId: plan.id })
+  return c.json({ plan }, 201)
+})
+
 // GET /api/businesses/:bizId/plans
 contentPlans.get('/:bizId/plans', async (c) => {
   const { bizId } = c.req.param()
@@ -172,7 +227,9 @@ contentPlans.post('/plan-items/:id/ai-generate', async (c) => {
 
   // Генерировать текст поста по теме из плана
   const brandContext = await buildBrandContext(item.contentPlan.businessId)
-  const systemPrompt = buildPostPrompt(brandContext)
+  const rubricMatch = item.description?.match(/^\[(.+?)\]/)
+  const rubric = rubricMatch?.[1] || undefined
+  const systemPrompt = buildPostPrompt(brandContext, { rubric })
   const result = await aiComplete({
     systemPrompt,
     userPrompt: `Тема поста: ${item.topic}. ${item.description || ''}`,
@@ -229,11 +286,13 @@ contentPlans.post('/plans/:id/generate-all', async (c) => {
   const { config } = await import('../config')
 
   const brandContext = await buildBrandContext(plan.businessId)
-  const systemPrompt = buildPostPrompt(brandContext)
   const posts = []
 
   for (const item of plan.items) {
     try {
+      const rubricMatch = item.description?.match(/^\[(.+?)\]/)
+      const rubric = rubricMatch?.[1] || undefined
+      const systemPrompt = buildPostPrompt(brandContext, { rubric })
       const result = await aiComplete({
         systemPrompt,
         userPrompt: `Тема поста: ${item.topic}. ${item.description || ''}`,

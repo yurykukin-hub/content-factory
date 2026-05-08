@@ -66,10 +66,15 @@ const batchResult = ref<{ generated: number; total: number } | null>(null)
 // Calendar nav
 const calendarMonth = ref(new Date())
 
-const RUBRIC_OPTIONS = [
+const GENERIC_RUBRICS = [
   'вдохновляющий', 'полезный', 'продающий', 'вовлекающий',
   'закулисье', 'команда', 'отзывы', 'FAQ',
 ]
+
+const rubricOptions = computed(() => {
+  const bp = businesses.currentBusiness?.brandProfile
+  return bp?.keyTopics?.length ? bp.keyTopics : GENERIC_RUBRICS
+})
 
 async function loadPlans() {
   if (!businesses.currentBusiness) return
@@ -446,7 +451,7 @@ watch(() => businesses.currentBusiness?.id, loadPlans)
           <div>
             <label class="block text-sm font-medium mb-2">Рубрики</label>
             <div class="flex flex-wrap gap-2">
-              <button v-for="r in RUBRIC_OPTIONS" :key="r" @click="toggleRubric(r)"
+              <button v-for="r in rubricOptions" :key="r" @click="toggleRubric(r)"
                 :class="['px-3 py-1.5 rounded-full text-xs font-medium border transition-all', aiForm.rubrics.includes(r) ? 'border-purple-500 bg-purple-50 dark:bg-purple-950 text-purple-700 dark:text-purple-300' : 'border-gray-200 dark:border-gray-700 text-gray-500 hover:border-gray-300']">
                 {{ r }}
               </button>
