@@ -152,7 +152,7 @@ const videoCostUsd = computed(() => {
   const base = creditsPerSec * videoDuration.value * VIDEO_CREDIT_PRICE
   return videoAudio.value ? base * VIDEO_AUDIO_MULTIPLIER : base
 })
-const videoCostRub = computed(() => Math.round(videoCostUsd.value * USD_TO_RUB))
+const videoCostRub = computed(() => Math.round(videoCostUsd.value * USD_TO_RUB.value))
 
 // Video prompt templates — loaded from DB (per-business) + AI suggestions
 const videoTemplates = ref<{ id: string; name: string; emoji: string; prompt: string }[]>([])

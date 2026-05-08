@@ -58,6 +58,8 @@ const props = defineProps<{
   chatMessages?: AgentMessage[]
   agentLoading?: boolean
   agentMode?: 'simple' | 'advanced'
+  // Character suggestions for @mention autocomplete
+  characters?: Array<{ id: string; name: string; thumbUrl: string | null }>
 }>()
 
 const emit = defineEmits<{
@@ -80,7 +82,7 @@ const emit = defineEmits<{
   'update:agentMode': [mode: 'simple' | 'advanced']
 }>()
 
-const activeTab = ref<'agent' | 'editor'>('editor')
+const activeTab = ref<'agent' | 'editor'>('agent')
 const showTemplates = ref(false)
 const richPromptRef = ref<InstanceType<typeof VsRichPrompt> | null>(null)
 const showAddMenu = ref(false)
@@ -161,91 +163,77 @@ defineExpose({ insertBadge, openPreview, setContentWithBadges })
       <VsPromptTabs v-model="activeTab" />
     </div>
 
-    <!-- Agent tab (v-show: keep alive, don't destroy on tab switch) -->
-    <VsAgentChat
-      v-show="activeTab === 'agent'"
-      :messages="chatMessages || []"
-      :loading="agentLoading || false"
-      :mode="agentMode || 'simple'"
-      :disabled="false"
-      :context-summary="contextSummary"
-      @send="emit('agentSend', $event)"
-      @use-prompt="onAgentUsePrompt"
-      @update:mode="emit('update:agentMode', $event)" />
+    <!-- 1. INPUT IMAGES (always visible, above tabs content) -->
+    <div class="px-4 pt-1 space-y-2">
+      <!-- Frames mode -->
+      <div v-if="inputMode === 'frames'" class="flex gap-2">
+        <div v-for="which in (['first', 'last'] as const)" :key="which">
+          <div v-if="(which === 'first' ? firstFrame : lastFrame)"
+            class="relative group w-16 h-16 rounded-xl overflow-hidden border-2 border-emerald-200 dark:border-emerald-800">
+            <img :src="(which === 'first' ? firstFrame : lastFrame)!.thumbUrl || (which === 'first' ? firstFrame : lastFrame)!.url"
+              class="w-full h-full object-cover" />
+            <div class="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+              <button @click="emit('removeFrame', which)" class="p-1.5 bg-red-500/80 rounded-full">
+                <Trash2 :size="10" class="text-white" />
+              </button>
+            </div>
+            <span class="absolute bottom-0.5 left-0.5 px-1 py-0.5 bg-black/70 text-white text-[7px] rounded font-mono">
+              {{ which === 'first' ? '1-й' : 'Посл.' }}
+            </span>
+          </div>
+          <label v-else
+            class="w-16 h-16 rounded-xl border-2 border-dashed border-gray-300 dark:border-gray-700 flex flex-col items-center justify-center cursor-pointer hover:border-emerald-400 transition-colors">
+            <Image :size="16" class="text-gray-400" />
+            <span class="text-[7px] text-gray-400 mt-0.5">{{ which === 'first' ? '1-й' : 'Посл.' }}</span>
+            <input type="file" accept="image/*" class="hidden"
+              @change="(e: Event) => emit('uploadFrame', e, which)" />
+          </label>
+        </div>
+      </div>
 
-    <!-- Editor tab (v-show: keep alive, don't destroy on tab switch) -->
-    <div v-show="activeTab === 'editor'" class="px-4 py-3 space-y-3">
-
-    <!-- 1. INPUT IMAGES (above prompt, Kling-style) -->
-
-    <!-- Frames mode -->
-    <div v-if="inputMode === 'frames'" class="flex gap-2">
-      <div v-for="which in (['first', 'last'] as const)" :key="which">
-        <div v-if="(which === 'first' ? firstFrame : lastFrame)"
-          class="relative group w-16 h-16 rounded-xl overflow-hidden border-2 border-emerald-200 dark:border-emerald-800">
-          <img :src="(which === 'first' ? firstFrame : lastFrame)!.thumbUrl || (which === 'first' ? firstFrame : lastFrame)!.url"
-            class="w-full h-full object-cover" />
-          <div class="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
-            <button @click="emit('removeFrame', which)" class="p-1.5 bg-red-500/80 rounded-full">
-              <Trash2 :size="10" class="text-white" />
+      <!-- References mode (compact row) -->
+      <div v-if="inputMode === 'references'" class="flex items-center gap-2">
+        <!-- Add button with dropdown -->
+        <div v-if="refImages.length < 9" class="relative shrink-0">
+          <button @click="showAddMenu = !showAddMenu"
+            class="w-14 h-14 rounded-xl border-2 border-dashed border-gray-300 dark:border-gray-700 flex flex-col items-center justify-center hover:border-emerald-400 transition-colors">
+            <Plus :size="16" class="text-gray-400" />
+            <span class="text-[7px] text-gray-400 mt-0.5">Фото</span>
+          </button>
+          <!-- Hidden file input -->
+          <input ref="fileInputRef" type="file" accept="image/*" class="hidden"
+            @change="(e: Event) => emit('addRef', e)" />
+          <!-- Dropdown menu -->
+          <div v-if="showAddMenu" class="fixed inset-0 z-10" @click="showAddMenu = false" />
+          <div v-if="showAddMenu"
+            class="absolute top-full left-0 mt-1 w-48 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl z-20 py-1 overflow-hidden">
+            <button @click="onUploadClick"
+              class="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+              <Upload :size="14" class="text-gray-400" />
+              Загрузить
+            </button>
+            <button @click="onLibraryClick"
+              class="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+              <FolderOpen :size="14" class="text-gray-400" />
+              Из медиатеки
             </button>
           </div>
-          <span class="absolute bottom-0.5 left-0.5 px-1 py-0.5 bg-black/70 text-white text-[7px] rounded font-mono">
-            {{ which === 'first' ? '1-й' : 'Посл.' }}
-          </span>
         </div>
-        <label v-else
-          class="w-16 h-16 rounded-xl border-2 border-dashed border-gray-300 dark:border-gray-700 flex flex-col items-center justify-center cursor-pointer hover:border-emerald-400 transition-colors">
-          <Image :size="16" class="text-gray-400" />
-          <span class="text-[7px] text-gray-400 mt-0.5">{{ which === 'first' ? '1-й' : 'Посл.' }}</span>
-          <input type="file" accept="image/*" class="hidden"
-            @change="(e: Event) => emit('uploadFrame', e, which)" />
-        </label>
-      </div>
-    </div>
 
-    <!-- References mode (compact row above prompt) -->
-    <div v-if="inputMode === 'references'" class="flex items-center gap-2">
-      <!-- Add button with dropdown -->
-      <div v-if="refImages.length < 9" class="relative shrink-0">
-        <button @click="showAddMenu = !showAddMenu"
-          class="w-14 h-14 rounded-xl border-2 border-dashed border-gray-300 dark:border-gray-700 flex flex-col items-center justify-center hover:border-emerald-400 transition-colors">
-          <Plus :size="16" class="text-gray-400" />
-          <span class="text-[7px] text-gray-400 mt-0.5">Фото</span>
-        </button>
-        <!-- Hidden file input -->
-        <input ref="fileInputRef" type="file" accept="image/*" class="hidden"
-          @change="(e: Event) => emit('addRef', e)" />
-        <!-- Dropdown menu -->
-        <div v-if="showAddMenu" class="fixed inset-0 z-10" @click="showAddMenu = false" />
-        <div v-if="showAddMenu"
-          class="absolute top-full left-0 mt-1 w-48 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl z-20 py-1 overflow-hidden">
-          <button @click="onUploadClick"
-            class="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
-            <Upload :size="14" class="text-gray-400" />
-            Загрузить
+        <!-- Ref image thumbnails (clickable → preview popup) -->
+        <div v-for="(r, idx) in refImages" :key="idx" class="relative group shrink-0">
+          <button @click="previewRef = r"
+            class="w-14 h-14 rounded-xl overflow-hidden border-2 border-emerald-200 dark:border-emerald-800 cursor-pointer">
+            <img :src="r.thumbUrl || r.url" class="w-full h-full object-cover" />
+            <span class="absolute bottom-0.5 left-0.5 px-1 py-0.5 bg-black/70 text-white text-[7px] rounded font-mono">
+              @{{ idx + 1 }}
+            </span>
           </button>
-          <button @click="onLibraryClick"
-            class="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
-            <FolderOpen :size="14" class="text-gray-400" />
-            Из медиатеки
+          <button @click="emit('removeRef', idx)"
+            class="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity z-10">
+            <X :size="8" class="text-white" />
           </button>
         </div>
-      </div>
-
-      <!-- Ref image thumbnails (clickable → preview popup) -->
-      <div v-for="(r, idx) in refImages" :key="idx" class="relative group shrink-0">
-        <button @click="previewRef = r"
-          class="w-14 h-14 rounded-xl overflow-hidden border-2 border-emerald-200 dark:border-emerald-800 cursor-pointer">
-          <img :src="r.thumbUrl || r.url" class="w-full h-full object-cover" />
-          <span class="absolute bottom-0.5 left-0.5 px-1 py-0.5 bg-black/70 text-white text-[7px] rounded font-mono">
-            @{{ idx + 1 }}
-          </span>
-        </button>
-        <button @click="emit('removeRef', idx)"
-          class="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity z-10">
-          <X :size="8" class="text-white" />
-        </button>
       </div>
     </div>
 
@@ -279,10 +267,26 @@ defineExpose({ insertBadge, openPreview, setContentWithBadges })
       </div>
     </Teleport>
 
+    <!-- Agent tab (v-show: keep alive, don't destroy on tab switch) -->
+    <VsAgentChat
+      v-show="activeTab === 'agent'"
+      :messages="chatMessages || []"
+      :loading="agentLoading || false"
+      :mode="agentMode || 'simple'"
+      :disabled="false"
+      :context-summary="contextSummary"
+      @send="emit('agentSend', $event)"
+      @use-prompt="onAgentUsePrompt"
+      @update:mode="emit('update:agentMode', $event)" />
+
+    <!-- Editor tab (v-show: keep alive, don't destroy on tab switch) -->
+    <div v-show="activeTab === 'editor'" class="px-4 py-3 space-y-3">
+
     <!-- 2. RICH PROMPT (contenteditable with badges) -->
     <VsRichPrompt
       ref="richPromptRef"
       :model-value="modelValue"
+      :characters="characters"
       @update:model-value="emit('update:modelValue', $event)" />
 
     <!-- Missing refs hint -->

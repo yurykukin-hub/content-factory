@@ -265,7 +265,7 @@ interface AgentMessage {
 }
 const chatMessages = ref<AgentMessage[]>([])
 const agentLoading = ref(false)
-const agentMode = ref<'simple' | 'advanced'>('simple')
+const agentMode = ref<'simple' | 'advanced'>('advanced')
 
 // Auto-save on changes (debounced 2sec)
 watch([prompt, duration, audio, resolution, aspectRatio, inputMode, refImages, firstFrame, lastFrame, chatMessages], scheduleAutoSave, { deep: true })
@@ -475,7 +475,7 @@ const costRub = computed(() => {
   const cps = hasImg ? tier.withImage : tier.textOnly
   const base = cps * duration.value * CREDIT_PRICE
   const usd = audio.value ? base * AUDIO_MULT : base
-  return Math.round(usd * USD_RUB)
+  return Math.round(usd * USD_RUB.value)
 })
 
 // --- API functions ---
