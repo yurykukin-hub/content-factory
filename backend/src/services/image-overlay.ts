@@ -56,11 +56,10 @@ export async function overlayTextOnImage(
       ${lines.map((line, i) => `
         <text x="${width / 2}" y="${yPos + padding + (i + 0.8) * lineHeight}"
           text-anchor="middle"
-          font-family="'Noto Color Emoji', Arial, Helvetica, sans-serif"
+          font-family="'DejaVu Sans', 'Noto Sans', sans-serif"
           font-size="${fontSize}"
           font-weight="bold"
           fill="${color}"
-          filter="drop-shadow(0 2px 4px rgba(0,0,0,0.3))"
         >${escapeXml(line)}</text>
       `).join('')}
     </svg>
