@@ -4,10 +4,12 @@ import { nanoid } from 'nanoid'
 import sharp from 'sharp'
 import { join, extname } from 'path'
 import { mkdir, unlink, stat } from 'fs/promises'
+import { existsSync } from 'fs'
 import { getModuleDir } from '../utils/paths'
 import type { AuthUser } from '../middleware/auth'
 import { verifyMediaAccess, assertBusinessAccess } from '../middleware/resource-access'
 import { extractVideoThumbnail } from '../utils/video-thumbnail'
+import { overlayImageOnVideo } from '../services/video-overlay'
 
 const media = new Hono()
 
@@ -99,6 +101,87 @@ media.post('/upload', async (c) => {
   })
 
   return c.json(mediaFile, 201)
+})
+
+// POST /api/media/overlay-video — наложить статичный текст-PNG на видео через ffmpeg.
+// Body (multipart): overlay (прозрачный PNG) + videoMediaFileId + businessId.
+// Видео-сторис: чистое видео (Seedance) → текст накладывается ПОВЕРХ статично → новый mp4.
+media.post('/overlay-video', async (c) => {
+  const body = await c.req.parseBody()
+  const overlay = body['overlay']
+  const videoMediaFileId = body['videoMediaFileId'] as string
+  const businessId = body['businessId'] as string
+
+  if (!overlay || typeof overlay === 'string') return c.json({ error: 'overlay PNG не найден' }, 400)
+  if (!videoMediaFileId) return c.json({ error: 'videoMediaFileId обязателен' }, 400)
+  if (!businessId) return c.json({ error: 'businessId обязателен' }, 400)
+
+  const user = c.get('user') as AuthUser
+  try {
+    await assertBusinessAccess(user, businessId)
+  } catch (e: any) {
+    if (e.message === 'FORBIDDEN') return c.json({ error: 'Нет доступа' }, 403)
+    throw e
+  }
+
+  // Исходное видео должно существовать и принадлежать тому же бизнесу
+  const videoMf = await db.mediaFile.findUnique({ where: { id: videoMediaFileId } })
+  if (!videoMf || videoMf.businessId !== businessId) return c.json({ error: 'Видео не найдено' }, 404)
+  if (!videoMf.mimeType.startsWith('video/')) return c.json({ error: 'Файл не является видео' }, 400)
+
+  const overlayBlob = overlay as File
+  if (overlayBlob.type && overlayBlob.type !== 'image/png') {
+    return c.json({ error: 'overlay должен быть PNG' }, 400)
+  }
+  if (overlayBlob.size > 8 * 1024 * 1024) return c.json({ error: 'overlay слишком большой' }, 400)
+
+  const videoPath = join(UPLOAD_DIR, videoMf.url.replace('/uploads/', ''))
+  if (!existsSync(videoPath)) return c.json({ error: 'Файл видео отсутствует на диске' }, 404)
+
+  const bizDir = join(UPLOAD_DIR, businessId)
+  await mkdir(bizDir, { recursive: true })
+
+  const fileId = nanoid(12)
+  const overlayTmpPath = join(bizDir, `overlay_${fileId}.png`)
+  const outFilename = `story_video_${fileId}.mp4`
+  const outPath = join(bizDir, outFilename)
+
+  try {
+    // 1. Сохранить временный PNG-слой
+    await Bun.write(overlayTmpPath, Buffer.from(await overlayBlob.arrayBuffer()))
+
+    // 2. ffmpeg: наложить текст-слой на видео (синхронно, ~3-12 сек)
+    await overlayImageOnVideo(videoPath, overlayTmpPath, outPath)
+
+    // 3. Thumbnail из готового видео (текст виден на превью)
+    const thumbFile = await extractVideoThumbnail(outPath, bizDir, `story_video_${fileId}`)
+
+    // 4. Размер результата
+    const { size } = await stat(outPath)
+
+    // 5. MediaFile (тег story — попадёт в историю + превью поста)
+    const mediaFile = await db.mediaFile.create({
+      data: {
+        businessId,
+        filename: `Stories video: ${(videoMf.filename || 'video').slice(0, 40)}`,
+        url: `/uploads/${businessId}/${outFilename}`,
+        thumbUrl: thumbFile ? `/uploads/${businessId}/${thumbFile}` : videoMf.thumbUrl,
+        mimeType: 'video/mp4',
+        sizeBytes: size,
+        durationSec: videoMf.durationSec ?? null,
+        tags: ['story'],
+        sortOrder: 0,
+      },
+    })
+
+    return c.json(mediaFile, 201)
+  } catch (e: any) {
+    await unlink(outPath).catch(() => {}) // подчистить частичный результат
+    console.error('[overlay-video] failed:', e)
+    return c.json({ error: 'Ошибка наложения текста на видео: ' + String(e?.message || e).slice(0, 200) }, 500)
+  } finally {
+    await unlink(overlayTmpPath).catch(() => {}) // временный PNG всегда удаляем
+  }
 })
 
 // GET /api/media/library/:bizId — медиа-библиотека бизнеса (cursor pagination)

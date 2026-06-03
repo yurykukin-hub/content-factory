@@ -8,6 +8,7 @@ import { config } from './config'
 import { getModuleDir } from './utils/paths'
 import { db } from './db'
 import { requireAuth, requireRole } from './middleware/auth'
+import { requireApiKey } from './middleware/api-key'
 import { requireSection } from './middleware/section-access'
 import { auth } from './routes/auth'
 import { users } from './routes/users'
@@ -33,6 +34,9 @@ import { sessions } from './routes/sessions'
 import { music } from './routes/music'
 import { photos } from './routes/photos'
 import { aiLogs } from './routes/ai-logs'
+import { apiKeys } from './routes/api-keys'
+import { telegramBot } from './routes/telegram-bot'
+import { autoPost } from './routes/auto-post'
 
 const app = new Hono()
 
@@ -74,14 +78,21 @@ app.get('/api/health', async (c) => {
 
 // --- Public routes (no auth) ---
 app.route('/api/auth', auth)
+app.route('/api/webhooks/telegram-bot', telegramBot)
 app.post('/api/webhooks/erp', async (c) => {
   const publishRoute = new Hono()
   publishRoute.route('/', publish)
   return publishRoute.fetch(c.req.raw)
 })
 
-// --- Protected routes (require auth) ---
-app.use('/api/*', requireAuth)
+// --- Protected routes (require auth: JWT cookie OR API key) ---
+app.use('/api/*', async (c, next) => {
+  const authHeader = c.req.header('Authorization')
+  if (authHeader?.startsWith('Bearer ')) {
+    return requireApiKey(c, next)
+  }
+  return requireAuth(c, next)
+})
 
 // --- CSRF protection: require X-Tab-ID header on mutating requests ---
 // Browsers block custom headers in cross-origin form submissions.
@@ -90,8 +101,9 @@ app.use('/api/*', async (c, next) => {
   const path = new URL(c.req.url).pathname
   const isAuthRoute = path.startsWith('/api/auth/')
   const isWebhook = path.startsWith('/api/webhooks/')
+  const isApiKey = c.get('isApiKey') === true
 
-  if (!isAuthRoute && !isWebhook && ['POST', 'PUT', 'DELETE', 'PATCH'].includes(c.req.method)) {
+  if (!isAuthRoute && !isWebhook && !isApiKey && ['POST', 'PUT', 'DELETE', 'PATCH'].includes(c.req.method)) {
     if (!c.req.header('X-Tab-ID')) {
       return c.json({ error: 'Missing required header' }, 403)
     }
@@ -102,6 +114,7 @@ app.use('/api/*', async (c, next) => {
 // --- Admin-only routes ---
 app.use('/api/users/*', requireRole('ADMIN'))
 app.route('/api/users', users)
+app.route('/api/api-keys', apiKeys)
 
 // --- Public settings (before section guards, available to all authenticated users) ---
 app.get('/api/settings/public', async (c) => {
@@ -146,6 +159,7 @@ app.route('/api', sessions)  // /api/sessions
 app.route('/api/music', music)  // /api/music/*
 app.route('/api/photos', photos)  // /api/photos/*
 app.route('/api/ai-logs', aiLogs)
+app.route('/api/auto-posts', autoPost)
 app.route('/api/dashboard', dashboard)
 app.route('/api/sse', sse)
 

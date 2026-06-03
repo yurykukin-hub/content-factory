@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { http } from '@/api/client'
-import { X, Search, Loader2, Image, Check } from 'lucide-vue-next'
+import { X, Search, Loader2, Image, Check, Folder, ChevronRight, Home } from 'lucide-vue-next'
 
 interface MediaFile {
   id: string
@@ -11,6 +11,7 @@ interface MediaFile {
   mimeType: string
   sizeBytes: number
 }
+interface MediaFolder { id: string; name: string }
 
 const props = withDefaults(defineProps<{
   visible: boolean
@@ -29,16 +30,23 @@ const emit = defineEmits<{
 }>()
 
 const files = ref<MediaFile[]>([])
+const folders = ref<MediaFolder[]>([])
+const currentFolderId = ref<string | null>(null)
+const breadcrumbs = ref<{ id: string; name: string }[]>([])
 const loading = ref(false)
 const search = ref('')
 const selectedId = ref<string | null>(null)
 const selectedIds = ref<string[]>([])
 
+const isSearching = computed(() => !!search.value.trim())
+
 async function loadMedia() {
   loading.value = true
   try {
     const params = new URLSearchParams({ type: 'image' })
+    // При поиске — ищем по всем папкам; иначе показываем содержимое текущей папки
     if (search.value.trim()) params.set('search', search.value.trim())
+    else params.set('folderId', currentFolderId.value || 'root')
     const res = await http.get<{ files: MediaFile[] }>(`/media/library/${props.businessId}?${params}`)
     files.value = res.files
   } catch {
@@ -46,6 +54,32 @@ async function loadMedia() {
   } finally {
     loading.value = false
   }
+}
+
+async function loadFolders() {
+  if (isSearching.value) { folders.value = []; return }
+  try {
+    const params = currentFolderId.value ? `?parentId=${currentFolderId.value}` : ''
+    folders.value = await http.get<MediaFolder[]>(`/media/folders/${props.businessId}${params}`)
+  } catch { folders.value = [] }
+}
+
+async function loadBreadcrumbs() {
+  if (!currentFolderId.value) { breadcrumbs.value = []; return }
+  try {
+    breadcrumbs.value = await http.get(`/media/folders/${props.businessId}/path/${currentFolderId.value}`)
+  } catch { breadcrumbs.value = [] }
+}
+
+async function loadAll() {
+  await Promise.all([loadMedia(), loadFolders(), loadBreadcrumbs()])
+}
+
+function navigateToFolder(folderId: string | null) {
+  currentFolderId.value = folderId
+  selectedId.value = null
+  selectedIds.value = []
+  loadAll()
 }
 
 function toggleSelect(id: string) {
@@ -97,12 +131,14 @@ watch(() => props.visible, (v) => {
     selectedId.value = null
     selectedIds.value = []
     search.value = ''
-    loadMedia()
+    currentFolderId.value = null
+    loadAll()
   }
 })
 
 function onSearch() {
   selectedId.value = null
+  loadFolders()
   loadMedia()
 }
 </script>
@@ -131,19 +167,44 @@ function onSearch() {
         />
       </div>
 
+      <!-- Breadcrumbs (навигация по папкам) -->
+      <div v-if="!search.trim()" class="flex items-center gap-0.5 mb-3 text-xs flex-wrap">
+        <button @click="navigateToFolder(null)"
+          :class="['flex items-center gap-1 px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800', !currentFolderId ? 'text-brand-600 font-medium' : 'text-gray-500']">
+          <Home :size="13" /> Корень
+        </button>
+        <template v-for="bc in breadcrumbs" :key="bc.id">
+          <ChevronRight :size="12" class="text-gray-400" />
+          <button @click="navigateToFolder(bc.id)"
+            :class="['px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800', bc.id === currentFolderId ? 'text-brand-600 font-medium' : 'text-gray-500']">
+            {{ bc.name }}
+          </button>
+        </template>
+      </div>
+
       <!-- Grid -->
       <div class="flex-1 overflow-y-auto min-h-0">
         <div v-if="loading" class="flex items-center justify-center py-12">
           <Loader2 :size="24" class="animate-spin text-brand-500" />
         </div>
 
-        <div v-else-if="!files.length" class="text-center py-12">
+        <div v-else-if="!files.length && !folders.length" class="text-center py-12">
           <Image :size="32" class="mx-auto text-gray-300 dark:text-gray-600 mb-2" />
-          <p class="text-sm text-gray-500">Нет изображений в медиатеке</p>
+          <p class="text-sm text-gray-500">{{ search ? 'Ничего не найдено' : 'Папка пуста' }}</p>
           <p v-if="search" class="text-xs text-gray-400 mt-1">Попробуйте другой запрос</p>
         </div>
 
         <div v-else class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2">
+          <!-- Папки -->
+          <button
+            v-for="fld in folders"
+            :key="'folder-' + fld.id"
+            @click="navigateToFolder(fld.id)"
+            class="flex flex-col items-center justify-center gap-1.5 rounded-lg aspect-square border-2 border-transparent hover:border-brand-300 dark:hover:border-brand-700 bg-gray-50 dark:bg-gray-800 transition-colors"
+          >
+            <Folder :size="30" class="text-brand-400" />
+            <span class="text-[10px] text-gray-500 truncate px-1 w-full text-center">{{ fld.name }}</span>
+          </button>
           <button
             v-for="f in files"
             :key="f.id"

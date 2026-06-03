@@ -14,6 +14,7 @@ import {
 } from 'lucide-vue-next'
 import ImageEditModal from '@/components/ai/ImageEditModal.vue'
 import MediaPickerModal from '@/components/MediaPickerModal.vue'
+import { platformColor, platformBgColor, platformLabel } from '@/composables/usePlatform'
 
 interface MediaFile { id: string; url: string; thumbUrl: string | null; filename: string; mimeType: string; sizeBytes: number; durationSec?: number | null; aiModel?: string | null; aiCostUsd?: number | null; altText?: string | null }
 interface PlatformAccount { id: string; platform: string; accountName: string; accountId: string }
@@ -25,6 +26,10 @@ interface PostVersion {
 interface Post {
   id: string; businessId: string; title: string | null; body: string; postType: string
   status: string; createdAt: string; versions: PostVersion[]; mediaFiles: MediaFile[]
+}
+interface PublishResultItem {
+  channelId: string; platform: string; accountName: string
+  success: boolean; externalUrl: string | null; error: string | null
 }
 
 const route = useRoute()
@@ -42,12 +47,12 @@ const scheduling = ref(false)
 const scheduledAt = ref('')
 const cancellingSchedule = ref(false)
 
-async function cancelSchedule() {
-  if (!version.value || cancellingSchedule.value) return
+async function cancelSchedule(versionId: string) {
+  if (!versionId || cancellingSchedule.value) return
   if (!confirm('Отменить запланированную публикацию?')) return
   cancellingSchedule.value = true
   try {
-    await http.post(`/post-versions/${version.value.id}/schedule`, {
+    await http.post(`/post-versions/${versionId}/schedule`, {
       scheduledAt: null,
     })
     toast.success('Публикация отменена')
@@ -59,6 +64,7 @@ async function cancelSchedule() {
 
 // Canvas
 const canvasRef = ref<HTMLCanvasElement | null>(null)
+const overlayCanvasRef = ref<HTMLCanvasElement | null>(null) // прозрачный слой текста поверх видео (WYSIWYG)
 const canvasWidth = 360  // Preview size
 const canvasHeight = 640
 const exportWidth = 1080 // Final export size
@@ -269,14 +275,21 @@ function _onImageEditedLegacy(newFile: MediaFile) {
   showEditModal.value = false
 }
 
-// Channels
-const vkChannels = ref<PlatformAccount[]>([])
-const selectedChannel = ref('')
+// Channels (мультивыбор VK + Instagram)
+const storyChannels = ref<PlatformAccount[]>([])
+const selectedChannels = ref<string[]>([])
+const publishResults = ref<PublishResultItem[]>([])
+
+function toggleChannel(id: string) {
+  const i = selectedChannels.value.indexOf(id)
+  if (i >= 0) selectedChannels.value.splice(i, 1)
+  else selectedChannels.value.push(id)
+}
 
 const photo = computed(() => post.value?.mediaFiles?.[0] || null)
 const isVideoMedia = computed(() => photo.value?.mimeType?.startsWith('video/') || false)
-const version = computed(() => post.value?.versions?.[0] || null)
-const isPublished = computed(() => version.value?.status === 'PUBLISHED' || version.value?.status === 'SCHEDULED')
+const isPublished = computed(() =>
+  (post.value?.versions || []).some(v => v.status === 'PUBLISHED' || v.status === 'SCHEDULED'))
 
 const fontSizePx = computed(() => ({ S: 14, M: 18, L: 24 }[fontSize.value]))
 const fontSizeExport = computed(() => ({ S: 42, M: 54, L: 72 }[fontSize.value]))
@@ -427,6 +440,40 @@ async function exportCanvas(): Promise<Blob> {
   return new Promise(resolve => canvas.toBlob(b => resolve(b!), 'image/jpeg', 0.92))
 }
 
+// --- Overlay layer (для видео-сторис): ТОЛЬКО текст на прозрачном фоне ---
+// Видео движется под неподвижным текстом → рисуем лишь текст-оверлей (без градиента и без видео-кадра).
+function drawOverlayLayer(ctx: CanvasRenderingContext2D, w: number, h: number, fSize: number) {
+  ctx.clearRect(0, 0, w, h)
+  // buttonTopY как в drawScene — чтобы текст в позиции "bottom" встал над местом будущей VK-кнопки
+  let buttonTopY = h
+  if (linkType.value) {
+    const scale = w / 360
+    buttonTopY = (h - Math.round(40 * scale)) - Math.round(12 * scale)
+  }
+  if (overlayText.value.trim()) {
+    drawTextOverlay(ctx, overlayText.value, w, h, fSize, buttonTopY)
+  }
+}
+
+// Живой WYSIWYG-слой текста поверх <video> в редакторе
+function renderOverlayPreview() {
+  const canvas = overlayCanvasRef.value
+  if (!canvas) return
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return
+  drawOverlayLayer(ctx, canvasWidth, canvasHeight, fontSizePx.value)
+}
+
+// Прозрачный PNG 1080×1920 — слой текста для наложения на видео через ffmpeg (backend)
+async function exportOverlayPng(): Promise<Blob> {
+  const canvas = document.createElement('canvas')
+  canvas.width = exportWidth
+  canvas.height = exportHeight
+  const ctx = canvas.getContext('2d')!
+  drawOverlayLayer(ctx, exportWidth, exportHeight, fontSizeExport.value)
+  return new Promise(resolve => canvas.toBlob(b => resolve(b!), 'image/png')) // PNG = сохраняем alpha
+}
+
 // --- Drag & drop ---
 function onMouseDown(e: MouseEvent) {
   if (!imgEl.value) return
@@ -463,8 +510,9 @@ async function loadPost() {
       overlayText.value = post.value.body || ''
       storyTitle.value = post.value.title || ''
       const platforms = await http.get<PlatformAccount[]>(`/businesses/${post.value.businessId}/platforms`)
-      vkChannels.value = platforms.filter(p => p.platform === 'VK')
-      if (vkChannels.value.length) selectedChannel.value = vkChannels.value[0].id
+      // Сторис поддерживают VK + Instagram (TG — нет сторис)
+      storyChannels.value = platforms.filter(p => p.platform === 'VK' || p.platform === 'INSTAGRAM')
+      selectedChannels.value = storyChannels.value.map(c => c.id) // по умолчанию все
       if (post.value.postType !== 'STORIES') { router.replace(`/posts/${post.value.id}`); return }
       // Load image — если тот же URL что был, сохранить offset/scale
       if (photo.value) {
@@ -783,11 +831,12 @@ async function generateOverlayText() {
 // --- Publish ---
 // ШАГ 1: Подготовить превью (экспорт canvas → модалка)
 async function preparePreview() {
-  if (!post.value || !photo.value) { toast.error('Загрузите фото'); return }
-  if (!selectedChannel.value) { toast.error('Выберите VK канал'); return }
+  if (!post.value || !photo.value) { toast.error('Загрузите медиа'); return }
+  if (!selectedChannels.value.length) { toast.error('Выберите хотя бы один канал'); return }
   previewExporting.value = true
   try {
-    const blob = await exportCanvas()
+    // Видео: текст-слой как прозрачный PNG (наложится на видео при публикации). Фото: плоский JPEG.
+    const blob = isVideoMedia.value ? await exportOverlayPng() : await exportCanvas()
     // Освободить старый URL
     if (previewBlobUrl.value) URL.revokeObjectURL(previewBlobUrl.value)
     previewBlob.value = blob
@@ -798,120 +847,134 @@ async function preparePreview() {
   finally { previewExporting.value = false }
 }
 
-// ШАГ 2: Подтвердить и опубликовать (upload + publish)
-async function confirmPublish() {
-  if (!post.value || !previewBlob.value) return
-  publishing.value = true
-  try {
-    // 1. Загрузить рендер как ДОПОЛНИТЕЛЬНЫЙ файл (не удаляя оригинал!)
-    const formData = new FormData()
-    formData.append('file', previewBlob.value, 'story-rendered.jpg')
-    formData.append('businessId', post.value.businessId)
-    // НЕ привязываем к postId — это временный файл для публикации
-    const uploadRes = await fetch('/api/media/upload', { method: 'POST', body: formData, credentials: 'include', headers: { 'X-Tab-ID': TAB_ID } })
-    const renderedFile = await uploadRes.json() as MediaFile
+// Загрузить готовую сторис-картинку в медиатеку (тег story, НЕ удаляем — видна в истории + превью поста)
+async function uploadRendered(): Promise<MediaFile> {
+  const dateStr = new Date().toISOString().slice(0, 10)
+  const safeTitle = (storyTitle.value || 'story').replace(/[^\wа-яё\- ]/gi, '').slice(0, 40).trim() || 'story'
+  const formData = new FormData()
+  formData.append('file', previewBlob.value!, `story-${safeTitle}-${dateStr}.jpg`)
+  formData.append('businessId', post.value!.businessId)
+  const res = await fetch('/api/media/upload', { method: 'POST', body: formData, credentials: 'include', headers: { 'X-Tab-ID': TAB_ID } })
+  const mf = await res.json() as MediaFile
+  await http.put(`/media/${mf.id}/tags`, { tags: ['story'] }).catch(() => {})
+  return mf
+}
 
-    // 2. Сохранить пост
+// Видео-сторис: наложить текст-слой на видео через backend (ffmpeg) → новый baked-видео MediaFile
+async function renderVideoForPublish(): Promise<MediaFile> {
+  const overlayBlob = previewBlob.value ?? await exportOverlayPng()
+  const fd = new FormData()
+  fd.append('overlay', overlayBlob, 'overlay.png')
+  fd.append('videoMediaFileId', photo.value!.id)
+  fd.append('businessId', post.value!.businessId)
+  const res = await fetch('/api/media/overlay-video', {
+    method: 'POST', body: fd, credentials: 'include', headers: { 'X-Tab-ID': TAB_ID },
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({})) as { error?: string }
+    throw new Error(err.error || 'Не удалось наложить текст на видео')
+  }
+  return await res.json() as MediaFile
+}
+
+// Найти версию для канала или создать (обрабатывает unique-конфликт postId+platformAccountId)
+async function ensureVersion(channelId: string): Promise<string> {
+  const existing = (post.value!.versions || []).find(v => v.platformAccount.id === channelId)
+  if (existing) return existing.id
+  try {
+    const v = await http.post<{ id: string }>(`/posts/${post.value!.id}/versions`, {
+      platformAccountId: channelId, body: overlayText.value || ' ', hashtags: [],
+    })
+    return v.id
+  } catch (e) {
+    const fresh = await http.get<Post>(`/posts/${post.value!.id}`)
+    const found = (fresh.versions || []).find(v => v.platformAccount.id === channelId)
+    if (found) return found.id
+    throw e
+  }
+}
+
+// ШАГ 2: Подтвердить и опубликовать в выбранные каналы (мультипостинг VK + IG)
+async function confirmPublish() {
+  if (!post.value || !previewBlob.value || !selectedChannels.value.length) return
+  publishing.value = true
+  publishResults.value = []
+  try {
+    // Видео: наложить текст на видео (ffmpeg, backend). Фото: загрузить плоский JPEG.
+    const renderedFile = isVideoMedia.value ? await renderVideoForPublish() : await uploadRendered()
     await http.put(`/posts/${post.value.id}`, { body: overlayText.value, title: storyTitle.value || null })
 
-    // 3. Создать версию если нет
-    let versionId = version.value?.id
-    if (!versionId) {
-      const v = await http.post<{ id: string }>(`/posts/${post.value.id}/versions`, {
-        platformAccountId: selectedChannel.value, body: overlayText.value, hashtags: [],
-      })
-      versionId = v.id
-    }
-
-    // 4. Отвязать оригинал от поста (НЕ удалять!)
+    // Отвязать оригиналы, привязать rendered к посту (общий для всех версий — publisher берёт mediaFiles поста)
     const originalFileIds = post.value.mediaFiles.map(m => m.id)
-    for (const mfId of originalFileIds) {
-      await http.post(`/media/${mfId}/attach`, { postId: null }).catch(() => {})
-    }
-
-    // 5. Привязать rendered к посту (publisher берёт mediaFiles поста)
+    for (const mfId of originalFileIds) await http.post(`/media/${mfId}/attach`, { postId: null }).catch(() => {})
     await http.post(`/media/${renderedFile.id}/attach`, { postId: post.value.id }).catch(() => {})
 
-    // 6. Публикация
-    const result = await http.post<{ success: boolean; externalUrl: string | null; error: string | null }>(
-      `/post-versions/${versionId}/publish`, {
-        storiesOptions: {
-          skipOverlay: true,
-          linkText: linkType.value || undefined,
-          linkUrl: linkUrl.value || undefined,
-        },
-      }
-    )
-
-    // 7. Вернуть оригиналы обратно, удалить rendered
-    await http.delete(`/media/${renderedFile.id}`).catch(() => {})
-    for (const mfId of originalFileIds) {
-      await http.post(`/media/${mfId}/attach`, { postId: post.value.id }).catch(() => {})
+    // Цикл по каналам — частичный успех допустим (VK ок, IG упал — не падаем целиком)
+    for (const channelId of selectedChannels.value) {
+      const ch = storyChannels.value.find(c => c.id === channelId)
+      const item: PublishResultItem = { channelId, platform: ch?.platform || '', accountName: ch?.accountName || '', success: false, externalUrl: null, error: null }
+      try {
+        const versionId = await ensureVersion(channelId)
+        const res = await http.post<{ success: boolean; externalUrl: string | null; error: string | null }>(
+          `/post-versions/${versionId}/publish`, {
+            storiesOptions: { skipOverlay: true, linkText: linkType.value || undefined, linkUrl: linkUrl.value || undefined },
+          })
+        item.success = res.success; item.externalUrl = res.externalUrl; item.error = res.error
+      } catch (e: any) { item.error = e.message || String(e) }
+      publishResults.value.push(item)
     }
 
-    showPreview.value = false
-    if (result.success) toast.success('История опубликована!')
-    else toast.error('Ошибка: ' + result.error)
+    const ok = publishResults.value.filter(r => r.success).length
+    const fail = publishResults.value.length - ok
+    if (fail === 0) toast.success(`Опубликовано во все каналы (${ok})`)
+    else if (ok === 0) toast.error('Не удалось опубликовать ни в один канал')
+    else toast.info(`Опубликовано: ${ok}, ошибок: ${fail}`)
 
-    // Canvas state сохраняется — НЕ перезагружаем
-    // Просто обновим версию для отображения статуса
+    showPreview.value = false
     try {
       const freshPost = await http.get<Post>(`/posts/${post.value.id}`)
-      if (freshPost) {
-        post.value.versions = freshPost.versions
-        post.value.status = freshPost.status
-      }
+      if (freshPost) { post.value.versions = freshPost.versions; post.value.status = freshPost.status; post.value.mediaFiles = freshPost.mediaFiles }
     } catch {}
-
     render()
   } catch (e: any) { toast.error('Ошибка: ' + e.message) }
   finally { publishing.value = false }
 }
 
 async function schedulePublish() {
-  if (!post.value || !previewBlob.value || !scheduledAt.value) return
+  if (!post.value || !previewBlob.value || !scheduledAt.value || !selectedChannels.value.length) return
   scheduling.value = true
+  publishResults.value = []
   try {
-    // Шаги 1-5 идентичны confirmPublish
-    const formData = new FormData()
-    formData.append('file', previewBlob.value, 'story-rendered.jpg')
-    formData.append('businessId', post.value.businessId)
-    const uploadRes = await fetch('/api/media/upload', { method: 'POST', body: formData, credentials: 'include', headers: { 'X-Tab-ID': TAB_ID } })
-    const renderedFile = await uploadRes.json() as MediaFile
-
+    // Видео: наложить текст на видео (ffmpeg, backend). Фото: загрузить плоский JPEG.
+    const renderedFile = isVideoMedia.value ? await renderVideoForPublish() : await uploadRendered()
     await http.put(`/posts/${post.value.id}`, { body: overlayText.value, title: storyTitle.value || null })
 
-    let versionId = version.value?.id
-    if (!versionId) {
-      const v = await http.post<{ id: string }>(`/posts/${post.value.id}/versions`, {
-        platformAccountId: selectedChannel.value, body: overlayText.value, hashtags: [],
-      })
-      versionId = v.id
-    }
-
     const originalFileIds = post.value.mediaFiles.map(m => m.id)
-    for (const mfId of originalFileIds) {
-      await http.post(`/media/${mfId}/attach`, { postId: null }).catch(() => {})
-    }
+    for (const mfId of originalFileIds) await http.post(`/media/${mfId}/attach`, { postId: null }).catch(() => {})
     await http.post(`/media/${renderedFile.id}/attach`, { postId: post.value.id }).catch(() => {})
 
-    // 6. Запланировать (вместо publish)
-    await http.post(`/post-versions/${versionId}/schedule`, {
-      scheduledAt: new Date(scheduledAt.value).toISOString(),
-    })
-
-    // 7. Вернуть оригиналы
-    await http.delete(`/media/${renderedFile.id}`).catch(() => {})
-    for (const mfId of originalFileIds) {
-      await http.post(`/media/${mfId}/attach`, { postId: post.value.id }).catch(() => {})
+    const iso = new Date(scheduledAt.value).toISOString()
+    for (const channelId of selectedChannels.value) {
+      const ch = storyChannels.value.find(c => c.id === channelId)
+      const item: PublishResultItem = { channelId, platform: ch?.platform || '', accountName: ch?.accountName || '', success: false, externalUrl: null, error: null }
+      try {
+        const versionId = await ensureVersion(channelId)
+        await http.post(`/post-versions/${versionId}/schedule`, { scheduledAt: iso })
+        item.success = true
+      } catch (e: any) { item.error = e.message || String(e) }
+      publishResults.value.push(item)
     }
 
-    showPreview.value = false
-    toast.success(`Запланировано на ${new Date(scheduledAt.value).toLocaleString('ru')}`)
+    const ok = publishResults.value.filter(r => r.success).length
+    const fail = publishResults.value.length - ok
+    if (fail === 0) toast.success(`Запланировано на ${new Date(scheduledAt.value).toLocaleString('ru')} (${ok})`)
+    else if (ok === 0) toast.error('Не удалось запланировать')
+    else toast.info(`Запланировано: ${ok}, ошибок: ${fail}`)
 
+    showPreview.value = false
     try {
       const freshPost = await http.get<Post>(`/posts/${post.value.id}`)
-      if (freshPost) { post.value.versions = freshPost.versions; post.value.status = freshPost.status }
+      if (freshPost) { post.value.versions = freshPost.versions; post.value.status = freshPost.status; post.value.mediaFiles = freshPost.mediaFiles }
     } catch {}
     render()
   } catch (e: any) { toast.error('Ошибка: ' + e.message) }
@@ -953,13 +1016,17 @@ const LINK_TYPES = [
   { value: 'install', label: 'Установить' },
 ]
 
-// Re-render on settings change
-watch([overlayText, textPosition, textColor, fontSize, bgStyle, bgRadius, textAlign, linkType, linkUrl], () => nextTick(render))
+// Re-render on settings change (canvas для фото + overlay-слой для видео)
+watch([overlayText, textPosition, textColor, fontSize, bgStyle, bgRadius, textAlign, linkType, linkUrl],
+  () => nextTick(() => { render(); renderOverlayPreview() }))
 
 // Re-render when canvas appears in DOM (fixes race: image loaded while canvas was hidden by v-if="loading")
 watch(canvasRef, (canvas) => {
   if (canvas && imgEl.value) nextTick(render)
 })
+
+// Re-render overlay-слой когда видео-canvas появляется в DOM (переключение фото→видео)
+watch(overlayCanvasRef, (cv) => { if (cv) nextTick(renderOverlayPreview) })
 
 onMounted(() => {
   loadPost()
@@ -990,14 +1057,25 @@ onUnmounted(() => {
         <div class="relative bg-black rounded-[2rem] p-2 shadow-2xl w-full max-w-[376px]">
           <div class="absolute top-0 left-1/2 -translate-x-1/2 w-24 h-5 bg-black rounded-b-xl z-10"></div>
 
-          <!-- Video preview (вместо canvas для видео) -->
-          <video
+          <!-- Video preview + статичный текст-слой поверх (WYSIWYG для видео-сторис) -->
+          <div
             v-if="isVideoMedia"
-            :src="photo!.url"
-            class="rounded-[1.5rem] w-full"
-            style="aspect-ratio: 9/16; object-fit: cover; background: #000;"
-            controls loop muted autoplay playsinline
-          />
+            class="relative rounded-[1.5rem] overflow-hidden w-full"
+            style="aspect-ratio: 9/16;"
+          >
+            <video
+              :src="photo!.url"
+              class="absolute inset-0 w-full h-full"
+              style="object-fit: cover; background: #000;"
+              controls loop muted autoplay playsinline
+            />
+            <canvas
+              ref="overlayCanvasRef"
+              :width="canvasWidth"
+              :height="canvasHeight"
+              class="absolute inset-0 w-full h-full pointer-events-none"
+            />
+          </div>
 
           <!-- Image canvas (для фото) -->
           <canvas
@@ -1210,49 +1288,66 @@ onUnmounted(() => {
         <!-- Publish -->
         <div class="bg-white dark:bg-gray-900 rounded-xl p-5 border border-gray-200 dark:border-gray-800">
           <h3 class="font-semibold text-sm mb-3 flex items-center gap-2"><Send :size="16" /> Публикация</h3>
-          <div v-if="vkChannels.length > 1" class="mb-3">
-            <select v-model="selectedChannel" class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm">
-              <option v-for="ch in vkChannels" :key="ch.id" :value="ch.id">{{ ch.accountName }}</option>
-            </select>
-          </div>
-          <div v-else-if="vkChannels.length === 1" class="text-xs text-gray-400 mb-3">{{ vkChannels[0].accountName }}</div>
-          <div v-else class="text-xs text-red-500 mb-3">Нет VK каналов. <router-link :to="'/businesses/' + post.businessId + '?tab=channels'" class="text-brand-500 underline">Настроить каналы</router-link></div>
-
-          <div v-if="version?.status === 'SCHEDULED'" class="p-3 rounded-lg bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 mb-3">
-            <div class="flex items-center justify-between">
-              <div class="flex items-center gap-2">
-                <Clock :size="16" class="text-blue-600" />
-                <div>
-                  <div class="text-sm font-medium text-blue-700 dark:text-blue-300">Запланировано</div>
-                  <div v-if="version.scheduledAt" class="text-[10px] text-blue-500">{{ new Date(version.scheduledAt).toLocaleString('ru') }}</div>
-                </div>
-              </div>
-              <button @click="cancelSchedule" :disabled="cancellingSchedule"
-                class="px-2.5 py-1 rounded-lg text-xs font-medium text-red-600 dark:text-red-400 border border-red-300 dark:border-red-700 hover:bg-red-50 dark:hover:bg-red-950 disabled:opacity-50">
-                {{ cancellingSchedule ? '...' : 'Отменить' }}
+          <div v-if="storyChannels.length" class="mb-3">
+            <div class="text-xs text-gray-500 mb-1.5">Каналы публикации (VK / Instagram)</div>
+            <div class="flex flex-wrap gap-1.5">
+              <button v-for="ch in storyChannels" :key="ch.id" @click="toggleChannel(ch.id)"
+                :class="['flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors',
+                  selectedChannels.includes(ch.id)
+                    ? 'border-brand-500 bg-brand-50 dark:bg-brand-950 text-brand-700 dark:text-brand-300'
+                    : 'border-gray-200 dark:border-gray-700 text-gray-500 hover:border-gray-300']">
+                <span :class="['w-1.5 h-1.5 rounded-full', platformBgColor(ch.platform)]"></span>
+                <span :class="platformColor(ch.platform)">{{ platformLabel(ch.platform) }}</span>
+                {{ ch.accountName }}
               </button>
             </div>
           </div>
+          <div v-else class="text-xs text-red-500 mb-3">Нет каналов VK/IG. <router-link :to="'/businesses/' + post.businessId + '?tab=channels'" class="text-brand-500 underline">Настроить каналы</router-link></div>
 
-          <div v-if="version?.status === 'PUBLISHED'" class="p-3 rounded-lg bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800 mb-3">
-            <div class="flex items-center gap-2">
-              <CheckCircle :size="16" class="text-green-600" />
-              <div>
-                <div class="text-sm font-medium text-green-700 dark:text-green-300">Опубликовано</div>
-                <div v-if="version.publishedAt" class="text-[10px] text-green-500">{{ formatDate(version.publishedAt) }}</div>
-                <a v-if="version.externalUrl" :href="version.externalUrl" target="_blank" class="text-xs text-green-600 hover:underline flex items-center gap-1 mt-1"><ExternalLink :size="12" /> Открыть в VK</a>
+          <!-- Статусы по каналам (мультипостинг) -->
+          <div v-for="v in (post.versions || [])" :key="v.id" class="mb-2">
+            <div v-if="v.status === 'SCHEDULED'" class="p-3 rounded-lg bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800">
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                  <Clock :size="16" class="text-blue-600" />
+                  <div>
+                    <div class="text-sm font-medium text-blue-700 dark:text-blue-300">
+                      <span :class="platformColor(v.platformAccount.platform)">{{ platformLabel(v.platformAccount.platform) }}</span> · Запланировано
+                    </div>
+                    <div v-if="v.scheduledAt" class="text-[10px] text-blue-500">{{ new Date(v.scheduledAt).toLocaleString('ru') }}</div>
+                  </div>
+                </div>
+                <button @click="cancelSchedule(v.id)" :disabled="cancellingSchedule"
+                  class="px-2.5 py-1 rounded-lg text-xs font-medium text-red-600 dark:text-red-400 border border-red-300 dark:border-red-700 hover:bg-red-50 dark:hover:bg-red-950 disabled:opacity-50">
+                  {{ cancellingSchedule ? '...' : 'Отменить' }}
+                </button>
+              </div>
+            </div>
+
+            <div v-else-if="v.status === 'PUBLISHED'" class="p-3 rounded-lg bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800">
+              <div class="flex items-center gap-2">
+                <CheckCircle :size="16" class="text-green-600" />
+                <div>
+                  <div class="text-sm font-medium text-green-700 dark:text-green-300">
+                    <span :class="platformColor(v.platformAccount.platform)">{{ platformLabel(v.platformAccount.platform) }}</span> · Опубликовано
+                  </div>
+                  <div v-if="v.publishedAt" class="text-[10px] text-green-500">{{ formatDate(v.publishedAt) }}</div>
+                  <a v-if="v.externalUrl" :href="v.externalUrl" target="_blank" class="text-xs text-green-600 hover:underline flex items-center gap-1 mt-1"><ExternalLink :size="12" /> Открыть</a>
+                </div>
+              </div>
+            </div>
+
+            <div v-else-if="v.publishLogs?.[0]?.status === 'FAILED'" class="p-3 rounded-lg bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800">
+              <div class="flex items-start gap-2">
+                <AlertCircle :size="16" class="text-red-500 shrink-0 mt-0.5" />
+                <div class="text-xs text-red-600">
+                  <span :class="platformColor(v.platformAccount.platform)">{{ platformLabel(v.platformAccount.platform) }}</span>: {{ v.publishLogs[0].errorMessage }}
+                </div>
               </div>
             </div>
           </div>
 
-          <div v-if="version?.publishLogs?.[0]?.status === 'FAILED'" class="p-3 rounded-lg bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 mb-3">
-            <div class="flex items-start gap-2">
-              <AlertCircle :size="16" class="text-red-500 shrink-0 mt-0.5" />
-              <div class="text-xs text-red-600">{{ version.publishLogs[0].errorMessage }}</div>
-            </div>
-          </div>
-
-          <button v-if="!isPublished" @click="preparePreview" :disabled="publishing || previewExporting || !photo || !vkChannels.length"
+          <button v-if="!isPublished" @click="preparePreview" :disabled="publishing || previewExporting || !photo || !selectedChannels.length"
             class="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg bg-green-600 hover:bg-green-700 text-white font-medium disabled:opacity-50">
             <Loader2 v-if="previewExporting" :size="18" class="animate-spin" /><Eye v-else :size="18" />
             {{ previewExporting ? 'Рендеринг...' : 'Предпросмотр и публикация' }}
@@ -1269,7 +1364,10 @@ onUnmounted(() => {
         <!-- Rendered media in phone frame + link button -->
         <div class="flex justify-center mb-4">
           <div class="relative bg-black rounded-[1.5rem] p-1.5 shadow-xl" style="width: 240px;">
-            <video v-if="isVideoMedia" :src="photo!.url" class="rounded-[1.2rem] w-full" style="aspect-ratio: 9/16; object-fit: cover;" controls loop muted autoplay playsinline />
+            <div v-if="isVideoMedia" class="relative rounded-[1.2rem] overflow-hidden w-full" style="aspect-ratio: 9/16;">
+              <video :src="photo!.url" class="absolute inset-0 w-full h-full" style="object-fit: cover; background: #000;" controls loop muted autoplay playsinline />
+              <img v-if="previewBlobUrl" :src="previewBlobUrl" class="absolute inset-0 w-full h-full pointer-events-none" style="object-fit: cover;" />
+            </div>
             <img v-else :src="previewBlobUrl" class="rounded-[1.2rem] w-full" style="aspect-ratio: 9/16; object-fit: cover;" />
             <!-- Кнопка будет добавлена ВК нативно -->
             <div v-if="linkType" class="absolute bottom-5 left-1/2 -translate-x-1/2 px-5 py-1.5 bg-white/90 rounded-full text-[10px] font-bold text-gray-700 shadow whitespace-nowrap">
@@ -1284,16 +1382,16 @@ onUnmounted(() => {
         <!-- Metadata -->
         <div class="bg-gray-50 dark:bg-gray-800 rounded-xl p-4 mb-4 space-y-2 text-sm">
           <div class="flex justify-between">
-            <span class="text-gray-500">Разрешение</span>
-            <span class="font-medium">1080 × 1920</span>
+            <span class="text-gray-500">{{ isVideoMedia ? 'Формат' : 'Разрешение' }}</span>
+            <span class="font-medium">{{ isVideoMedia ? ('Видео 9:16' + (photo?.durationSec ? ` · ${photo.durationSec} сек` : '')) : '1080 × 1920' }}</span>
           </div>
-          <div class="flex justify-between">
+          <div v-if="!isVideoMedia" class="flex justify-between">
             <span class="text-gray-500">Размер файла</span>
             <span class="font-medium">{{ (previewSize / 1024).toFixed(0) }} KB</span>
           </div>
-          <div class="flex justify-between">
-            <span class="text-gray-500">Канал</span>
-            <span class="font-medium">{{ vkChannels.find(c => c.id === selectedChannel)?.accountName || '—' }}</span>
+          <div class="flex justify-between gap-3">
+            <span class="text-gray-500 shrink-0">Каналы</span>
+            <span class="font-medium text-right">{{ storyChannels.filter(c => selectedChannels.includes(c.id)).map(c => platformLabel(c.platform) + ' ' + c.accountName).join(', ') || '—' }}</span>
           </div>
           <div v-if="linkType" class="flex justify-between">
             <span class="text-gray-500">Кнопка</span>

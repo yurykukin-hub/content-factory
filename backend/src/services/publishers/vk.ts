@@ -23,7 +23,7 @@ export class VkPublisher implements Publisher {
       return platformAccount.accessToken
     }
     try {
-      const { ensureValidToken } = await import('../services/vk-oauth')
+      const { ensureValidToken } = await import('../vk-oauth')
       return await ensureValidToken()
     } catch {
       return null
@@ -336,7 +336,13 @@ export class VkPublisher implements Publisher {
 
       console.log(`[VK Stories] Uploading ${fileBuffer.length} bytes to VK...`)
       const uploadRes = await fetch(uploadUrl, { method: 'POST', body: formData })
-      const uploadData = await uploadRes.json() as any
+      const uploadText = await uploadRes.text()
+      let uploadData: any
+      try {
+        uploadData = JSON.parse(uploadText)
+      } catch {
+        return { success: false, error: `VK Stories: upload вернул не-JSON (HTTP ${uploadRes.status}): ${uploadText.slice(0, 220)}`, rawResponse: uploadText }
+      }
       console.log('[VK Stories] Upload response keys:', Object.keys(uploadData))
 
       // Извлечь upload_result из ответа (VK возвращает {response: {upload_result: "..."}} )

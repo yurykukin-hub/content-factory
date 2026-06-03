@@ -17,6 +17,7 @@ export interface PhotoSession {
   results?: any[] | null
   costUsd?: number | null
   errorMessage?: string | null
+  kieTaskCreatedAt?: string | null
   createdAt: string
   updatedAt: string
 }

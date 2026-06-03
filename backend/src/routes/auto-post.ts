@@ -1,0 +1,92 @@
+/**
+ * Auto-Post API — view and manage auto-posting tasks.
+ * Web UI complement to the Telegram approval bot.
+ */
+
+import { Hono } from 'hono'
+import { db } from '../db'
+import { z } from 'zod'
+
+export const autoPost = new Hono()
+
+// GET /api/auto-posts — list tasks with filters
+autoPost.get('/', async (c) => {
+  const status = c.req.query('status')
+  const businessId = c.req.query('businessId')
+  const limit = Math.min(parseInt(c.req.query('limit') || '50'), 100)
+
+  const where: any = {}
+  if (status) where.status = status
+  if (businessId) where.businessId = businessId
+
+  const tasks = await db.autoPostTask.findMany({
+    where,
+    orderBy: { createdAt: 'desc' },
+    take: limit,
+  })
+
+  return c.json(tasks)
+})
+
+// POST /api/auto-posts/:id/approve — approve task (same as Telegram approve)
+autoPost.post('/:id/approve', async (c) => {
+  const task = await db.autoPostTask.findUnique({ where: { id: c.req.param('id') } })
+  if (!task) return c.json({ error: 'Task not found' }, 404)
+  if (task.status !== 'proposed') return c.json({ error: 'Task is not in proposed state' }, 400)
+
+  // Trigger approve flow
+  const { handleCallbackQuery } = await import('../services/telegram-approval')
+  await handleCallbackQuery({
+    data: `approve:${task.id}`,
+    message: null,
+    id: '',
+  })
+
+  return c.json({ ok: true })
+})
+
+// POST /api/auto-posts/:id/reject — reject task
+autoPost.post('/:id/reject', async (c) => {
+  const task = await db.autoPostTask.findUnique({ where: { id: c.req.param('id') } })
+  if (!task) return c.json({ error: 'Task not found' }, 404)
+
+  await db.autoPostTask.update({
+    where: { id: task.id },
+    data: { status: 'rejected', decidedAt: new Date() },
+  })
+
+  return c.json({ ok: true })
+})
+
+// POST /api/auto-posts/generate — manual trigger
+autoPost.post('/generate', async (c) => {
+  const user = c.get('user')
+  if (user?.role !== 'ADMIN') return c.json({ error: 'Admin only' }, 403)
+
+  const { runAutoPostGeneration } = await import('../services/auto-poster')
+
+  // Run in background
+  runAutoPostGeneration().catch(err =>
+    console.error('[AutoPost] manual generate error:', err.message)
+  )
+
+  return c.json({ ok: true, message: 'Auto-post generation started' })
+})
+
+// GET /api/auto-posts/stats — summary stats
+autoPost.get('/stats', async (c) => {
+  const [proposed, approved, rejected, published] = await Promise.all([
+    db.autoPostTask.count({ where: { status: 'proposed' } }),
+    db.autoPostTask.count({ where: { status: 'approved' } }),
+    db.autoPostTask.count({ where: { status: 'rejected' } }),
+    db.autoPostTask.count({ where: { status: 'published' } }),
+  ])
+
+  const catalogTotal = await db.photoCatalog.count()
+  const catalogAnalyzed = await db.photoCatalog.count({ where: { status: 'analyzed' } })
+
+  return c.json({
+    tasks: { proposed, approved, rejected, published },
+    catalog: { total: catalogTotal, analyzed: catalogAnalyzed },
+  })
+})

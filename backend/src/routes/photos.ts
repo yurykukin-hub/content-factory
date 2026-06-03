@@ -32,7 +32,7 @@ const generateSchema = z.object({
   businessId: z.string(),
   sessionId: z.string().optional(),
   prompt: z.string().min(1),
-  model: z.enum(['nano-banana-2', 'nano-banana-pro']).default('nano-banana-2'),
+  model: z.enum(['nano-banana-2', 'nano-banana-pro', 'gpt-image-2']).default('nano-banana-2'),
   resolution: z.enum(['1K', '2K', '4K']).default('2K'),
   aspectRatio: z.string().default('1:1'),
   batchSize: z.number().int().min(1).max(4).default(1),

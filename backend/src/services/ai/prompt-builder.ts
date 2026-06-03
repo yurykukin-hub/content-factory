@@ -1176,7 +1176,7 @@ export function buildPhotoAgentSystemPrompt(
     : 'нет'
 
   const sessionState = `## Текущая сессия
-- Модель: ${context.photoModel === 'nano-banana-pro' ? 'Nano Banana Pro (качественная)' : 'Nano Banana 2 (быстрая)'}
+- Модель: ${context.photoModel === 'gpt-image-2' ? 'GPT Image 2 (OpenAI, фотореализм)' : context.photoModel === 'nano-banana-pro' ? 'Nano Banana Pro (качественная)' : 'Nano Banana 2 (быстрая)'}
 - Разрешение: ${context.photoResolution}
 - Формат: ${context.photoAspectRatio}
 - Количество: ${context.batchSize} изображений
@@ -1197,7 +1197,7 @@ export function buildPhotoAgentSystemPrompt(
 - Предлагай 2-3 варианта когда есть развилки
 - Suggestions: углублённые ("Альтернативный стиль", "Измени ракурс", "Добавь текстуры")`
 
-  return `Ты — арт-директор и эксперт по AI-генерации изображений (Nano Banana), встроенный в Photo Studio.
+  return `Ты — арт-директор и эксперт по AI-генерации изображений (Nano Banana / GPT Image 2), встроенный в Photo Studio.
 Помогаешь пользователю создавать изображения через диалог.
 Определи язык сообщения и отвечай на нём (русский → русский, английский → английский).
 

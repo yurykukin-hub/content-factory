@@ -30,6 +30,7 @@ const emit = defineEmits<{
 const MODELS = [
   { id: 'nano-banana-2', label: 'NB2', sub: 'Быстрый' },
   { id: 'nano-banana-pro', label: 'Pro', sub: 'Качество' },
+  { id: 'gpt-image-2', label: 'GPT2', sub: 'OpenAI ~3 мин' },
 ]
 
 const RESOLUTIONS = [

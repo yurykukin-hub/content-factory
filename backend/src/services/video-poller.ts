@@ -314,6 +314,48 @@ async function pollPhotoSession(session: any) {
 
   emitEvent({ type: 'session_updated', tabId: '', sessionId: session.id, status: 'completed' })
   log.info('[PhotoPoller] completed', { sessionId: session.id, imageCount: newResults.length })
+
+  // Character Sheet hook: save result as CharacterImage
+  await handleCharacterSheetCompletion(session, newResults)
+}
+
+/** If session was a character sheet generation, save result as CharacterImage */
+async function handleCharacterSheetCompletion(session: any, newResults: any[]) {
+  try {
+    // referenceImages is used as metadata for character sheet sessions
+    const meta = session.referenceImages as any
+    const characterId = meta?.characterSheetFor
+    if (!characterId || !newResults.length) return
+
+    const resultMediaFileId = newResults[0].mediaFileId
+    if (!resultMediaFileId) return
+
+    // Check character still exists
+    const character = await db.character.findUnique({ where: { id: characterId } })
+    if (!character) return
+
+    // Get current max sortOrder
+    const maxSort = await db.characterImage.aggregate({
+      where: { characterId },
+      _max: { sortOrder: true },
+    })
+
+    await db.characterImage.create({
+      data: {
+        characterId,
+        mediaFileId: resultMediaFileId,
+        description: `Character sheet (AI-generated)`,
+        isMain: false,
+        sortOrder: (maxSort._max.sortOrder ?? -1) + 1,
+        source: 'character_sheet',
+      },
+    })
+
+    log.info('[PhotoPoller] character sheet saved', { characterId, mediaFileId: resultMediaFileId })
+  } catch (err: any) {
+    // Non-critical: don't fail the session if sheet hook fails
+    log.error('[PhotoPoller] character sheet hook error', { error: err.message })
+  }
 }
 
 const MUSIC_COST_DEFAULT = 0.11

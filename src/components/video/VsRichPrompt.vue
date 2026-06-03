@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, nextTick, onMounted } from 'vue'
+import { ref, computed, watch, nextTick, onMounted } from 'vue'
 
 export interface BadgeData {
   badgeType: 'character' | 'image'
@@ -8,9 +8,16 @@ export interface BadgeData {
   thumbUrl: string | null
 }
 
+export interface CharacterSuggestion {
+  id: string
+  name: string
+  thumbUrl: string | null
+}
+
 const props = defineProps<{
   modelValue: string
   placeholder?: string
+  characters?: CharacterSuggestion[]
 }>()
 
 const emit = defineEmits<{
@@ -21,6 +28,19 @@ const editorRef = ref<HTMLDivElement | null>(null)
 const isFocused = ref(false)
 const isEmpty = ref(true)
 let isInternalUpdate = false
+
+// --- @ Autocomplete state ---
+const showAutocomplete = ref(false)
+const autocompleteQuery = ref('')
+const autocompletePos = ref({ top: 0, left: 0 })
+const autocompleteIndex = ref(0)
+let autocompleteRange: Range | null = null
+
+const filteredSuggestions = computed(() => {
+  if (!props.characters?.length || !showAutocomplete.value) return []
+  const q = autocompleteQuery.value.toLowerCase()
+  return props.characters.filter(c => c.name.toLowerCase().includes(q)).slice(0, 6)
+})
 
 // --- Badge HTML helpers ---
 
@@ -71,6 +91,93 @@ function onInput() {
   isInternalUpdate = true
   emit('update:modelValue', text)
   nextTick(() => { isInternalUpdate = false })
+
+  // Check for @ autocomplete trigger
+  checkAutocomplete()
+}
+
+function checkAutocomplete() {
+  if (!props.characters?.length) { showAutocomplete.value = false; return }
+
+  const sel = window.getSelection()
+  if (!sel || !sel.rangeCount || !sel.isCollapsed) { showAutocomplete.value = false; return }
+
+  const range = sel.getRangeAt(0)
+  const container = range.startContainer
+  if (container.nodeType !== Node.TEXT_NODE) { showAutocomplete.value = false; return }
+
+  const textBefore = container.textContent?.slice(0, range.startOffset) || ''
+
+  // Find last @ in text before cursor (not preceded by word char)
+  const atMatch = textBefore.match(/(^|[^a-zA-Z\u0400-\u04FF])@([a-zA-Z\u0400-\u04FF]*)$/)
+  if (!atMatch) { showAutocomplete.value = false; return }
+
+  autocompleteQuery.value = atMatch[2]
+  autocompleteRange = range.cloneRange()
+  autocompleteIndex.value = 0
+
+  // Position dropdown below cursor
+  const rect = range.getBoundingClientRect()
+  const editorRect = editorRef.value?.getBoundingClientRect()
+  if (editorRect) {
+    autocompletePos.value = {
+      top: rect.bottom - editorRect.top + 4,
+      left: rect.left - editorRect.left,
+    }
+  }
+
+  showAutocomplete.value = filteredSuggestions.value.length > 0
+}
+
+function selectSuggestion(char: CharacterSuggestion) {
+  if (!editorRef.value || !autocompleteRange) return
+
+  // Find the @ trigger in text and remove @query
+  const sel = window.getSelection()
+  if (!sel) return
+
+  const container = autocompleteRange.startContainer
+  if (container.nodeType !== Node.TEXT_NODE) return
+
+  const text = container.textContent || ''
+  const cursorPos = autocompleteRange.startOffset
+
+  // Find the @ position
+  const beforeCursor = text.slice(0, cursorPos)
+  const atIdx = beforeCursor.lastIndexOf('@')
+  if (atIdx < 0) return
+
+  // Create range covering @query
+  const deleteRange = document.createRange()
+  deleteRange.setStart(container, atIdx)
+  deleteRange.setEnd(container, cursorPos)
+  deleteRange.deleteContents()
+
+  // Insert badge
+  const badge: BadgeData = { badgeType: 'character', id: char.id, name: char.name, thumbUrl: char.thumbUrl }
+  const html = badgeHtml(badge)
+  const temp = document.createElement('div')
+  temp.innerHTML = html
+  const badgeNode = temp.firstChild as HTMLElement
+
+  deleteRange.insertNode(badgeNode)
+
+  // Move cursor after badge
+  const newRange = document.createRange()
+  newRange.setStartAfter(badgeNode)
+  newRange.collapse(true)
+  sel.removeAllRanges()
+  sel.addRange(newRange)
+
+  // Add space after
+  const space = document.createTextNode(' ')
+  badgeNode.after(space)
+  newRange.setStartAfter(space)
+  sel.removeAllRanges()
+  sel.addRange(newRange)
+
+  showAutocomplete.value = false
+  onInput()
 }
 
 function onPaste(e: ClipboardEvent) {
@@ -80,6 +187,30 @@ function onPaste(e: ClipboardEvent) {
 }
 
 function onKeydown(e: KeyboardEvent) {
+  // Autocomplete navigation
+  if (showAutocomplete.value && filteredSuggestions.value.length > 0) {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      autocompleteIndex.value = (autocompleteIndex.value + 1) % filteredSuggestions.value.length
+      return
+    }
+    if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      autocompleteIndex.value = (autocompleteIndex.value - 1 + filteredSuggestions.value.length) % filteredSuggestions.value.length
+      return
+    }
+    if (e.key === 'Enter' || e.key === 'Tab') {
+      e.preventDefault()
+      selectSuggestion(filteredSuggestions.value[autocompleteIndex.value])
+      return
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      showAutocomplete.value = false
+      return
+    }
+  }
+
   // On backspace, check if we're adjacent to a badge to delete it
   if (e.key === 'Backspace') {
     const sel = window.getSelection()
@@ -307,13 +438,20 @@ function setContentWithBadges(text: string, badges: BadgeData[]) {
     badgeMap.set(`@${b.name}`, badgeHtml(b))
   }
 
-  // Split text by @ImageN patterns and rebuild as HTML
+  // Split text by @Name patterns (supports @Image1..N and @CharacterName) and rebuild as HTML
+  // Build regex from all badge names
+  const badgeNames = Array.from(badgeMap.keys()).map(k => k.slice(1)) // remove @
+  // Also always match @Image\d+
+  const escaped = badgeNames.map(n => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+  const pattern = escaped.length > 0
+    ? new RegExp(`@(?:${escaped.join('|')}|Image\\d+)`, 'g')
+    : /@Image\d+/g
+
   let html = ''
-  const regex = /@Image\d+/g
   let lastIndex = 0
   let match: RegExpExecArray | null
 
-  while ((match = regex.exec(text)) !== null) {
+  while ((match = pattern.exec(text)) !== null) {
     // Escape text before the match
     const before = text.slice(lastIndex, match.index)
     html += escapeHtml(before)
@@ -386,6 +524,28 @@ defineExpose({ insertBadge, setContentWithBadges })
     <div v-if="isEmpty && !isFocused"
       class="absolute top-3 left-4 text-sm text-gray-400 pointer-events-none select-none">
       {{ placeholder || 'Опишите видео: объект, действие, камера, освещение, настроение...' }}
+    </div>
+
+    <!-- @ Autocomplete dropdown -->
+    <div v-if="showAutocomplete && filteredSuggestions.length > 0"
+      :style="{ top: autocompletePos.top + 'px', left: autocompletePos.left + 'px' }"
+      class="absolute z-50 w-52 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl py-1 max-h-48 overflow-y-auto">
+      <button
+        v-for="(char, idx) in filteredSuggestions" :key="char.id"
+        @mousedown.prevent="selectSuggestion(char)"
+        :class="[
+          'w-full flex items-center gap-2 px-3 py-2 text-left text-sm transition-colors',
+          idx === autocompleteIndex
+            ? 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300'
+            : 'hover:bg-gray-50 dark:hover:bg-gray-800'
+        ]">
+        <img v-if="char.thumbUrl" :src="char.thumbUrl" :alt="char.name"
+          class="w-6 h-6 rounded-full object-cover shrink-0" />
+        <div v-else class="w-6 h-6 rounded-full bg-gray-200 dark:bg-gray-700 shrink-0 flex items-center justify-center">
+          <span class="text-[9px] text-gray-500">{{ char.name[0] }}</span>
+        </div>
+        <span class="truncate font-medium">{{ char.name }}</span>
+      </button>
     </div>
   </div>
 </template>

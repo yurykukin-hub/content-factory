@@ -90,7 +90,7 @@ const createSchema = z.object({
   personaId: z.string().optional().nullable(),
   sunoModel: z.string().optional(),
   // Photo settings
-  photoModel: z.enum(['nano-banana-2', 'nano-banana-pro']).optional(),
+  photoModel: z.enum(['nano-banana-2', 'nano-banana-pro', 'gpt-image-2']).optional(),
   photoResolution: z.enum(['1K', '2K', '4K']).optional(),
   batchSize: z.number().int().min(1).max(4).optional(),
   photoAspectRatio: z.string().optional(),
@@ -142,7 +142,7 @@ const updateSchema = z.object({
   personaId: z.string().optional().nullable(),
   sunoModel: z.string().optional(),
   // Photo settings
-  photoModel: z.enum(['nano-banana-2', 'nano-banana-pro']).optional(),
+  photoModel: z.enum(['nano-banana-2', 'nano-banana-pro', 'gpt-image-2']).optional(),
   photoResolution: z.enum(['1K', '2K', '4K']).optional(),
   batchSize: z.number().int().min(1).max(4).optional(),
   photoAspectRatio: z.string().optional(),

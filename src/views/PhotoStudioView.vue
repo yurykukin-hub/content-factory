@@ -51,7 +51,7 @@ const currentSessionId = ref<string | null>(null)
 
 // --- Photo generation state ---
 const prompt = ref('')
-const photoModel = ref<'nano-banana-2' | 'nano-banana-pro'>('nano-banana-2')
+const photoModel = ref<'nano-banana-2' | 'nano-banana-pro' | 'gpt-image-2'>('nano-banana-2')
 const photoResolution = ref<'1K' | '2K' | '4K'>('1K')
 const batchSize = ref<1 | 2 | 4>(1)
 const photoAspectRatio = ref('1:1')
@@ -121,8 +121,14 @@ function onRefSaved() {
 }
 
 // --- Generation state ---
-const generating = ref(false)
-const generatingStartedAt = ref<string | null>(null)
+const generating = computed(() => {
+  const s = sessions.value.find(s => s.id === currentSessionId.value)
+  return s?.status === 'generating'
+})
+const generatingStartedAt = computed(() => {
+  const s = sessions.value.find(s => s.id === currentSessionId.value)
+  return s?.status === 'generating' ? (s.kieTaskCreatedAt || s.updatedAt) : null
+})
 
 // --- UI state ---
 const activeTab = ref<'agent' | 'editor'>('editor')
@@ -133,13 +139,39 @@ const enhancing = ref(false)
 const showPreGenModal = ref(false)
 const mobileGalleryOpen = ref(false)
 
-// --- Results (from completed sessions) ---
-const imageResults = ref<any[]>([])
+// --- Results (derived from completed sessions) ---
+const imageResults = computed(() => {
+  const images: any[] = []
+  const completed = sessions.value.filter(s => s.status === 'completed')
+  for (const s of completed) {
+    const results = s.results as any[] | null
+    if (Array.isArray(results) && results.length > 0) {
+      for (const r of results) {
+        images.push({
+          sessionId: s.id,
+          resultUrl: r.resultUrl,
+          thumbUrl: r.thumbUrl || null,
+          mediaFileId: r.mediaFileId || null,
+          costUsd: r.costUsd ?? s.costUsd ?? 0,
+          createdAt: r.createdAt || s.updatedAt,
+          prompt: r.prompt || s.prompt || '',
+          photoModel: r.photoModel || (s as any).photoModel || '',
+          photoResolution: r.photoResolution || (s as any).photoResolution || '',
+          photoAspectRatio: r.photoAspectRatio || (s as any).photoAspectRatio || '',
+          favorite: r.favorite ?? false,
+        })
+      }
+    }
+  }
+  images.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+  return images
+})
 
 // --- Pricing ---
 const PHOTO_PRICING: Record<string, Record<string, number>> = {
   'nano-banana-2':   { '1K': 0.04, '2K': 0.06, '4K': 0.09 },
   'nano-banana-pro': { '1K': 0.07, '2K': 0.09, '4K': 0.12 },
+  'gpt-image-2':     { '1K': 0.03, '2K': 0.05, '4K': 0.08 },
 }
 
 const costUsd = computed(() => {
@@ -288,11 +320,6 @@ function loadSessionIntoState(session: any) {
   selectedCharacterId.value = session.characterId || null
   referenceImages.value = (session.referenceImages as any[]) || []
   chatMessages.value = session.chatHistory || []
-  generating.value = session.status === 'generating'
-  generatingStartedAt.value = session.kieTaskCreatedAt || null
-
-  // Load results from completed sessions
-  loadImageResults()
 }
 
 function resetState() {
@@ -304,8 +331,6 @@ function resetState() {
   selectedCharacterId.value = null
   referenceImages.value = []
   chatMessages.value = []
-  generating.value = false
-  generatingStartedAt.value = null
 }
 
 async function onLoadSession(session: PhotoSession) {
@@ -342,31 +367,22 @@ async function onRenameSession(id: string, title: string) {
   } catch {}
 }
 
-async function loadImageResults() {
-  const images: typeof imageResults.value = []
-  const completed = sessions.value.filter(s => s.status === 'completed')
-
-  for (const s of completed) {
+async function onToggleFavorite(resultUrl: string) {
+  for (const s of sessions.value) {
     const results = s.results as any[] | null
-    if (Array.isArray(results) && results.length > 0) {
-      for (const r of results) {
-        images.push({
-          resultUrl: r.resultUrl,
-          thumbUrl: r.thumbUrl || null,
-          mediaFileId: r.mediaFileId || null,
-          costUsd: r.costUsd ?? s.costUsd ?? 0,
-          createdAt: r.createdAt || s.updatedAt,
-          prompt: r.prompt || s.prompt || '',
-          photoModel: r.photoModel || (s as any).photoModel || '',
-          photoResolution: r.photoResolution || (s as any).photoResolution || '',
-          photoAspectRatio: r.photoAspectRatio || (s as any).photoAspectRatio || '',
-        })
-      }
-    }
+    if (!Array.isArray(results)) continue
+    const idx = results.findIndex((r: any) => r.resultUrl === resultUrl)
+    if (idx === -1) continue
+
+    const updated = [...results]
+    updated[idx] = { ...updated[idx], favorite: !updated[idx].favorite }
+
+    try {
+      await http.put(`/sessions/${s.id}`, { results: updated })
+      ;(s as any).results = updated
+    } catch {}
+    return
   }
-  // Sort newest first
-  images.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-  imageResults.value = images
 }
 
 async function onBusinessChange() {
@@ -377,7 +393,6 @@ async function onBusinessChange() {
     await saveSession()
   }
   sessions.value = []
-  imageResults.value = []
   currentSessionId.value = null
   resetState()
   loadSessions()
@@ -393,10 +408,9 @@ function requestGenerate() {
 async function confirmGenerate() {
   showPreGenModal.value = false
   if (!businesses.currentBusinessId || !currentSessionId.value) return
+  if (generating.value) return
 
   autoSavePaused = true
-  generating.value = true
-  generatingStartedAt.value = new Date().toISOString()
 
   try {
     await http.post('/photos/generate', {
@@ -413,9 +427,8 @@ async function confirmGenerate() {
     toast.info('Генерация запущена...')
     await loadSessions()
   } catch (err: any) {
-    generating.value = false
-    generatingStartedAt.value = null
     toast.error(err.message || 'Ошибка генерации')
+    await loadSessions()
   } finally {
     autoSavePaused = false
   }
@@ -506,21 +519,13 @@ function connectSSE() {
     try {
       const event = JSON.parse(e.data)
       if (event.type === 'session_updated') {
-        loadSessions().then(loadImageResults)
+        loadSessions()
         if (event.sessionId === currentSessionId.value) {
           if (event.status === 'completed') {
-            generating.value = false
-            generatingStartedAt.value = null
             autoSavePaused = false
             toast.success('Фото готово!')
-            // Reload full session to get results
-            http.get<any>(`/sessions/${currentSessionId.value}`).then((s: any) => {
-              loadSessionIntoState(s)
-              loadImageResults()
-            })
+            http.get<any>(`/sessions/${currentSessionId.value}`).then(loadSessionIntoState)
           } else if (event.status === 'failed') {
-            generating.value = false
-            generatingStartedAt.value = null
             autoSavePaused = false
             toast.error('Генерация не удалась')
           }
@@ -834,7 +839,7 @@ onDeactivated(() => {
               <ChevronUp :size="12" :class="['transition-transform text-gray-400', mobileGalleryOpen ? '' : 'rotate-180']" />
             </button>
             <div v-if="mobileGalleryOpen" class="max-h-[35vh] overflow-y-auto">
-              <PsGallery :results="imageResults" :generating="generating" :batch-size="batchSize" />
+              <PsGallery :results="imageResults" :generating="generating" :batch-size="batchSize" @toggle-favorite="onToggleFavorite" />
             </div>
           </div>
 
@@ -866,6 +871,7 @@ onDeactivated(() => {
         :batch-size="batchSize"
         @edit="(url: string) => toast.info('Редактирование: ' + url.split('/').pop())"
         @remove-bg="(url: string) => toast.info('Удаление фона: ' + url.split('/').pop())"
+        @toggle-favorite="onToggleFavorite"
       />
     </div>
 

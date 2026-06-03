@@ -304,6 +304,7 @@ async function loadTrackResults() {
     if (Array.isArray(results) && results.length > 0) {
       for (const r of results) {
         tracks.push({
+          sessionId: s.id,
           resultUrl: r.resultUrl,
           audioUrl: r.resultUrl,
           coverImageUrl: r.coverImageUrl,
@@ -311,6 +312,7 @@ async function loadTrackResults() {
           createdAt: r.createdAt || s.updatedAt,
           title: r.title || s.musicTitle || s.title || '',
           duration: r.duration || null,
+          favorite: r.favorite ?? false,
           // Prefer per-result snapshot, fallback to session
           prompt: r.prompt || sessionFallback.prompt,
           musicStyle: r.musicStyle || sessionFallback.musicStyle,
@@ -323,6 +325,7 @@ async function loadTrackResults() {
     } else {
       // Fallback: single track from session fields (old sessions)
       tracks.push({
+        sessionId: s.id,
         resultUrl: s.audioUrl,
         audioUrl: s.audioUrl,
         coverImageUrl: s.coverImageUrl,
@@ -330,6 +333,7 @@ async function loadTrackResults() {
         createdAt: s.updatedAt,
         title: s.musicTitle || s.title || '',
         duration: null,
+        favorite: false,
         ...sessionFallback,
       })
     }
@@ -337,6 +341,25 @@ async function loadTrackResults() {
   // Sort newest first
   tracks.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
   trackResults.value = tracks
+}
+
+async function onToggleFavorite(resultUrl: string) {
+  for (const s of sessions.value) {
+    const results = s.results as any[] | null
+    if (!Array.isArray(results)) continue
+    const idx = results.findIndex(r => r.resultUrl === resultUrl)
+    if (idx === -1) continue
+
+    const updated = [...results]
+    updated[idx] = { ...updated[idx], favorite: !updated[idx].favorite }
+
+    try {
+      await http.put(`/sessions/${s.id}`, { results: updated })
+      ;(s as any).results = updated
+      loadTrackResults()
+    } catch {}
+    return
+  }
 }
 
 async function onBusinessChange() {
@@ -675,7 +698,7 @@ onDeactivated(() => {
               <ChevronUp :size="12" :class="['transition-transform text-gray-400', mobileTracksOpen ? '' : 'rotate-180']" />
             </button>
             <div v-if="mobileTracksOpen" class="max-h-[35vh] overflow-y-auto">
-              <SsGallery :results="trackResults" :generating="generating" />
+              <SsGallery :results="trackResults" :generating="generating" @toggle-favorite="onToggleFavorite" />
             </div>
           </div>
 
@@ -704,6 +727,7 @@ onDeactivated(() => {
       <SsGallery class="hidden lg:flex"
         :results="trackResults"
         :generating="generating"
+        @toggle-favorite="onToggleFavorite"
       />
     </div>
 

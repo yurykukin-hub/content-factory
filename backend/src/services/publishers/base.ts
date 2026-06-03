@@ -1,6 +1,7 @@
 import type { PlatformAccount } from '@prisma/client'
 import { VkPublisher } from './vk'
 import { TelegramPublisher } from './telegram'
+import { InstagramPublisher } from './instagram'
 
 export interface MediaFileForPublish {
   url: string
@@ -19,6 +20,8 @@ export interface PublishParams {
     linkUrl?: string      // URL для кнопки
     overlayText?: boolean // наложить текст на фото
     textPosition?: 'top' | 'center' | 'bottom'
+    skipOverlay?: boolean // медиа уже отрендерено клиентом (фото-JPEG / видео с текстом) — не накладывать текст на бэке
+    photoPosition?: string // позиция кропа фото при ресайзе в 9:16 (sharp position)
   }
 }
 
@@ -45,7 +48,7 @@ export function getPublisher(platform: string): Publisher {
     case 'TELEGRAM':
       return new TelegramPublisher()
     case 'INSTAGRAM':
-      throw new Error('Instagram publisher not implemented yet')
+      return new InstagramPublisher()
     default:
       throw new Error(`Unknown platform: ${platform}`)
   }

@@ -36,7 +36,7 @@ export const SECTION_LABELS: Record<Section, string> = {
   ideas: 'Идеи',
   businesses: 'Проекты',
   scenarios: 'Сценарии',
-  characters: 'Персонажи',
+  characters: 'Референсы',
   videoStudio: 'Видео-студия',
   soundStudio: 'Звуковая студия',
   photoStudio: 'Фото-студия',

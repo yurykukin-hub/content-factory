@@ -24,6 +24,7 @@ services:
   backend:
     build: ./backend
     restart: unless-stopped
+    env_file: .env.prod
     ports:
       - "3800:3800"
     environment:
@@ -35,6 +36,7 @@ services:
       PORT: 3800
     volumes:
       - uploads_data:/app/uploads
+      - /data/google-photos:/app/google-photos:ro
     depends_on:
       postgres:
         condition: service_healthy

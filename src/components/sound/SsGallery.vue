@@ -22,6 +22,7 @@ interface TrackResult {
   instrumental?: boolean
   vocalGender?: string | null
   duration?: number | null
+  favorite?: boolean
 }
 
 const { USD_RUB } = useRates()
@@ -36,8 +37,9 @@ const props = defineProps<{
   generating: boolean
 }>()
 
+const emit = defineEmits<{ toggleFavorite: [resultUrl: string] }>()
+
 const activeFilter = ref<'all' | 'favorites'>('all')
-const favorites = ref<Set<string>>(new Set())
 const expandedIdx = ref<number | null>(null)
 
 function toggleExpanded(idx: number) {
@@ -56,17 +58,9 @@ function formatDuration(sec: number | null | undefined): string {
   return `${m}:${s.toString().padStart(2, '0')}`
 }
 
-function toggleFavorite(url: string) {
-  if (favorites.value.has(url)) {
-    favorites.value.delete(url)
-  } else {
-    favorites.value.add(url)
-  }
-}
-
 const filtered = computed(() => {
   if (activeFilter.value === 'favorites') {
-    return props.results.filter(r => favorites.value.has(r.resultUrl || r.audioUrl || ''))
+    return props.results.filter(r => r.favorite)
   }
   return props.results
 })
@@ -133,10 +127,10 @@ const filtered = computed(() => {
               class="p-1.5 rounded-lg transition-colors" title="Подробности">
               <ChevronDown :size="14" :class="expandedIdx === idx ? 'rotate-180 transition-transform' : 'transition-transform'" />
             </button>
-            <button @click="toggleFavorite(track.resultUrl || track.audioUrl || '')"
-              :class="favorites.has(track.resultUrl || track.audioUrl || '') ? 'text-red-500' : 'text-gray-300 hover:text-red-400'"
+            <button @click="emit('toggleFavorite', track.resultUrl || track.audioUrl || '')"
+              :class="track.favorite ? 'text-red-500' : 'text-gray-300 hover:text-red-400'"
               class="p-1.5 rounded-lg transition-colors">
-              <Heart :size="14" :fill="favorites.has(track.resultUrl || track.audioUrl || '') ? 'currentColor' : 'none'" />
+              <Heart :size="14" :fill="track.favorite ? 'currentColor' : 'none'" />
             </button>
             <a v-if="track.resultUrl || track.audioUrl"
               :href="track.resultUrl || track.audioUrl" download

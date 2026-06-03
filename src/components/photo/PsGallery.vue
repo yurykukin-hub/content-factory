@@ -17,6 +17,7 @@ interface ImageResult {
   photoModel?: string
   photoResolution?: string
   photoAspectRatio?: string
+  favorite?: boolean
 }
 
 const { USD_RUB } = useRates()
@@ -36,20 +37,15 @@ const emit = defineEmits<{
   edit: [imageUrl: string]
   removeBg: [imageUrl: string]
   download: [resultUrl: string]
+  toggleFavorite: [resultUrl: string]
 }>()
 
 const activeFilter = ref<'all' | 'favorites'>('all')
-const favorites = ref<Set<string>>(new Set())
 const expandedIdx = ref<number | null>(null)
 const lightboxUrl = ref<string | null>(null)
 
 function toggleExpanded(idx: number) {
   expandedIdx.value = expandedIdx.value === idx ? null : idx
-}
-
-function toggleFavorite(url: string) {
-  if (favorites.value.has(url)) favorites.value.delete(url)
-  else favorites.value.add(url)
 }
 
 function openLightbox(url: string) {
@@ -67,7 +63,7 @@ const MODEL_LABELS: Record<string, string> = {
 
 const filtered = computed(() => {
   if (activeFilter.value === 'favorites') {
-    return props.results.filter(r => favorites.value.has(r.resultUrl))
+    return props.results.filter(r => r.favorite)
   }
   return props.results
 })
@@ -154,14 +150,14 @@ function downloadImage(url: string) {
             </div>
 
             <!-- Favorite badge -->
-            <button @click.stop="toggleFavorite(img.resultUrl)"
+            <button @click.stop="emit('toggleFavorite', img.resultUrl)"
               :class="[
                 'absolute top-2 right-2 p-1.5 rounded-full transition-all',
-                favorites.has(img.resultUrl)
+                img.favorite
                   ? 'bg-red-500/80 text-white'
                   : 'bg-black/20 text-white/70 opacity-0 group-hover:opacity-100 hover:bg-black/40'
               ]">
-              <Heart :size="12" :fill="favorites.has(img.resultUrl) ? 'currentColor' : 'none'" />
+              <Heart :size="12" :fill="img.favorite ? 'currentColor' : 'none'" />
             </button>
           </div>
 

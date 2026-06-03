@@ -82,8 +82,23 @@ model User {
   sessions            GenerationSession[]
   aiUsageLogs         AiUsageLog[]
   balanceTransactions BalanceTransaction[]
+  apiKeys             ApiKey[]
 
   @@map("users")
+}
+
+/// API-ключ для внешних интеграций (MCP, webhooks)
+model ApiKey {
+  id        String    @id @default(cuid())
+  keyHash   String    @unique @map("key_hash") // sha256 hash
+  name      String                              // "MCP Server", "ERP Integration"
+  userId    String    @map("user_id")
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  isActive  Boolean   @default(true) @map("is_active")
+  lastUsed  DateTime? @map("last_used")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  @@map("api_keys")
 }
 
 /// Привязка пользователя к бизнесу (RBAC)
@@ -345,9 +360,10 @@ model MediaFile {
   post         Post?        @relation(fields: [postId], references: [id])
   business     Business     @relation(fields: [businessId], references: [id])
   folder       MediaFolder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
-  characterRef   Character[]           @relation("CharacterReference")
-  sessions       GenerationSession[]  @relation("SessionMediaFile")
-  personaSamples MusicPersona[]       @relation("PersonaSample")
+  characterRef    Character[]           @relation("CharacterReference")
+  characterImages CharacterImage[]     @relation("CharacterImageMedia")
+  sessions        GenerationSession[]  @relation("SessionMediaFile")
+  personaSamples  MusicPersona[]       @relation("PersonaSample")
 
   @@index([businessId])
   @@index([postId])
@@ -477,6 +493,7 @@ model Character {
 
   referenceMedia MediaFile?          @relation("CharacterReference", fields: [referenceMediaId], references: [id])
   businesses     CharacterBusiness[]
+  images         CharacterImage[]
 
   @@map("characters")
 }
@@ -495,6 +512,25 @@ model CharacterBusiness {
   @@index([businessId])
   @@index([characterId])
   @@map("character_businesses")
+}
+
+/// Фото персонажа (галерея, one-to-many к Character)
+model CharacterImage {
+  id           String   @id @default(cuid())
+  characterId  String   @map("character_id")
+  mediaFileId  String   @map("media_file_id")
+  description  String   @default("")              // AI или ручное описание фото
+  isMain       Boolean  @default(false) @map("is_main")  // главный аватар
+  sortOrder    Int      @default(0)     @map("sort_order")
+  source       String   @default("upload")        // "upload" | "character_sheet" | "generated"
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  character    Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
+  mediaFile    MediaFile @relation("CharacterImageMedia", fields: [mediaFileId], references: [id])
+
+  @@unique([characterId, mediaFileId])
+  @@index([characterId])
+  @@map("character_images")
 }
 
 /// Сценарий для видео/контента (структурированный набор сцен)
@@ -640,4 +676,63 @@ model BalanceTransaction {
   @@index([userId])
   @@index([createdAt])
   @@map("balance_transactions")
+}
+
+// ============================================================
+// GOOGLE PHOTOS SYNC
+// ============================================================
+
+/// Каталог файлов из Google Photos (синхронизированных через rclone)
+/// Фото остаются в приватной директории /data/google-photos/
+/// В CF MediaLibrary попадают ТОЛЬКО после одобрения пользователем
+model PhotoCatalog {
+  id          String    @id @default(cuid())
+  filePath    String    @unique @map("file_path")       // /app/google-photos/album/IMG_123.jpg
+  fileHash    String?   @map("file_hash")                // md5 для дедупликации
+  fileSize    Int       @map("file_size")                 // bytes
+  mimeType    String    @map("mime_type")                 // image/jpeg, video/mp4
+  fileDate    DateTime? @map("file_date")                 // из EXIF или mtime
+  albumName   String?   @map("album_name")                // из структуры папок rclone
+  thumbPath   String?   @map("thumb_path")                // .thumbs/abc.webp
+
+  // AI-поля (заполняются по запросу, НЕ для всех файлов)
+  aiDescription String?  @map("ai_description")
+  aiBusiness    String?  @map("ai_business")              // KB/НаWоде/Inpulse/личное
+  aiConfidence  Float?   @map("ai_confidence")            // 0.0-1.0
+  aiTags        String[] @default([]) @map("ai_tags")
+  aiAnalyzedAt  DateTime? @map("ai_analyzed_at")
+
+  // Статусы
+  status        String   @default("indexed")              // indexed|analyzed|posted|skipped
+  mediaFileId   String?  @map("media_file_id")            // FK -> MediaFile (после одобрения)
+  postedAt      DateTime? @map("posted_at")
+
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@index([status])
+  @@index([aiBusiness])
+  @@index([fileDate])
+  @@map("photo_catalog")
+}
+
+/// Задача авто-постинга (AI предлагает фото -> Telegram одобрение -> публикация)
+model AutoPostTask {
+  id            String    @id @default(cuid())
+  businessId    String    @map("business_id")
+  catalogId     String    @map("catalog_id")              // FK -> PhotoCatalog
+  postId        String?   @map("post_id")                  // FK -> Post (после одобрения)
+  mediaFileId   String?   @map("media_file_id")            // FK -> MediaFile (после одобрения)
+  status        String    @default("pending")              // pending|proposed|approved|rejected|editing|published
+  proposedText  String    @map("proposed_text")            // AI-сгенерированный текст
+  proposedTags  String[]  @default([]) @map("proposed_tags")
+  aiReasoning   String?   @map("ai_reasoning")             // почему AI выбрал это фото
+  platforms     String[]  @default([])                      // ["VK", "TELEGRAM"]
+  tgMessageId   String?   @map("tg_message_id")            // ID сообщения для edit
+  proposedAt    DateTime? @map("proposed_at")
+  decidedAt     DateTime? @map("decided_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  @@index([status])
+  @@index([businessId])
+  @@map("auto_post_tasks")
 }

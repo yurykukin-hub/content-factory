@@ -19,11 +19,13 @@ const KIE_BASE = 'https://api.kie.ai'
 export const PHOTO_PRICING: Record<string, Record<string, number>> = {
   'nano-banana-2':   { '1K': 0.04, '2K': 0.06, '4K': 0.09 },
   'nano-banana-pro': { '1K': 0.07, '2K': 0.09, '4K': 0.12 },
+  'gpt-image-2':     { '1K': 0.03, '2K': 0.05, '4K': 0.08 },
 }
 
 export const PHOTO_MODELS = {
   'nano-banana-2':   { label: 'Nano Banana 2', speed: '4-6 сек' },
   'nano-banana-pro': { label: 'Nano Banana Pro', speed: '10-20 сек' },
+  'gpt-image-2':     { label: 'GPT Image 2', speed: '~3 мин' },
 } as const
 
 export type PhotoModelId = keyof typeof PHOTO_MODELS
@@ -748,11 +750,11 @@ export interface CreatePhotoTaskResult {
 export async function createPhotoTask(params: {
   prompt: string
   businessId: string
-  model?: string           // 'nano-banana-2' | 'nano-banana-pro'
+  model?: string           // 'nano-banana-2' | 'nano-banana-pro' | 'gpt-image-2'
   resolution?: string      // '1K' | '2K' | '4K'
   aspectRatio?: string     // '1:1' | '2:3' | '3:2' | '3:4' | '4:3' | '4:5' | '5:4' | '9:16' | '16:9' | '21:9'
   characterId?: string | null
-  referenceImageUrls?: string[]  // Direct reference images (up to 14 for NB2, 8 for Pro)
+  referenceImageUrls?: string[]  // Direct reference images (up to 14 for NB2, 8 for Pro, 16 for GPT)
   userId?: string
 }): Promise<CreatePhotoTaskResult> {
   const { prompt: rawPrompt, businessId, model = 'nano-banana-2', resolution = '2K', aspectRatio = '1:1', characterId, referenceImageUrls } = params
@@ -785,29 +787,44 @@ export async function createPhotoTask(params: {
   // Auto-translate to English for better quality
   const prompt = await translatePrompt(enrichedPrompt, businessId, params.userId)
 
-  log.info('[KIE] createPhotoTask', { businessId, model, resolution, aspectRatio, prompt: prompt.slice(0, 80) })
+  const isGptImage = model === 'gpt-image-2'
 
-  const input: any = {
-    prompt,
-    aspect_ratio: aspectRatio,
-    resolution: resolution,
-    output_format: 'png',
-  }
+  log.info('[KIE] createPhotoTask', { businessId, model, resolution, aspectRatio, prompt: prompt.slice(0, 80) })
 
   // Collect all reference images: character + direct refs
   const allRefs: string[] = []
   if (referenceImageUrl) allRefs.push(referenceImageUrl)
   if (referenceImageUrls?.length) {
-    const maxRefs = model === 'nano-banana-pro' ? 8 : 14
+    const maxRefs = isGptImage ? 16 : model === 'nano-banana-pro' ? 8 : 14
     for (const url of referenceImageUrls.slice(0, maxRefs)) {
       allRefs.push(resolvePublicUrl(url))
     }
   }
-  if (allRefs.length > 0) {
-    input.image_input = allRefs
+
+  // GPT Image 2 uses different model names and input_urls instead of image_input
+  const kieModel = isGptImage
+    ? (allRefs.length > 0 ? 'gpt-image-2-image-to-image' : 'gpt-image-2-text-to-image')
+    : model
+
+  const input: any = {
+    prompt,
+    aspect_ratio: aspectRatio,
+    resolution: resolution,
   }
 
-  const response = await kiePost('/api/v1/jobs/createTask', { model, input })
+  if (!isGptImage) {
+    input.output_format = 'png'
+  }
+
+  if (allRefs.length > 0) {
+    if (isGptImage) {
+      input.input_urls = allRefs
+    } else {
+      input.image_input = allRefs
+    }
+  }
+
+  const response = await kiePost('/api/v1/jobs/createTask', { model: kieModel, input })
   const kieTaskId = response?.data?.taskId || response?.taskId
   if (!kieTaskId) throw new Error('KIE.ai не вернул taskId для фото')
 

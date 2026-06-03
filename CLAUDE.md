@@ -13,7 +13,7 @@ AI-контент-фабрика для автоматизации SMM. Гене
 - **Backend:** Bun + Hono + TypeScript
 - **Frontend:** Vue 3 + Tailwind CSS + Lucide Icons + Pinia
 - **ORM/DB:** Prisma + PostgreSQL 16
-- **AI:** OpenRouter (Haiku для адаптации, Sonnet для генерации, Gemini Flash для vision) + KIE.ai (Nano Banana 2 + **Nano Banana Pro** для text2img/img2img, FLUX Kontext Pro для img2img, recraft для удаления фона, Seedance 2 для видео, **Suno V4/V4_5/V5_5 для музыки — API v2**) + **OpenAI Whisper** (голосовой ввод)
+- **AI:** OpenRouter (Haiku для адаптации, Sonnet для генерации, Gemini Flash для vision) + KIE.ai (Nano Banana 2 + **Nano Banana Pro** + **GPT Image 2** для text2img/img2img, FLUX Kontext Pro для img2img, recraft для удаления фона, Seedance 2 для видео, **Suno V4/V4_5/V5_5 для музыки — API v2**) + **OpenAI Whisper** (голосовой ввод)
 - **Audio:** wavesurfer.js v7 (waveform visualization)
 - **Testing:** Vitest (96 тестов — 7 файлов)
 - **Deploy:** Docker Compose + Caddy (SSL auto)
@@ -51,11 +51,11 @@ content-factory/
 │   │   │   ├── content-plans.ts # CRUD + create-post/ai-generate + batch
 │   │   │   ├── ai.ts           # generate-post/image/video/scenario, adapt, enhance-prompt, describe-image, suggest-templates, agent-chat, transcribe (Whisper)
 │   │   │   ├── publish.ts      # publish + schedule (access checks)
-│   │   │   ├── media.ts        # upload/delete/attach + library + tags
+│   │   │   ├── media.ts        # upload/delete/attach + library + tags + overlay-video (ffmpeg текст на видео-сторис)
 │   │   │   ├── settings.ts     # AppConfig CRUD (ADMIN-only, .env fallback)
 │   │   │   ├── vk-oauth.ts     # VK OAuth 2.1 PKCE
 │   │   │   ├── ideas.ts        # CRUD идей (per-user, ownership check)
-│   │   │   ├── characters.ts   # CRUD AI-персонажей (person/mascot/avatar/object/location, per-business)
+│   │   │   ├── characters.ts   # CRUD AI-персонажей + CharacterImage gallery CRUD + generate-sheet
 │   │   │   ├── scenarios.ts    # CRUD сценариев (scenes JSON, AI-генерация)
 │   │   │   ├── sessions.ts     # CRUD GenerationSession (video + music + photo sessions, type filter)
 │   │   │   ├── music.ts        # Sound Studio: generate, enhance-prompt (8 modes), agent-chat, personas CRUD, from-track
@@ -64,8 +64,9 @@ content-factory/
 │   │   │   ├── ai-logs.ts     # AI usage logs (list, stats, summary, error-count, export CSV)
 │   │   │   └── sse.ts          # Server-Sent Events
 │   │   ├── services/
-│   │   │   ├── scheduler.ts    # Отложенная публикация
+│   │   │   ├── scheduler.ts    # Отложенная публикация (STORIES: догрузка mediaFiles + skipOverlay)
 │   │   │   ├── video-poller.ts # Background poller: video + music + photo KIE tasks → download → SSE (10 сек)
+│   │   │   ├── video-overlay.ts # ffmpeg: статичный текст-PNG поверх видео (scale2ref+overlay) для видео-сторис
 │   │   │   ├── vk-oauth.ts     # VK OAuth service (PKCE, auto-refresh)
 │   │   │   ├── ai/
 │   │   │   │   ├── openrouter.ts      # OpenRouter + cost calculation + logAndCharge DRY helper
@@ -77,7 +78,8 @@ content-factory/
 │   │   │   └── publishers/
 │   │   │       ├── base.ts     # Publisher interface
 │   │   │       ├── vk.ts       # VK wall.post + photo/video + Stories
-│   │   │       └── telegram.ts # TG sendPhoto/Video/MediaGroup
+│   │   │       ├── telegram.ts # TG sendPhoto/Video/MediaGroup
+│   │   │       └── instagram.ts # Instagram через Postmypost (Stories/Reels/Posts, API v4.1, byFile→S3)
 │   │   └── utils/
 │   │       ├── paths.ts        # getModuleDir (Bun/Node compat)
 │   │       └── logger.ts       # Structured logging (JSON prod, pretty dev)
@@ -146,14 +148,17 @@ content-factory/
 │       │   ├── PsEnhanceMenu.vue      # Split-button: 8 photo enhance modes
 │       │   ├── PsGallery.vue          # Галерея изображений (grid + lightbox)
 │       │   └── PsPreGenModal.vue      # Подтверждение перед генерацией
+│       ├── shared/             # Общие компоненты между студиями
+│       │   ├── SharedCharacterCarousel.vue # Карусель персонажей (colorScheme: emerald/fuchsia)
+│       │   └── SharedRefModal.vue         # Модалка создания/редактирования персонажа с галереей
 │       └── settings/           # VkOAuthTab, ProfileTab, AiTab, UsersTab
 ├── docker-compose.yml          # Dev (postgres only)
 ├── docker-compose.prod.yml     # Prod (postgres + backend, healthchecks)
 └── scripts/deploy.sh, backup-db.sh
 ```
 
-## Schema (25 моделей, 8 enums)
-User, UserBusiness, Business, BrandProfile, PlatformAccount, ContentPlan, ContentPlanItem, Post, PostVersion, PublishLog, MediaFolder, MediaFile, AiUsageLog, WebhookRule, AppConfig, Idea, StoryTemplate, Character, CharacterBusiness, Scenario, PromptEntry, PromptTemplate, GenerationSession, BalanceTransaction, **MusicPersona**
+## Schema (26 моделей, 8 enums)
+User, UserBusiness, Business, BrandProfile, PlatformAccount, ContentPlan, ContentPlanItem, Post, PostVersion, PublishLog, MediaFolder, MediaFile, AiUsageLog, WebhookRule, AppConfig, Idea, StoryTemplate, Character, CharacterBusiness, **CharacterImage**, Scenario, PromptEntry, PromptTemplate, GenerationSession, BalanceTransaction, **MusicPersona**
 
 Enums: UserRole, Platform, AccountType, PostType, PostStatus, ContentPlanStatus, PublishStatus
 
@@ -212,7 +217,8 @@ cp backend/.env.example backend/.env
 11. **Музыка-генерация** (KIE.ai Suno V4/V4_5/V5_5) → **async** (background poller), Custom mode (Simple скрыт), lyrics+style, до 8 мин, voice clone (V5.5 Generate Persona), **2 трека на генерацию** (results JSON append)
 12. **Music AI Agent** (Haiku/Sonnet) → multi-turn диалог для крафта музыкальных промптов, текстов, стилей. 8 enhance modes (lyrics, improve, rhyme, structure, style, translate, enhance, simplify)
 13. **Голосовой ввод** (OpenAI Whisper) → микрофон в Agent Chat (Video + Sound + Photo Studio), toggle recording → transcribe → текст в textarea. useVoiceInput composable. ~$0.006/мин
-14. **Фото-генерация** (KIE.ai Nano Banana 2 / Pro) → **async** (background poller), batch 1/2/4, 1K/2K/4K, 10 aspect ratios, character references (img2img). 8 enhance modes (style, lighting, composition, mood, detail, translate, enhance, simplify). Photo AI Agent (Haiku/Sonnet)
+14. **Фото-генерация** (KIE.ai Nano Banana 2 / Pro / **GPT Image 2**) → **async** (background poller), batch 1/2/4, 1K/2K/4K, 10 aspect ratios, character references (img2img). GPT Image 2: OpenAI, лучший фотореализм, text2img + img2img (до 16 refs), $0.03-0.08. 8 enhance modes (style, lighting, composition, mood, detail, translate, enhance, simplify). Photo AI Agent (Haiku/Sonnet)
+15. **Видео-сторис с текстом** (ffmpeg overlay) → чистое фото → Seedance оживляет → СТАТИЧНЫЙ текст-дизайн накладывается ПОВЕРХ видео (ffmpeg `scale2ref`+`overlay`, текст НЕ оживляется) → публикация VK+IG. Архитектура "bake once" (`video-overlay.ts`, `POST /media/overlay-video`): текст вшивается ОДИН раз перед циклом публикации, baked-видео переиспользуется для всех каналов. Frontend: `exportOverlayPng()` (прозрачный PNG-слой) + WYSIWYG overlay-canvas поверх `<video>`
 
 API keys: OpenRouter — из БД (AppConfig) или .env. FAL — из .env (FAL_API_KEY). KIE — из .env (KIE_API_KEY). **OpenAI** — AppConfig `openai_api_key` или .env `OPENAI_API_KEY` (Whisper STT)
 
@@ -275,7 +281,7 @@ API keys: OpenRouter — из БД (AppConfig) или .env. FAL — из .env (F
 
 ## Photo Studio Architecture (2026-04-18, updated 19.04)
 - **GenerationSession type="photo"** — расширение той же модели (type discriminator). 5 photo-полей: photoModel, photoResolution, batchSize, photoAspectRatio, batchTaskIds
-- **Две модели:** `nano-banana-2` (быстрая, 4-6 сек, $0.04-0.09) и `nano-banana-pro` (качественная, 10-20 сек, $0.07-0.12)
+- **Три модели:** `nano-banana-2` (быстрая, 4-6 сек, $0.04-0.09), `nano-banana-pro` (качественная, 10-20 сек, $0.07-0.12), `gpt-image-2` (OpenAI GPT Image 2, фотореализм, ~20-200 сек, $0.03-0.08)
 - **Три разрешения:** 1K, 2K (default), 4K. Цена зависит от модели + разрешения (`PHOTO_PRICING`)
 - **Batch генерация:** 1/2/4 изображения за запрос. Параллельные вызовы `createPhotoTask()` через `Promise.allSettled()`. TaskIds хранятся в `batchTaskIds` JSON
 - **10 aspect ratios:** 1:1, 2:3, 3:2, 3:4, 4:3, 4:5, 5:4, 9:16, 16:9, 21:9
@@ -310,6 +316,14 @@ API keys: OpenRouter — из БД (AppConfig) или .env. FAL — из .env (F
 - **Backup verification**: `gunzip -t` after each backup
 
 ## Conventions
+
+### ⚠️ ВАЖНО: контент и законодательство РФ
+Весь публикуемый контент (сторис, посты, тексты, картинки) НЕ должен противоречить законодательству РФ:
+- **Meta/Instagram признана экстремистской в РФ** — НЕ призывать переходить в Instagram, не ставить ссылки на него в VK/публичных РФ-каналах, не афишировать его как площадку. Постинг в IG — тихо, органика для своей аудитории.
+- **Реклама в Instagram запрещена с 2025** — только органический контент (приглашение на услугу), без платного продвижения.
+- Без запрещёнки (экстремизм, наркотики и т.п.); маркировка рекламы/18+ где требуется по закону.
+- AI-генерация (routes/ai, stories, posts) должна это учитывать — нейтральный тон, приглашение на услугу, без упоминания запрещённых площадок.
+
 - Паттерны из nawode-erp: Hono routes, JWT httpOnly, Prisma, SSE eventBus
 - AI-промпты включают BrandProfile (тон, ЦА, стиль, примеры)
 - Проект (Business) = единый хаб (BusinessDetailView): бренд-профиль + каналы + обзор (с управлением доступами). UI: "Проекты" (не "Бизнесы")

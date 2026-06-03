@@ -1,17 +1,23 @@
 import { db } from '../db'
 import { getPublisher } from './publishers/base'
+import { checkAndRunAutoPost } from './auto-poster'
 
 const CHECK_INTERVAL = 60_000 // каждую минуту
 
 /**
  * Scheduler: проверяет PostVersions со статусом SCHEDULED
  * и публикует те, у которых scheduledAt <= now.
+ * Also triggers daily auto-poster check.
  */
 export function startPublishScheduler(): ReturnType<typeof setInterval> {
-  console.log('[Scheduler] Started — checking every 60s for scheduled posts')
+  console.log('[Scheduler] Started — checking every 60s for scheduled posts + daily auto-poster')
 
   return setInterval(async () => {
     try {
+      // Daily auto-poster check (runs at configured time, skips if already ran today)
+      await checkAndRunAutoPost().catch(e =>
+        console.error('[Scheduler] AutoPoster error:', e.message)
+      )
       const now = new Date()
       const dueVersions = await db.postVersion.findMany({
         where: {
@@ -31,11 +37,22 @@ export function startPublishScheduler(): ReturnType<typeof setInterval> {
       for (const version of dueVersions) {
         try {
           const publisher = getPublisher(version.platformAccount.platform)
+
+          // Медиа привязано к посту — догружаем и прокидываем (иначе сторис/фото-пост уедет без медиа)
+          const postMedia = await db.mediaFile.findMany({
+            where: { postId: version.postId },
+            orderBy: { sortOrder: 'asc' },
+          })
+          const isStories = version.post.postType === 'STORIES'
+
           const result = await publisher.publish({
-            text: version.body,
-            hashtags: version.hashtags,
+            // Для STORIES оверлей-текст = post.body (короткий), медиа уже отрендерено клиентом
+            text: isStories ? version.post.body : version.body,
+            hashtags: isStories ? [] : version.hashtags,
+            mediaFiles: postMedia.map(m => ({ url: m.url, mimeType: m.mimeType, filename: m.filename })),
             platformAccount: version.platformAccount,
             postType: version.post.postType,
+            storiesOptions: isStories ? { skipOverlay: true } : undefined,
           })
 
           console.log(`[Scheduler] Published ${version.id} to ${version.platformAccount.platform}: ${result.success}`)

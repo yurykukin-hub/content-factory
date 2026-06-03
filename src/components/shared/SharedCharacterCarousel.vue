@@ -1,46 +1,29 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { UserCircle, Plus } from 'lucide-vue-next'
 
-interface CharacterImage {
-  url?: string | null
-  thumbUrl?: string | null
-  isMain?: boolean
-}
-
-interface CharacterRef {
+export interface CharacterRef {
   id: string
   name: string
   type: string
   description?: string | null
   style?: string | null
   referenceMedia?: { url: string; thumbUrl: string | null } | null
-  images?: CharacterImage[]
+  images?: Array<{ url: string; thumbUrl: string | null; isMain: boolean }> | null
 }
 
-function getAvatar(c: CharacterRef): string | null {
-  const mainImage = c.images?.find(i => i.isMain)
-  if (mainImage) return mainImage.thumbUrl || mainImage.url || null
-  if (c.images?.length) return c.images[0].thumbUrl || c.images[0].url || null
-  return c.referenceMedia?.thumbUrl || c.referenceMedia?.url || null
-}
-
-function getFullImage(c: CharacterRef): string | null {
-  const mainImage = c.images?.find(i => i.isMain)
-  if (mainImage) return mainImage.url || null
-  if (c.images?.length) return c.images[0].url || null
-  return c.referenceMedia?.url || null
-}
-
-defineProps<{
+const props = defineProps<{
   characters: CharacterRef[]
   modelValue: string | null
+  colorScheme?: 'emerald' | 'fuchsia'
 }>()
 
 const emit = defineEmits<{
   'update:modelValue': [value: string | null]
   'createNew': []
 }>()
+
+const color = computed(() => props.colorScheme || 'emerald')
 
 const hoveredId = ref<string | null>(null)
 let hoverTimer: ReturnType<typeof setTimeout> | null = null
@@ -53,10 +36,25 @@ function onLeave() {
   hoveredId.value = null
 }
 
+function getAvatar(c: CharacterRef) {
+  // New: try images gallery first, then legacy referenceMedia
+  const mainImage = c.images?.find(i => i.isMain)
+  if (mainImage) return mainImage.thumbUrl || mainImage.url
+  return c.referenceMedia?.thumbUrl || c.referenceMedia?.url || null
+}
+
+function getFullPhoto(c: CharacterRef) {
+  const mainImage = c.images?.find(i => i.isMain)
+  if (mainImage) return mainImage.url
+  return c.referenceMedia?.url || null
+}
+
 const TYPE_LABELS: Record<string, string> = {
   person: 'Персона',
   mascot: 'Маскот',
   avatar: 'Аватар',
+  object: 'Объект',
+  location: 'Локация',
 }
 </script>
 
@@ -66,8 +64,18 @@ const TYPE_LABELS: Record<string, string> = {
       <!-- Create new -->
       <button @click="emit('createNew')"
         class="flex flex-col items-center gap-1 shrink-0 group">
-        <div class="w-11 h-11 rounded-full border-2 border-dashed border-gray-300 dark:border-gray-700 flex items-center justify-center group-hover:border-emerald-400 transition-all">
-          <Plus :size="16" class="text-gray-400 group-hover:text-emerald-500 transition-colors" />
+        <div :class="[
+          'w-11 h-11 rounded-full border-2 border-dashed flex items-center justify-center transition-all',
+          color === 'fuchsia'
+            ? 'border-gray-300 dark:border-gray-700 group-hover:border-fuchsia-400'
+            : 'border-gray-300 dark:border-gray-700 group-hover:border-emerald-400'
+        ]">
+          <Plus :size="16" :class="[
+            'transition-colors',
+            color === 'fuchsia'
+              ? 'text-gray-400 group-hover:text-fuchsia-500'
+              : 'text-gray-400 group-hover:text-emerald-500'
+          ]" />
         </div>
         <span class="text-[9px] text-gray-400">Создать</span>
       </button>
@@ -82,7 +90,9 @@ const TYPE_LABELS: Record<string, string> = {
           <div :class="[
             'w-11 h-11 rounded-full border-2 overflow-hidden transition-all',
             modelValue === c.id
-              ? 'border-emerald-500 ring-2 ring-emerald-500/30'
+              ? color === 'fuchsia'
+                ? 'border-fuchsia-500 ring-2 ring-fuchsia-500/30'
+                : 'border-emerald-500 ring-2 ring-emerald-500/30'
               : 'border-gray-200 dark:border-gray-700 group-hover:border-gray-300 dark:group-hover:border-gray-600'
           ]">
             <img v-if="getAvatar(c)"
@@ -100,18 +110,27 @@ const TYPE_LABELS: Record<string, string> = {
         <Transition name="popup">
           <div v-if="hoveredId === c.id"
             class="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 z-30 w-56 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl p-3 pointer-events-none">
-            <!-- Arrow -->
             <div class="absolute left-1/2 -translate-x-1/2 -bottom-1.5 w-3 h-3 bg-white dark:bg-gray-900 border-r border-b border-gray-200 dark:border-gray-700 rotate-45" />
 
             <!-- Photo -->
-            <div v-if="getFullImage(c)" class="mb-2 rounded-lg overflow-hidden">
-              <img :src="getFullImage(c)!" :alt="c.name"
+            <div v-if="getFullPhoto(c)" class="mb-2 rounded-lg overflow-hidden">
+              <img :src="getFullPhoto(c)!" :alt="c.name"
                 class="w-full h-28 object-cover" />
+            </div>
+
+            <!-- Image count badge -->
+            <div v-if="c.images && c.images.length > 1" class="mb-1.5">
+              <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-500">
+                {{ c.images.length }} фото
+              </span>
             </div>
 
             <!-- Info -->
             <div class="text-xs font-semibold mb-0.5">{{ c.name }}</div>
-            <div v-if="c.type" class="text-[10px] text-emerald-600 dark:text-emerald-400 mb-1">
+            <div v-if="c.type" :class="[
+              'text-[10px] mb-1',
+              color === 'fuchsia' ? 'text-fuchsia-600 dark:text-fuchsia-400' : 'text-emerald-600 dark:text-emerald-400'
+            ]">
               {{ TYPE_LABELS[c.type] || c.type }}
               <span v-if="c.style" class="text-gray-400"> · {{ c.style }}</span>
             </div>

@@ -5,12 +5,21 @@
 - [2026-04-05] Brand color: Fuchsia/Magenta (#d946ef)
 - [2026-04-05] AI: OpenRouter (Haiku для адаптации, Sonnet для генерации)
 - [2026-04-05] VK фото-постинг: Community Token limitation (error 27), нужен User Token через OAuth
+- [2026-06-03] Instagram-постинг через **Postmypost** (НЕ Meta Graph — обходит Business+FB+App Review). API base `https://api.postmypost.io/v4.1` (НЕ /v4!). Upload: byFile (init→Yandex S3 multipart→complete?id→poll status?id) — byUrl сломан (422). publication_type: POST=1/STORY=2/REELS=4, publication_status PENDING=5. PlatformAccount: accessToken=токен, accountId=postmypost account_id, config.postmypostProjectId. Публикация асинхронная (воркер Postmypost). Токен/project_id также в backend/.env (POSTMYPOST_API_TOKEN/PROJECT_ID)
+- [2026-06-03] Фикс vk.ts: `import('../vk-oauth')` (был `../services/vk-oauth` — неверный путь → app-level VK-токен не резолвился для каналов с пустым accessToken). VK сторис на ЛИЧНУЮ страницу через API работают (publishStory без group_id, owner_id юзера)
+- [2026-06-03] Тест VK+Instagram сторис одновременно из CF — успешен (личный бренд: VK личная 77596 + IG @yurykukin 2163523)
+- [2026-06-03] UI-мультипостинг в StoryEditorView: чипы выбора каналов VK+IG (selectedChannels[]), цикл публикации/планирования с частичным успехом (per-канал try/catch), статусы per-версия. Готовый сторис СОХРАНЯЕТСЯ в медиатеку (тег 'story', uploadRendered — больше не удаляется), пост виден с превью. ensureVersion (find-or-create). MediaPickerModal: навигация по папкам (breadcrumbs + folders, как MediaLibraryView). Задеплоено.
+- [2026-06-03] Текст на сторис вшивается в картинку (canvas/sharp) → идентично в VK+IG (не платформенный оверлей). Кнопка-ссылка: VK нативная (работает), IG через Postmypost — link-стикер не гарантирован.
+- [2026-06-03] FOLLOW-UP (отдельная сессия): ffmpeg-наложение текста на ВИДЕО-сторис. Seedance 2.0 img2video готов (firstFrameUrl, 4-15с, 480p/720p, 9:16, audio toggle; 720p img2video без звука ~$0.63/5с, $1/8с, $1.25/10с — PRICING в kie.ts). CF НЕ умеет текст на видео (image-overlay только фото). Нужен processVideoOverlay (ffmpeg есть в Docker): чистое фото→Seedance оживляет→прозрачный PNG-слой с дизайном поверх ffmpeg overlay (НЕ оживлять картинку с вшитым текстом — поплывёт). vk.ts/instagram.ts видео-сторис публикуют, но без текста.
+- [2026-06-03] НаWоде каналы: IG @nawode.ru (account_id 2163599, официальное подключение через consent — НЕ логин/пароль, иначе Instagram блокирует прокси-вход) + VK группа NAWODE (group_id 150371202). Боевая сторис-вакансия инструкторов SUP Лето 2026 опубликована в оба канала. PlatformAccounts: pmp_ig_nawode, pmp_ig_yurykukin, vk_personal_yurykukin
+- [2026-06-03] VK сторис в группу работает (publishStory с group_id, юзер-токен админа группы). Фикс vk.ts: безопасный JSON.parse upload-ответа (был generic SyntaxError при сбое)
+- [2026-06-03] Дизайн сторис без нейронок: sharp-композиция (реальное фото-кроп флаера + бирюзовая панель + коралловый CTA-акцент + бейдж сезона). AI-генерация (Nano Banana) НЕ годится для текстовых сторис — кривой русский текст. Скрипт-паттерн: docker exec backend bun /app/story_gen.js (sharp из /app/node_modules, шрифты DejaVu в образе)
 
 ## Блокеры
 - [2026-04-05] VK OAuth: заявка подана, ожидаем. До получения — фото в VK не публикуются
 
-## Schema (25 моделей, 8 enums)
-User, UserBusiness, Business, BrandProfile, PlatformAccount, ContentPlan, ContentPlanItem, Post, PostVersion, PublishLog, MediaFile, MediaFolder, AiUsageLog, WebhookRule, AppConfig, Idea, StoryTemplate, Character, CharacterBusiness, Scenario, PromptEntry, PromptTemplate, GenerationSession, BalanceTransaction, MusicPersona
+## Schema (26 моделей, 8 enums)
+User, UserBusiness, Business, BrandProfile, PlatformAccount, ContentPlan, ContentPlanItem, Post, PostVersion, PublishLog, MediaFile, MediaFolder, AiUsageLog, WebhookRule, AppConfig, Idea, StoryTemplate, Character, CharacterBusiness, **CharacterImage**, Scenario, PromptEntry, PromptTemplate, GenerationSession, BalanceTransaction, MusicPersona
 
 ## Endpoints (~20 route-файлов)
 auth, users, businesses, platforms, posts, content-plans, ai, publish, media, settings, vk-oauth, ideas, characters, scenarios, sessions, music, photos, dashboard, sse, ai-logs
@@ -43,8 +52,36 @@ auth, users, businesses, platforms, posts, content-plans, ai, publish, media, se
 - [2026-04-19] **watch(activeTab) -> немедленный flush** (не ждёт 2с debounce)
 - [2026-04-19] **onDeactivated flush** — KeepAlive навигация сохраняет состояние в БД
 
+## Reference System v2 (2026-04-19)
+- **CharacterImage** — новая модель: неограниченная галерея фото на персонажа (isMain, sortOrder, source, description)
+- Заменяет старые Character.referenceMediaId + additionalAngles (JSON, макс 3)
+- Миграция данных: `bun src/migrate-character-images.ts`
+- **5 новых endpoints:** POST/PUT/DELETE /characters/:id/images, reorder, generate-sheet
+- **SharedCharacterCarousel** + **SharedRefModal** — общие компоненты (src/components/shared/)
+- Video Studio: emerald colorScheme. Photo Studio: fuchsia colorScheme + карусель добавлена
+- **@CharName автокомплит** в VsRichPrompt: ввод @ → dropdown → badge chip с именем персонажа
+- CharactersView: SharedRefModal, image preview strip, search + type filter
+- Character Sheet: AI-генерация model sheet (4 views) через Photo Studio pipeline
+- **ВАЖНО:** Character.referenceMediaId/additionalAngles пока НЕ удалены из schema (backward compat)
+
 ## CSRF Upload Fix (2026-04-19)
 - **ВСЕ fetch('/api/media/upload')** теперь с X-Tab-ID header. Затронуто: VideoStudioView (2), VsRefModal (1), MediaLibraryView (1), StoryEditorView (5), PhotoStudioView (1)
+
+## Prisma Migrations — КРИТИЧНЫЕ ПРАВИЛА (2026-04-20)
+- **НИКОГДА** не использовать `db push` на dev-БД с историей миграций. Только `bunx prisma migrate dev --name описание`
+- **НИКОГДА** не редактировать SQL файл миграции ПОСЛЕ apply (ломает checksum → drift)
+- Если миграция упала "already exists" → `bunx prisma migrate resolve --applied имя_миграции` (НЕ правка SQL)
+- `db push` допустим ТОЛЬКО на пустой/тестовой БД без миграционной истории
+- Причина бага: `db push` создаёт таблицу без записи в `_prisma_migrations` → следующий `migrate dev` падает
+
+## Видео-сторис с текстом (ffmpeg overlay) — 2026-06-03
+- **Цепочка:** чистое фото → Seedance оживляет → текст НАКЛАДЫВАЕТСЯ поверх видео статично (ffmpeg) → публикация VK+IG. Текст НЕ оживляется Seedance (иначе исказится)
+- **Архитектура "bake once":** текст вшивается в видео ОДИН раз перед циклом публикации (как фото uploadRendered), publishers НЕ трогаются, baked-видео переиспользуется для VK+IG
+- **services/video-overlay.ts:** `overlayImageOnVideo()` — ffmpeg `scale2ref` (PNG 1080×1920 → размер видео) + `overlay`, `-map 0:a?` (аудио опционально), libx264 yuv420p +faststart. Fallback ffprobe+scale, таймаут 90с. Порядок выходов scale2ref: `[ovr][base]` (сначала масштабированный вход!)
+- **POST /api/media/overlay-video:** multipart (overlay PNG + videoMediaFileId + businessId) → ffmpeg → новый baked-mp4 MediaFile (тег story + thumbnail). Sync ~3-12с
+- **StoryEditorView:** `exportOverlayPng()` (прозрачный текст-слой, PNG alpha), overlay-canvas поверх `<video>` (WYSIWYG, pointer-events-none) в редакторе и preview-модалке, `renderVideoForPublish()`, ветки isVideoMedia в preparePreview/confirmPublish/schedulePublish
+- **scheduler.ts фикс:** догрузка mediaFiles + storiesOptions{skipOverlay} для scheduled STORIES (был баг — scheduled сторис уходили БЕЗ медиа, касалось и фото)
+- **base.ts:** тип storiesOptions честный (+skipOverlay, +photoPosition) — Bun не тайпчекает, vk.ts читал необъявленные поля
 
 ## Архитектурные решения
 - Async generation: video-poller.ts (10 сек) обрабатывает video+music+photo. kieTaskId в PostgreSQL (deploy-safe)
