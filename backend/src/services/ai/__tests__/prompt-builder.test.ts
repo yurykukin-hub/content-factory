@@ -70,6 +70,11 @@ describe('buildPlanPrompt', () => {
     expect(result).toContain('Обзоры')
     expect(result).toContain('Чередуй рубрики')
   })
+
+  it('allows REELS in post type options (Epic B/D)', () => {
+    const result = buildPlanPrompt(brandContext)
+    expect(result).toContain('REELS')
+  })
 })
 
 describe('buildPostPrompt', () => {
@@ -94,6 +99,25 @@ describe('buildPostPrompt', () => {
   it('says no hashtags in master text', () => {
     const result = buildPostPrompt(brandContext)
     expect(result).toMatch(/хештеги.*не/i)
+  })
+
+  it('includes rubric instruction when provided', () => {
+    const result = buildPostPrompt(brandContext, { rubric: 'Выборг с воды' })
+    expect(result).toContain('Выборг с воды')
+  })
+
+  it('includes recent-posts anti-repetition block when provided (D1)', () => {
+    const result = buildPostPrompt(brandContext, {
+      recentPosts: ['Пост про закат над заливом', 'Знакомство с инструктором Алексеем'],
+    })
+    expect(result).toMatch(/не повтор/i)
+    expect(result).toContain('Пост про закат над заливом')
+    expect(result).toContain('Знакомство с инструктором Алексеем')
+  })
+
+  it('omits recent-posts block when none provided', () => {
+    const result = buildPostPrompt(brandContext)
+    expect(result).not.toMatch(/Недавние посты/i)
   })
 })
 
