@@ -42,9 +42,12 @@ export class PostmypostPublisher implements Publisher {
   private readonly uploadDelayMs = 2000
 
   private getToken(pa: PlatformAccount): string | null {
-    return pa.accessToken && pa.accessToken !== ''
-      ? pa.accessToken
-      : process.env.POSTMYPOST_API_TOKEN || null
+    // IG: accessToken хранит PMP-токен.
+    // VK (через PMP): accessToken = VK-токен (нужен прямому VK API для сторис), НЕ PMP —
+    // поэтому PMP-токен (project-level credential) берём из env POSTMYPOST_API_TOKEN.
+    // В config токен не кладём: GET /businesses/:id/platforms отдаёт config во фронт (утечка).
+    if (pa.platform === 'INSTAGRAM' && pa.accessToken && pa.accessToken !== '') return pa.accessToken
+    return process.env.POSTMYPOST_API_TOKEN || null
   }
 
   private getProjectId(pa: PlatformAccount): number | null {
