@@ -11,13 +11,14 @@ import MediaUpload from '@/components/MediaUpload.vue'
 import {
   ArrowLeft, Send, Save, Plus, Sparkles, Loader2, ExternalLink,
   AlertCircle, CheckCircle, XCircle, Image, Wand2, Info,
-  Scissors, MessageSquare, RefreshCw, Type
+  Scissors, MessageSquare, RefreshCw, Type, Clock
 } from 'lucide-vue-next'
 
 interface MediaFile { id: string; url: string; thumbUrl: string | null; filename: string; mimeType: string; sizeBytes: number }
 interface PlatformAccount { id: string; platform: string; accountName: string }
 interface PostVersion {
   id: string; body: string; hashtags: string[]; status: string
+  scheduledAt?: string | null
   publishedAt: string | null; externalPostId: string | null; externalUrl: string | null
   platformAccount: PlatformAccount
   publishLogs: { status: string; errorMessage: string | null; attemptedAt: string }[]
@@ -37,6 +38,8 @@ const post = ref<Post | null>(null)
 const loading = ref(true)
 const saving = ref(false)
 const publishing = ref<string | null>(null)
+const scheduling = ref<string | null>(null)
+const scheduleAt = ref('')
 const adapting = ref(false)
 const aiActionLoading = ref<string | null>(null)
 const originalBody = ref('') // для защиты от потери изменений
@@ -123,6 +126,28 @@ async function publishVersion(versionId: string) {
     await loadPost()
   } catch (e: any) { toast.error('Ошибка: ' + (e.message || e)) }
   finally { publishing.value = null }
+}
+
+async function scheduleVersion(versionId: string) {
+  if (!scheduleAt.value) { toast.info('Выберите дату и время'); return }
+  scheduling.value = versionId
+  try {
+    await http.post(`/post-versions/${versionId}/schedule`, { scheduledAt: new Date(scheduleAt.value).toISOString() })
+    toast.success('Запланировано на ' + new Date(scheduleAt.value).toLocaleString('ru'))
+    scheduleAt.value = ''
+    await loadPost()
+  } catch (e: any) { toast.error('Ошибка: ' + (e.message || e)) }
+  finally { scheduling.value = null }
+}
+
+async function cancelScheduleVersion(versionId: string) {
+  scheduling.value = versionId
+  try {
+    await http.post(`/post-versions/${versionId}/schedule`, { scheduledAt: null })
+    toast.info('Планирование отменено')
+    await loadPost()
+  } catch (e: any) { toast.error('Ошибка: ' + (e.message || e)) }
+  finally { scheduling.value = null }
 }
 
 async function adaptToAllPlatforms() {
@@ -417,12 +442,33 @@ onMounted(loadPost)
                 Опубликовано {{ activeVersion.publishedAt ? formatDate(activeVersion.publishedAt) : '' }}
               </div>
 
+              <!-- Scheduled banner -->
+              <div v-if="activeVersion.status === 'SCHEDULED'" class="p-3 rounded-lg bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 mb-3">
+                <div class="flex items-center justify-between gap-2">
+                  <div class="text-sm text-blue-700 dark:text-blue-300 flex items-center gap-1.5">
+                    <Clock :size="14" /> Запланировано{{ activeVersion.scheduledAt ? ': ' + formatDate(activeVersion.scheduledAt) : '' }}
+                  </div>
+                  <button @click="cancelScheduleVersion(activeVersion.id)" :disabled="scheduling === activeVersion.id"
+                    class="px-2.5 py-1 rounded-lg text-xs font-medium text-red-600 dark:text-red-400 border border-red-300 dark:border-red-700 hover:bg-red-50 dark:hover:bg-red-950 disabled:opacity-50">Отменить</button>
+                </div>
+              </div>
+
               <!-- Publish button -->
               <button v-if="activeVersion.status !== 'PUBLISHED'" @click="publishVersion(activeVersion.id)" :disabled="publishing === activeVersion.id"
                 class="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg bg-green-600 hover:bg-green-700 text-white text-sm font-medium disabled:opacity-50">
                 <Loader2 v-if="publishing === activeVersion.id" :size="16" class="animate-spin" /><Send v-else :size="16" />
-                {{ publishing === activeVersion.id ? 'Публикация...' : activeVersion.status === 'FAILED' ? 'Повторить' : isStories ? 'Опубликовать историю' : 'Опубликовать' }}
+                {{ publishing === activeVersion.id ? 'Публикация...' : activeVersion.status === 'FAILED' ? 'Повторить' : activeVersion.status === 'SCHEDULED' ? 'Опубликовать сейчас' : 'Опубликовать' }}
               </button>
+
+              <!-- Schedule row (отложенная публикация) -->
+              <div v-if="activeVersion.status !== 'PUBLISHED' && activeVersion.status !== 'SCHEDULED'" class="mt-2 flex gap-2">
+                <input v-model="scheduleAt" type="datetime-local" :min="new Date().toISOString().slice(0,16)"
+                  class="flex-1 min-w-0 px-2 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-xs" />
+                <button @click="scheduleVersion(activeVersion.id)" :disabled="scheduling === activeVersion.id || !scheduleAt"
+                  class="flex items-center gap-1 px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium disabled:opacity-50 shrink-0">
+                  <Loader2 v-if="scheduling === activeVersion.id" :size="13" class="animate-spin" /><Clock v-else :size="13" /> В план
+                </button>
+              </div>
             </div>
 
             <!-- No version — prominent CTA -->
