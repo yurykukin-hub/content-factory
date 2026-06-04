@@ -261,3 +261,75 @@ describe('DELETE /api/posts/:id', () => {
     expect(res.status).toBe(403)
   })
 })
+
+// ============================================================
+// PUT/DELETE /api/post-versions/:id — per-channel override (Phase 4)
+// ============================================================
+
+describe('PUT /api/post-versions/:id — override edit', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('ADMIN updates override body', async () => {
+    const token = await makeToken('ADMIN')
+    mockDb.postVersion.findUnique.mockResolvedValue({ id: 'v1', postId: 'p1', status: 'DRAFT', post: { businessId: 'biz-1' } })
+    mockDb.postVersion.update.mockResolvedValue({ id: 'v1', body: 'new', platformAccount: { platform: 'VK', accountName: 'x' } })
+
+    const res = await app.request('/api/post-versions/v1', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Cookie: `token=${token}`, 'X-Tab-ID': 'test' },
+      body: JSON.stringify({ body: 'new text' }),
+    })
+    expect(res.status).toBe(200)
+  })
+
+  it('409 when editing PUBLISHED version', async () => {
+    const token = await makeToken('ADMIN')
+    mockDb.postVersion.findUnique.mockResolvedValue({ id: 'v1', postId: 'p1', status: 'PUBLISHED', post: { businessId: 'biz-1' } })
+
+    const res = await app.request('/api/post-versions/v1', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Cookie: `token=${token}`, 'X-Tab-ID': 'test' },
+      body: JSON.stringify({ body: 'edit' }),
+    })
+    expect(res.status).toBe(409)
+  })
+
+  it('rejects empty override body', async () => {
+    const token = await makeToken('ADMIN')
+    mockDb.postVersion.findUnique.mockResolvedValue({ id: 'v1', postId: 'p1', status: 'DRAFT', post: { businessId: 'biz-1' } })
+
+    const res = await app.request('/api/post-versions/v1', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Cookie: `token=${token}`, 'X-Tab-ID': 'test' },
+      body: JSON.stringify({ body: '' }),
+    })
+    expect(res.status).toBe(400)
+  })
+})
+
+describe('DELETE /api/post-versions/:id — reset to master', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('ADMIN deletes DRAFT override', async () => {
+    const token = await makeToken('ADMIN')
+    mockDb.postVersion.findUnique.mockResolvedValue({ id: 'v1', postId: 'p1', status: 'DRAFT', post: { businessId: 'biz-1' } })
+    mockDb.postVersion.delete.mockResolvedValue({ id: 'v1' })
+
+    const res = await app.request('/api/post-versions/v1', {
+      method: 'DELETE',
+      headers: { Cookie: `token=${token}`, 'X-Tab-ID': 'test' },
+    })
+    expect(res.status).toBe(200)
+  })
+
+  it('409 when resetting SCHEDULED version', async () => {
+    const token = await makeToken('ADMIN')
+    mockDb.postVersion.findUnique.mockResolvedValue({ id: 'v1', postId: 'p1', status: 'SCHEDULED', post: { businessId: 'biz-1' } })
+
+    const res = await app.request('/api/post-versions/v1', {
+      method: 'DELETE',
+      headers: { Cookie: `token=${token}`, 'X-Tab-ID': 'test' },
+    })
+    expect(res.status).toBe(409)
+  })
+})

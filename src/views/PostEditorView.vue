@@ -9,11 +9,13 @@ import { platformColor, platformLabel } from '@/composables/usePlatform'
 import {
   platformLimit, charCountColor, formatNeedsVideo, formatNeedsImage, formatHint as fmtHint,
 } from '@/composables/usePlatformLimits'
+import { platformNote } from '@/composables/usePlatformRegistry'
 import MediaUpload from '@/components/MediaUpload.vue'
 import MediaPickerModal from '@/components/MediaPickerModal.vue'
+import PostPreview from '@/components/posts/preview/PostPreview.vue'
 import {
   ArrowLeft, Send, Save, Sparkles, Loader2, ExternalLink,
-  AlertCircle, CheckCircle, Image, Images, Wand2, Info,
+  AlertCircle, Image, Images, Wand2, Info,
   Scissors, MessageSquare, RefreshCw, Clock, ChevronDown, Calendar,
   FileText, Settings2, X,
 } from 'lucide-vue-next'
@@ -40,7 +42,6 @@ const toast = useToast()
 const post = ref<Post | null>(null)
 const loading = ref(true)
 const saving = ref(false)
-const publishing = ref<string | null>(null)   // per-channel publish (retry)
 const scheduling = ref<string | null>(null)
 const adapting = ref(false)
 const adaptingOne = ref<string | null>(null)
@@ -58,6 +59,23 @@ const scheduleAtAll = ref('')
 const publishMenuOpen = ref(false)
 const scheduleMode = ref(false)
 const expandedChannelId = ref<string | null>(null)
+
+// Phase 4: per-channel оверрайды (черновик правки на канал) + per-channel publish
+interface OverrideDraft { body: string; saving: boolean; dirty: boolean }
+const overrideDrafts = ref<Record<string, OverrideDraft>>({})
+const publishingOne = ref<string | null>(null)
+let overrideTimer: ReturnType<typeof setTimeout> | null = null
+
+// Лёгкое обновление версий без сброса выбора/раскрытия (вместо полного loadPost)
+async function refreshVersions() {
+  if (!post.value) return
+  try {
+    const fresh = await http.get<Post>(`/posts/${post.value.id}`)
+    post.value.versions = fresh.versions
+    post.value.status = fresh.status
+    post.value.mediaFiles = fresh.mediaFiles
+  } catch { /* ignore */ }
+}
 
 function toggleChannel(id: string) {
   const i = selectedChannels.value.indexOf(id)
@@ -77,6 +95,7 @@ async function ensureVersionFor(channelId: string): Promise<string> {
 
 async function publishToSelected() {
   if (!post.value || !selectedChannels.value.length) return
+  if (expandedChannelId.value) await flushOverride(expandedChannelId.value)
   publishingAll.value = true
   try {
     let ok = 0, fail = 0
@@ -90,12 +109,13 @@ async function publishToSelected() {
     if (fail === 0) toast.success(`Опубликовано во все каналы (${ok})`)
     else if (ok === 0) toast.error('Не удалось опубликовать')
     else toast.info(`Опубликовано: ${ok}, ошибок: ${fail}`)
-    await loadPost()
+    await refreshVersions()
   } finally { publishingAll.value = false }
 }
 
 async function scheduleToSelected() {
   if (!post.value || !scheduleAtAll.value || !selectedChannels.value.length) return
+  if (expandedChannelId.value) await flushOverride(expandedChannelId.value)
   publishingAll.value = true
   try {
     const iso = new Date(scheduleAtAll.value).toISOString()
@@ -108,20 +128,24 @@ async function scheduleToSelected() {
     else toast.info(`Запланировано: ${ok}, ошибок: ${fail}`)
     scheduleAtAll.value = ''
     scheduleMode.value = false
-    await loadPost()
+    await refreshVersions()
   } finally { publishingAll.value = false }
 }
 
-// Per-channel публикация (повтор/один канал)
-async function publishVersion(versionId: string) {
-  publishing.value = versionId
+// Per-channel публикация (повтор/только один канал). Создаёт версию при необходимости.
+async function publishOneChannel(channelId: string) {
+  if (!post.value) return
+  // сначала сохраним черновик правки этого канала, если есть
+  await flushOverride(channelId)
+  publishingOne.value = channelId
   try {
-    const result = await http.post<{ success: boolean; externalUrl: string | null; error: string | null }>(`/post-versions/${versionId}/publish`, {})
-    if (result.success) toast.success('Опубликовано')
+    const versionId = await ensureVersionFor(channelId)
+    const result = await http.post<{ success: boolean; error: string | null }>(`/post-versions/${versionId}/publish`, {})
+    if (result.success) toast.success('Опубликовано в канал')
     else toast.error('Ошибка: ' + result.error)
-    await loadPost()
+    await refreshVersions()
   } catch (e: any) { toast.error('Ошибка: ' + (e.message || e)) }
-  finally { publishing.value = null }
+  finally { publishingOne.value = null }
 }
 
 async function cancelScheduleVersion(versionId: string) {
@@ -129,7 +153,7 @@ async function cancelScheduleVersion(versionId: string) {
   try {
     await http.post(`/post-versions/${versionId}/schedule`, { scheduledAt: null })
     toast.info('Планирование отменено')
-    await loadPost()
+    await refreshVersions()
   } catch (e: any) { toast.error('Ошибка: ' + (e.message || e)) }
   finally { scheduling.value = null }
 }
@@ -221,7 +245,7 @@ async function adaptToAllPlatforms() {
   try {
     await http.post('/ai/adapt', { postId: post.value.id, platformAccountIds: platforms.value.map(p => p.id) })
     toast.success('Версии адаптированы для всех платформ')
-    await loadPost()
+    await refreshVersions()
   } catch (e: any) { toast.error('Ошибка адаптации: ' + (e.message || e)) }
   finally { adapting.value = false }
 }
@@ -232,8 +256,11 @@ async function adaptOnePlatform(channelId: string) {
   try {
     await http.post('/ai/adapt', { postId: post.value.id, platformAccountIds: [channelId] })
     toast.success('Адаптировано под канал')
-    await loadPost()
+    await refreshVersions()
     expandedChannelId.value = channelId
+    // подтянуть адаптированный текст в черновик правки
+    const v = versionFor(channelId)
+    overrideDrafts.value[channelId] = { body: v ? v.body : (post.value.body || ''), saving: false, dirty: false }
   } catch (e: any) { toast.error('Ошибка адаптации: ' + (e.message || e)) }
   finally { adaptingOne.value = null }
 }
@@ -326,13 +353,84 @@ const selectedChannelObjs = computed(() => platforms.value.filter(p => selectedC
 function versionFor(channelId: string): PostVersion | undefined {
   return post.value?.versions.find(v => v.platformAccount.id === channelId)
 }
-// Текст, который реально уйдёт в канал: оверрайд-версия или мастер-текст
+// Текст, который реально уйдёт в канал: живой черновик правки → оверрайд-версия → мастер-текст
 function effectiveText(channelId: string): string {
+  const d = overrideDrafts.value[channelId]
+  if (d) return d.body
   const v = versionFor(channelId)
   return v ? v.body : (post.value?.body || '')
 }
+function effectiveHashtags(channelId: string): string[] {
+  const v = versionFor(channelId)
+  return v ? v.hashtags : (post.value?.hashtags || [])
+}
 function channelLen(channelId: string): number {
   return effectiveText(channelId).length
+}
+
+// ---- Per-channel оверрайды (master/override, Phase 4) ----
+async function toggleExpand(channelId: string) {
+  if (overrideTimer) { clearTimeout(overrideTimer); overrideTimer = null }
+  if (expandedChannelId.value === channelId) {
+    await flushOverride(channelId)          // дождаться сохранения ПЕРЕД удалением черновика
+    delete overrideDrafts.value[channelId]
+    expandedChannelId.value = null
+    return
+  }
+  const prev = expandedChannelId.value
+  if (prev) {
+    await flushOverride(prev)
+    delete overrideDrafts.value[prev]
+  }
+  expandedChannelId.value = channelId
+  const v = versionFor(channelId)
+  overrideDrafts.value[channelId] = { body: v ? v.body : (post.value?.body || ''), saving: false, dirty: false }
+}
+
+function onOverrideInput(channelId: string) {
+  const d = overrideDrafts.value[channelId]
+  if (!d) return
+  d.dirty = true
+  if (overrideTimer) clearTimeout(overrideTimer)
+  overrideTimer = setTimeout(() => saveOverride(channelId), 1200)
+}
+
+async function saveOverride(channelId: string) {
+  const d = overrideDrafts.value[channelId]
+  if (!d || !d.dirty || !d.body.trim() || !post.value) return
+  if (overrideTimer) { clearTimeout(overrideTimer); overrideTimer = null }
+  d.saving = true
+  try {
+    const v = versionFor(channelId)
+    if (v) {
+      await http.put(`/post-versions/${v.id}`, { body: d.body })
+    } else {
+      await http.post(`/posts/${post.value.id}/versions`, {
+        platformAccountId: channelId, body: d.body, hashtags: post.value.hashtags,
+      })
+    }
+    await refreshVersions()
+    d.dirty = false   // помечаем чистым только после успешного сохранения + рефреша
+  } catch (e: any) { toast.error('Ошибка сохранения версии: ' + (e.message || e)) }
+  finally { d.saving = false }
+}
+
+async function flushOverride(channelId: string) {
+  const d = overrideDrafts.value[channelId]
+  if (d && d.dirty && d.body.trim()) await saveOverride(channelId)
+}
+
+async function resetOverride(channelId: string) {
+  const v = versionFor(channelId)
+  if (!v) return
+  try {
+    await http.delete(`/post-versions/${v.id}`)
+    await refreshVersions()
+    if (expandedChannelId.value === channelId) {
+      overrideDrafts.value[channelId] = { body: post.value?.body || '', saving: false, dirty: false }
+    }
+    toast.info('Сброшено к мастер-тексту')
+  } catch (e: any) { toast.error('Ошибка: ' + (e.message || e)) }
 }
 function channelOverLimit(channel: PlatformAccount): boolean {
   return channelLen(channel.id) > platformLimit(channel.platform)
@@ -372,7 +470,8 @@ function onSaveDraft() {
   savePost()
 }
 
-onBeforeRouteLeave(() => {
+onBeforeRouteLeave(async () => {
+  if (expandedChannelId.value) await flushOverride(expandedChannelId.value)
   if (hasUnsavedChanges.value) return confirm('Есть несохранённые изменения. Уйти?')
 })
 
@@ -514,50 +613,68 @@ onMounted(loadPost)
                 <span :class="['w-2 h-2 rounded-full shrink-0', statusDot(ch.id)]"></span>
                 <span :class="['font-medium', platformColor(ch.platform)]">{{ platformLabel(ch.platform) }}</span>
                 <span class="text-gray-400 truncate hidden sm:inline">{{ ch.accountName }}</span>
-                <span v-if="versionFor(ch.id)" class="text-[10px] text-purple-500 shrink-0">адаптир.</span>
+                <span v-if="versionFor(ch.id)" class="text-[10px] text-purple-500 shrink-0">правка</span>
                 <span :class="['ml-auto tabular-nums shrink-0', charCountColor(channelLen(ch.id), platformLimit(ch.platform))]">
                   {{ channelLen(ch.id) }}/{{ platformLimit(ch.platform) }}
                 </span>
-                <button @click="expandedChannelId = expandedChannelId === ch.id ? null : ch.id"
-                  class="p-1 rounded text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 shrink-0" title="Настроить под канал">
-                  <Settings2 :size="14" />
+                <button @click="toggleExpand(ch.id)"
+                  :class="['flex items-center gap-1 px-1.5 py-1 rounded text-[11px] shrink-0', expandedChannelId === ch.id ? 'text-brand-600 dark:text-brand-400 bg-brand-50 dark:bg-brand-950' : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300']"
+                  title="Превью и настройка под канал">
+                  <Settings2 :size="14" /> <span class="hidden sm:inline">Настроить</span>
                 </button>
               </div>
 
-              <!-- Раскрытая настройка канала (ленивый оверрайд + статус) -->
-              <div v-if="expandedChannelId === ch.id" class="px-3 pb-3 pt-1 border-t border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-800/30">
-                <div v-if="versionFor(ch.id)" class="text-sm whitespace-pre-wrap leading-relaxed max-h-40 overflow-y-auto p-2 rounded bg-white dark:bg-gray-800 mb-2">{{ versionFor(ch.id)!.body }}</div>
-                <p v-else class="text-[11px] text-gray-400 mb-2">Уйдёт мастер-текст. Можно адаптировать под {{ platformLabel(ch.platform) }}.</p>
+              <!-- Раскрытая настройка канала: превью «как в ленте» + редактируемый оверрайд (Phase 4) -->
+              <div v-if="expandedChannelId === ch.id" class="px-3 pb-3 pt-2 border-t border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-800/30">
+                <!-- Превью на канал -->
+                <div class="text-[10px] uppercase tracking-wide text-gray-400 mb-1.5">Превью · {{ platformLabel(ch.platform) }}</div>
+                <PostPreview class="mb-3" :platform="ch.platform" :account-name="ch.accountName"
+                  :text="effectiveText(ch.id)" :hashtags="effectiveHashtags(ch.id)" :media-files="post.mediaFiles" :post-type="post.postType" />
 
-                <div v-if="versionFor(ch.id)?.hashtags?.length" class="flex flex-wrap gap-1 mb-2">
-                  <span v-for="h in versionFor(ch.id)!.hashtags" :key="h" class="text-[10px] px-1.5 py-0.5 rounded bg-brand-50 dark:bg-brand-950 text-brand-600 dark:text-brand-400">#{{ h }}</span>
-                </div>
-
-                <!-- Ошибка публикации -->
+                <!-- Статус: опубликовано / ошибка / запланировано -->
                 <div v-if="versionFor(ch.id)?.publishLogs?.[0]?.status === 'FAILED'" class="p-2 rounded-lg bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 mb-2 text-xs text-red-600 dark:text-red-400 flex items-start gap-1.5">
                   <AlertCircle :size="13" class="shrink-0 mt-0.5" /> {{ versionFor(ch.id)!.publishLogs[0].errorMessage }}
                 </div>
-                <!-- Опубликовано -->
                 <a v-if="versionFor(ch.id)?.externalUrl" :href="versionFor(ch.id)!.externalUrl!" target="_blank" class="flex items-center gap-1 text-xs text-green-600 hover:underline mb-2">
                   <ExternalLink :size="12" /> Открыть пост
                 </a>
-                <!-- Запланировано -->
                 <div v-if="versionFor(ch.id)?.status === 'SCHEDULED'" class="flex items-center justify-between gap-2 mb-2 text-xs text-amber-600 dark:text-amber-400">
                   <span class="flex items-center gap-1"><Clock :size="12" /> Запланировано{{ versionFor(ch.id)!.scheduledAt ? ': ' + formatDate(versionFor(ch.id)!.scheduledAt!) : '' }}</span>
                   <button @click="cancelScheduleVersion(versionFor(ch.id)!.id)" :disabled="scheduling === versionFor(ch.id)!.id"
                     class="px-2 py-0.5 rounded text-[11px] text-red-600 dark:text-red-400 border border-red-300 dark:border-red-700 hover:bg-red-50 dark:hover:bg-red-950 disabled:opacity-50">Отменить</button>
                 </div>
 
-                <div class="flex items-center gap-2">
+                <!-- Редактируемый текст под канал (оверрайд) -->
+                <div class="flex items-center gap-1.5 mb-1">
+                  <label class="text-[11px] text-gray-500">Текст для {{ platformLabel(ch.platform) }}</label>
+                  <span v-if="versionFor(ch.id)" class="text-[10px] text-purple-500">оверрайд</span>
+                  <span v-else class="text-[10px] text-gray-400">наследует мастер</span>
+                </div>
+                <textarea v-if="overrideDrafts[ch.id]" v-model="overrideDrafts[ch.id].body" @input="onOverrideInput(ch.id)" rows="4"
+                  :disabled="['PUBLISHED','SCHEDULED'].includes(versionFor(ch.id)?.status || '')"
+                  :placeholder="['PUBLISHED','SCHEDULED'].includes(versionFor(ch.id)?.status || '') ? 'Отмените план/публикацию, чтобы редактировать' : ''"
+                  class="w-full px-2.5 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm leading-relaxed disabled:opacity-60" />
+                <div class="flex items-center gap-2 mt-1 text-[11px]">
+                  <span :class="['tabular-nums', charCountColor(channelLen(ch.id), platformLimit(ch.platform))]">{{ channelLen(ch.id) }}/{{ platformLimit(ch.platform) }}</span>
+                  <span v-if="overrideDrafts[ch.id]?.saving" class="text-gray-400 flex items-center gap-1"><Loader2 :size="11" class="animate-spin" /> сохр.</span>
+                  <span class="text-gray-400 ml-auto text-right">{{ platformNote(ch.platform) }}</span>
+                </div>
+
+                <!-- Действия канала -->
+                <div class="flex items-center gap-2 mt-2 flex-wrap">
                   <button @click="adaptOnePlatform(ch.id)" :disabled="adaptingOne === ch.id"
                     class="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-medium bg-purple-50 dark:bg-purple-950 text-purple-600 dark:text-purple-300 hover:bg-purple-100 dark:hover:bg-purple-900 disabled:opacity-50">
-                    <Loader2 v-if="adaptingOne === ch.id" :size="12" class="animate-spin" /><Wand2 v-else :size="12" /> Адаптировать под {{ platformLabel(ch.platform) }}
+                    <Loader2 v-if="adaptingOne === ch.id" :size="12" class="animate-spin" /><Wand2 v-else :size="12" /> Адаптировать AI
                   </button>
-                  <button v-if="versionFor(ch.id) && versionFor(ch.id)!.status !== 'PUBLISHED' && versionFor(ch.id)!.status !== 'SCHEDULED'"
-                    @click="publishVersion(versionFor(ch.id)!.id)" :disabled="publishing === versionFor(ch.id)!.id"
+                  <button v-if="versionFor(ch.id)" @click="resetOverride(ch.id)"
+                    class="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-medium border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800">
+                    <RefreshCw :size="12" /> Сбросить к мастеру
+                  </button>
+                  <button v-if="!['PUBLISHED','SCHEDULED'].includes(versionFor(ch.id)?.status || '')"
+                    @click="publishOneChannel(ch.id)" :disabled="publishingOne === ch.id || channelOverLimit(ch)"
                     class="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-medium bg-green-50 dark:bg-green-950 text-green-700 dark:text-green-300 hover:bg-green-100 dark:hover:bg-green-900 disabled:opacity-50">
-                    <Loader2 v-if="publishing === versionFor(ch.id)!.id" :size="12" class="animate-spin" /><Send v-else :size="12" />
-                    {{ versionFor(ch.id)!.status === 'FAILED' ? 'Повторить' : 'Только сюда' }}
+                    <Loader2 v-if="publishingOne === ch.id" :size="12" class="animate-spin" /><Send v-else :size="12" />
+                    {{ versionFor(ch.id)?.status === 'FAILED' ? 'Повторить' : 'Только сюда' }}
                   </button>
                 </div>
               </div>

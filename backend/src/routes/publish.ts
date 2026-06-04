@@ -184,6 +184,57 @@ publish.post('/post-versions/:id/schedule', async (c) => {
   return c.json(version)
 })
 
+// PUT /api/post-versions/:id — обновить per-channel оверрайд (текст/хештеги) — модель master/override (Phase 4)
+const updateVersionSchema = z.object({
+  body: z.string().min(1).optional(),
+  hashtags: z.array(z.string()).optional(),
+})
+publish.put('/post-versions/:id', async (c) => {
+  const { id } = c.req.param()
+  const user = c.get('user') as AuthUser
+  try {
+    await verifyPostVersionAccess(user, id)
+  } catch (e: any) {
+    if (e.message === 'NOT_FOUND') return c.json({ error: 'Не найдено' }, 404)
+    if (e.message === 'FORBIDDEN') return c.json({ error: 'Нет доступа' }, 403)
+    throw e
+  }
+  const existing = await db.postVersion.findUnique({ where: { id } })
+  if (!existing) return c.json({ error: 'Версия не найдена' }, 404)
+  if (existing.status === 'PUBLISHED') return c.json({ error: 'Опубликованную версию нельзя изменить' }, 409)
+
+  const data = updateVersionSchema.parse(await c.req.json())
+  const updated = await db.postVersion.update({
+    where: { id },
+    // если версия падала — правка возвращает её в черновик
+    data: { ...data, ...(existing.status === 'FAILED' ? { status: 'DRAFT' as const } : {}) },
+    include: { platformAccount: { select: { platform: true, accountName: true } } },
+  })
+  emitEvent({ type: 'post_updated', tabId: c.req.header('X-Tab-ID') || '', postId: existing.postId })
+  return c.json(updated)
+})
+
+// DELETE /api/post-versions/:id — сбросить оверрайд к мастер-тексту (удалить версию) — Phase 4
+publish.delete('/post-versions/:id', async (c) => {
+  const { id } = c.req.param()
+  const user = c.get('user') as AuthUser
+  try {
+    await verifyPostVersionAccess(user, id)
+  } catch (e: any) {
+    if (e.message === 'NOT_FOUND') return c.json({ error: 'Не найдено' }, 404)
+    if (e.message === 'FORBIDDEN') return c.json({ error: 'Нет доступа' }, 403)
+    throw e
+  }
+  const existing = await db.postVersion.findUnique({ where: { id } })
+  if (!existing) return c.json({ error: 'Версия не найдена' }, 404)
+  if (existing.status === 'PUBLISHED' || existing.status === 'SCHEDULED') {
+    return c.json({ error: 'Нельзя сбросить опубликованную/запланированную версию' }, 409)
+  }
+  await db.postVersion.delete({ where: { id } })
+  emitEvent({ type: 'post_updated', tabId: c.req.header('X-Tab-ID') || '', postId: existing.postId })
+  return c.json({ success: true })
+})
+
 // POST /api/webhooks/erp — webhook приёмник от ERP
 publish.post('/webhooks/erp', async (c) => {
   const secret = c.req.header('X-Webhook-Secret')
