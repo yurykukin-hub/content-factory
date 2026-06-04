@@ -15,7 +15,7 @@ AI-контент-фабрика для автоматизации SMM. Гене
 - **ORM/DB:** Prisma + PostgreSQL 16
 - **AI:** OpenRouter (Haiku для адаптации, Sonnet для генерации, Gemini Flash для vision) + KIE.ai (Nano Banana 2 + **Nano Banana Pro** + **GPT Image 2** для text2img/img2img, FLUX Kontext Pro для img2img, recraft для удаления фона, Seedance 2 для видео, **Suno V4/V4_5/V5_5 для музыки — API v2**) + **OpenAI Whisper** (голосовой ввод)
 - **Audio:** wavesurfer.js v7 (waveform visualization)
-- **Testing:** Vitest (143 теста — 11 файлов)
+- **Testing:** Vitest (151 тест — 12 файлов)
 - **Deploy:** Docker Compose + Caddy (SSL auto)
 
 ## Порты
@@ -62,10 +62,13 @@ content-factory/
 │   │   │   ├── photos.ts       # Photo Studio: generate (batch 1/2/4), enhance-prompt (8 modes), agent-chat, edit-image, remove-bg
 │   │   │   ├── dashboard.ts    # metrics (scoped by business access)
 │   │   │   ├── ai-logs.ts     # AI usage logs (list, stats, summary, error-count, export CSV)
+│   │   │   ├── analytics.ts    # SMM-аналитика: collect, overview (дашборд), report (агент), reports CRUD
 │   │   │   └── sse.ts          # Server-Sent Events
 │   │   ├── services/
-│   │   │   ├── scheduler.ts    # Отложенная публикация (STORIES: догрузка mediaFiles + skipOverlay)
+│   │   │   ├── scheduler.ts    # Отложенная публикация + триггеры: digest, metrics-collection, weekly-analysis
 │   │   │   ├── video-poller.ts # Background poller: video + music + photo KIE tasks → download → SSE (10 сек)
+│   │   │   ├── metrics-poller.ts # SMM-метрики: сбор VK/IG/Метрика 2×/день (time-gated, scheduler)
+│   │   │   ├── analytics/       # SMM-аналитика (Эпик B): types, vk-adapter, postmypost-adapter, metrika-adapter, collector, analyst-agent, analyst-telegram
 │   │   │   ├── video-overlay.ts # ffmpeg: статичный текст-PNG поверх видео (scale2ref+overlay) для видео-сторис
 │   │   │   ├── vk-oauth.ts     # VK OAuth service (PKCE, auto-refresh)
 │   │   │   ├── ai/
@@ -157,8 +160,8 @@ content-factory/
 └── scripts/deploy.sh, backup-db.sh
 ```
 
-## Schema (26 моделей, 8 enums)
-User, UserBusiness, Business, BrandProfile, PlatformAccount, ContentPlan, ContentPlanItem, Post, PostVersion, PublishLog, MediaFolder, MediaFile, AiUsageLog, WebhookRule, AppConfig, Idea, StoryTemplate, Character, CharacterBusiness, **CharacterImage**, Scenario, PromptEntry, PromptTemplate, GenerationSession, BalanceTransaction, **MusicPersona**
+## Schema (33 модели, 8 enums)
+User, UserBusiness, Business, BrandProfile, PlatformAccount, ContentPlan, ContentPlanItem, Post, PostVersion, PublishLog, MediaFolder, MediaFile, AiUsageLog, WebhookRule, AppConfig, Idea, StoryTemplate, Character, CharacterBusiness, CharacterImage, Scenario, PromptEntry, PromptTemplate, GenerationSession, BalanceTransaction, MusicPersona, PhotoCatalog, AutoPostTask, **SocialPostMetricSnapshot**, **SocialAccountMetricSnapshot**, **SiteTrafficSnapshot**, **AnalyticsReport** (Эпик B — SMM-аналитика)
 
 Enums: UserRole, Platform, AccountType, PostType, PostStatus, ContentPlanStatus, PublishStatus
 
@@ -221,8 +224,10 @@ cp backend/.env.example backend/.env
 15. **Видео-сторис с текстом** (ffmpeg overlay) → чистое фото → Seedance оживляет → СТАТИЧНЫЙ текст-дизайн накладывается ПОВЕРХ видео (ffmpeg `scale2ref`+`overlay`, текст НЕ оживляется) → публикация VK+IG. Архитектура "bake once" (`video-overlay.ts`, `POST /media/overlay-video`): текст вшивается ОДИН раз перед циклом публикации, baked-видео переиспользуется для всех каналов. Frontend: `exportOverlayPng()` (прозрачный PNG-слой) + WYSIWYG overlay-canvas поверх `<video>`. **+ музыка (A4):** `overlayAudioOnVideo()` вшивает трек из Sound Studio (`musicSessionId`) в видео (`-shortest`), `POST /media/overlay-video` принимает `musicSessionId`/`audioMediaFileId`
 16. **Утренний AI-агент / контент-стратег** (`daily-digest.ts`, Sonnet) → читает погоду+брони НаWоде (`nawode-data.ts`, read-only `Bun.sql` к nawode PG, env `NAWODE_DATABASE_URL`) + контент-план (10 рубрик встроены) + недавние посты → 3-4 предложения (формат/канал/текст/визуал/обоснование) → `AutoPostTask(source='digest')` → UI `/digest` (DigestView) + Telegram (graceful). Одобрение создаёт ЧЕРНОВИК Post (human-in-the-loop, без авто-публикации). Триггер `checkAndRunDailyDigest()` в scheduler (`digest_enabled`/`digest_time_utc` AppConfig, 04:00 UTC). Ручной запуск: `POST /auto-posts/generate-digest`
 17. **Интеллект контент-плана** (Эпик D) → `generate-plan` для НаWоде подставляет 10 рубрик (`services/ai/nawode-strategy.ts`, общий с дайджестом); `buildPostPrompt` учитывает недавние посты (анти-повтор); `POST /plan-items/:id/regenerate {direction}` переписывает ячейку плана по направлению (Haiku). Форматы: `PostType.CLIPS` (VK-клипы = верт.видео, нет публичного API; IG CLIPS/REELS→type 4); выбор типа + валидация в PostEditorView
+18. **Сбор SMM-статистики** (Эпик B Phase 4) → поллер 2×/день (`metrics-poller.ts`, scheduler, `metrics_times_utc`). По опубликованным PostVersion (`externalPostId`): VK `wall.getById` (посты, нужен USER-токен — community даёт error 27) + `stories.getStats` (сторис, scope `stats`, окно 24ч) + `stats.get` (охват); IG Postmypost `/analytics/publications` (+ `/publications/{id}`→`external_id` джойн); Метрика Stat API (визиты+цели по `utm_content=postId`, gated на OAuth). Снимки в snapshot-таблицы (append/upsert). `POST /analytics/collect` — ручной запуск
+19. **Агент-аналитик SMM** (Эпик B Phase 5) → недельный Sonnet (`analytics/analyst-agent.ts`, config `analytics_agent_enabled` default off): контент+метрики+конверсии(UTM) → «что зашло/не зашло (форматы/площадки/время → охват И брони) + рекомендации» → `AnalyticsReport(status=proposed)` → human-in-the-loop (approve/dismiss) → Telegram (graceful). Дашборд `/analytics` (AnalyticsView): KPI, разбивка по площадкам, таблица постов, карточки отчётов
 
-API keys: OpenRouter — из БД (AppConfig) или .env. FAL — из .env (FAL_API_KEY). KIE — из .env (KIE_API_KEY). **OpenAI** — AppConfig `openai_api_key` или .env `OPENAI_API_KEY` (Whisper STT)
+API keys: OpenRouter — из БД (AppConfig) или .env. FAL — из .env (FAL_API_KEY). KIE — из .env (KIE_API_KEY). **OpenAI** — AppConfig `openai_api_key` или .env `OPENAI_API_KEY` (Whisper STT). **Postmypost** — `PlatformAccount.accessToken` + `config.postmypostProjectId` (env fallback POSTMYPOST_API_TOKEN/PROJECT_ID; в проде токен в accessToken, env-ключей нет). **Метрика** — AppConfig `metrika_oauth_token` + `metrika_config` JSON `{businessId|slug:{counterId,goalIds:[]}}` (дефолт counter nawode=92916147). **VK-метрики** — app-level user-токен (`vk_user_token`, авто-рефреш `ensureValidToken`); scope `stats` нужен для охватов/сторис-стат (ре-авторизация)
 
 ## Auth
 - Access token: 1 час (httpOnly cookie `token`)
