@@ -6,7 +6,7 @@ import { useBusinessesStore } from '@/stores/businesses'
 import { useToast } from '@/composables/useToast'
 import { statusColor, statusLabel } from '@/composables/useStatus'
 import { formatDate } from '@/composables/useFormatters'
-import { platformColor } from '@/composables/usePlatform'
+import { platformColor, platformLabel } from '@/composables/usePlatform'
 import MediaUpload from '@/components/MediaUpload.vue'
 import MediaPickerModal from '@/components/MediaPickerModal.vue'
 import {
@@ -49,6 +49,59 @@ const originalBody = ref('') // для защиты от потери измен
 const platforms = ref<PlatformAccount[]>([])
 const activeTab = ref('')
 
+// Phase 1: channel chips + one-shot publish/schedule (no manual version management)
+const selectedChannels = ref<string[]>([])
+const publishingAll = ref(false)
+const scheduleAtAll = ref('')
+function toggleChannel(id: string) {
+  const i = selectedChannels.value.indexOf(id)
+  if (i >= 0) selectedChannels.value.splice(i, 1)
+  else selectedChannels.value.push(id)
+}
+// Найти версию канала или создать её с мастер-текстом (ленивый оверрайд)
+async function ensureVersionFor(channelId: string): Promise<string> {
+  const existing = post.value!.versions.find(v => v.platformAccount.id === channelId)
+  if (existing) return existing.id
+  const v = await http.post<{ id: string }>(`/posts/${post.value!.id}/versions`, {
+    platformAccountId: channelId, body: post.value!.body, hashtags: post.value!.hashtags,
+  })
+  return v.id
+}
+async function publishToSelected() {
+  if (!post.value || !selectedChannels.value.length) return
+  publishingAll.value = true
+  try {
+    let ok = 0, fail = 0
+    for (const channelId of selectedChannels.value) {
+      try {
+        const versionId = await ensureVersionFor(channelId)
+        const res = await http.post<{ success: boolean }>(`/post-versions/${versionId}/publish`, {})
+        res.success ? ok++ : fail++
+      } catch { fail++ }
+    }
+    if (fail === 0) toast.success(`Опубликовано во все каналы (${ok})`)
+    else if (ok === 0) toast.error('Не удалось опубликовать')
+    else toast.info(`Опубликовано: ${ok}, ошибок: ${fail}`)
+    await loadPost()
+  } finally { publishingAll.value = false }
+}
+async function scheduleToSelected() {
+  if (!post.value || !scheduleAtAll.value || !selectedChannels.value.length) return
+  publishingAll.value = true
+  try {
+    const iso = new Date(scheduleAtAll.value).toISOString()
+    let ok = 0, fail = 0
+    for (const channelId of selectedChannels.value) {
+      try { const versionId = await ensureVersionFor(channelId); await http.post(`/post-versions/${versionId}/schedule`, { scheduledAt: iso }); ok++ }
+      catch { fail++ }
+    }
+    if (fail === 0) toast.success(`Запланировано на ${new Date(scheduleAtAll.value).toLocaleString('ru')} (${ok})`)
+    else toast.info(`Запланировано: ${ok}, ошибок: ${fail}`)
+    scheduleAtAll.value = ''
+    await loadPost()
+  } finally { publishingAll.value = false }
+}
+
 // Media library picker
 const showMediaPicker = ref(false)
 async function pickFromLibrary(file: MediaFile) {
@@ -86,6 +139,7 @@ async function loadPost() {
     if (post.value) {
       originalBody.value = post.value.body
       platforms.value = await http.get<PlatformAccount[]>(`/businesses/${post.value.businessId}/platforms`)
+      selectedChannels.value = platforms.value.map(p => p.id) // по умолчанию — все каналы
       if (post.value.versions.length) activeTab.value = post.value.versions[0].platformAccount.id
       else if (platforms.value.length) activeTab.value = platforms.value[0].id
       // Load image prompt templates from DB
@@ -434,11 +488,49 @@ onMounted(loadPost)
 
           <MediaUpload :business-id="post.businessId" :post-id="post.id" :files="post.mediaFiles" @uploaded="onMediaUploaded" @removed="onMediaRemoved" />
         </div>
+
+        <!-- Публикация (Фаза 1): каналы чипами + публикация/планирование в выбранные -->
+        <div v-if="!isStories" class="bg-white dark:bg-gray-900 rounded-xl p-6 border border-gray-200 dark:border-gray-800">
+          <h2 class="font-semibold flex items-center gap-2 mb-3"><Send :size="18" /> Публикация</h2>
+          <div v-if="platforms.length">
+            <div class="text-xs text-gray-500 mb-1.5">Куда публикуем</div>
+            <div class="flex flex-wrap gap-1.5 mb-3">
+              <button v-for="ch in platforms" :key="ch.id" @click="toggleChannel(ch.id)"
+                :class="['flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors',
+                  selectedChannels.includes(ch.id)
+                    ? 'border-brand-500 bg-brand-50 dark:bg-brand-950 text-brand-700 dark:text-brand-300'
+                    : 'border-gray-200 dark:border-gray-700 text-gray-500 hover:border-gray-300']">
+                <span :class="platformColor(ch.platform)">{{ platformLabel(ch.platform) }}</span>
+                {{ ch.accountName }}
+              </button>
+            </div>
+            <div class="flex flex-col sm:flex-row gap-2">
+              <button @click="publishToSelected" :disabled="publishingAll || !selectedChannels.length"
+                class="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-green-600 hover:bg-green-700 text-white text-sm font-medium disabled:opacity-50">
+                <Loader2 v-if="publishingAll" :size="16" class="animate-spin" /><Send v-else :size="16" />
+                {{ publishingAll ? 'Публикуем...' : `Опубликовать (${selectedChannels.length})` }}
+              </button>
+              <div class="flex gap-2">
+                <input v-model="scheduleAtAll" type="datetime-local" :min="new Date().toISOString().slice(0,16)"
+                  class="px-2 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-xs" />
+                <button @click="scheduleToSelected" :disabled="publishingAll || !scheduleAtAll || !selectedChannels.length"
+                  class="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium disabled:opacity-50 shrink-0">
+                  <Clock :size="14" /> В план
+                </button>
+              </div>
+            </div>
+            <p class="text-[10px] text-gray-400 mt-2">Мастер-текст уйдёт во все выбранные каналы. Тонкая настройка под сеть — справа (необязательно).</p>
+          </div>
+          <div v-else class="text-xs text-red-500">
+            Нет подключённых каналов. <router-link to="/settings" class="text-brand-500 underline">Настроить →</router-link>
+          </div>
+        </div>
       </div>
 
-      <!-- RIGHT PANEL (2/5): Platform versions -->
+      <!-- RIGHT PANEL (2/5): Platform versions (тонкая настройка по каналам — необязательно) -->
       <div class="lg:col-span-2">
         <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 overflow-hidden lg:sticky lg:top-6">
+          <div class="px-4 pt-3 pb-1 text-[11px] text-gray-400 border-b border-gray-100 dark:border-gray-800">Настройка по каналам — статус и ручная правка (необязательно)</div>
           <!-- Platform tabs with status dots -->
           <div v-if="platforms.length" class="flex border-b border-gray-200 dark:border-gray-800 overflow-x-auto">
             <button v-for="p in platforms" :key="p.id" @click="activeTab = p.id"
