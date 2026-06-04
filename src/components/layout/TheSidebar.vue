@@ -80,7 +80,7 @@ const navGroups: NavGroup[] = [
     title: 'Контент',
     items: [
       { name: 'digest', label: 'Дайджест', icon: Sunrise, path: '/digest', section: 'posts' },
-      { name: 'posts', label: 'Stories', icon: Film, path: '/posts', section: 'posts' },
+      { name: 'posts', label: 'Контент', icon: Film, path: '/posts', section: 'posts' },
       { name: 'ideas', label: 'Идеи', icon: Lightbulb, path: '/ideas', section: 'ideas' },
       { name: 'scenarios', label: 'Сценарии', icon: Clapperboard, path: '/scenarios', section: 'scenarios' },
       { name: 'plans', label: 'Контент-планы', icon: ClipboardList, path: '/plans', section: 'plans' },

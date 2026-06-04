@@ -42,6 +42,16 @@ const posts = ref<Post[]>([])
 const loading = ref(true)
 const createLoading = ref(false)
 const statusFilter = ref('')
+const typeFilter = ref('') // '' = все типы
+
+const POST_TYPE_LABELS: Record<string, string> = {
+  STORIES: 'Сторис', TEXT: 'Пост', PHOTO: 'Фото', VIDEO: 'Видео', REELS: 'Reels',
+}
+
+function openPost(post: Post) {
+  // Сторис → визуальный редактор, остальное → редактор постов
+  router.push(post.postType === 'STORIES' ? `/stories/${post.id}` : `/posts/${post.id}`)
+}
 
 // Quick publish
 const publishingId = ref<string | null>(null)
@@ -80,8 +90,10 @@ async function loadPosts() {
   if (!businesses.currentBusiness) return
   loading.value = true
   try {
-    let url = `/businesses/${businesses.currentBusiness.id}/posts?postType=STORIES`
-    if (statusFilter.value) url += `&status=${statusFilter.value}`
+    const params: string[] = []
+    if (typeFilter.value) params.push(`postType=${typeFilter.value}`)
+    if (statusFilter.value) params.push(`status=${statusFilter.value}`)
+    const url = `/businesses/${businesses.currentBusiness.id}/posts${params.length ? '?' + params.join('&') : ''}`
     posts.value = await http.get<Post[]>(url)
   } catch (e) {
     toast.error('Ошибка загрузки')
@@ -141,13 +153,14 @@ function getThumb(post: Post): string | null {
 onMounted(loadPosts)
 watch(() => businesses.currentBusiness?.id, loadPosts)
 watch(statusFilter, loadPosts)
+watch(typeFilter, loadPosts)
 </script>
 
 <template>
   <div>
     <!-- Header -->
     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
-      <h1 class="text-xl md:text-2xl font-bold">Stories</h1>
+      <h1 class="text-xl md:text-2xl font-bold">Контент</h1>
       <button v-if="canEditPosts('posts')"
         @click="createStories"
         :disabled="createLoading"
@@ -159,8 +172,19 @@ watch(statusFilter, loadPosts)
       </button>
     </div>
 
-    <!-- Status filter -->
-    <div class="mb-4">
+    <!-- Filters: type + status -->
+    <div class="mb-4 flex flex-col sm:flex-row gap-2">
+      <select
+        v-model="typeFilter"
+        class="w-full sm:w-auto px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-brand-500"
+      >
+        <option value="">Все типы</option>
+        <option value="STORIES">Сторис</option>
+        <option value="TEXT">Посты</option>
+        <option value="PHOTO">Фото</option>
+        <option value="VIDEO">Видео</option>
+        <option value="REELS">Reels</option>
+      </select>
       <select
         v-model="statusFilter"
         class="w-full sm:w-auto px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-brand-500"
@@ -191,7 +215,7 @@ watch(statusFilter, loadPosts)
     <!-- Empty state -->
     <div v-else-if="posts.length === 0" class="bg-white dark:bg-gray-900 rounded-xl p-8 border border-gray-200 dark:border-gray-800 text-center">
       <Film :size="48" class="mx-auto text-gray-300 dark:text-gray-600 mb-3" />
-      <p class="text-gray-500 mb-4">Нет историй. Создайте первую!</p>
+      <p class="text-gray-500 mb-4">Нет контента. Создайте первую историю!</p>
       <button
         @click="createStories"
         :disabled="createLoading"
@@ -208,7 +232,7 @@ watch(statusFilter, loadPosts)
         v-for="post in posts"
         :key="post.id"
         class="bg-white dark:bg-gray-900 rounded-xl p-4 border border-gray-200 dark:border-gray-800 hover:border-brand-300 dark:hover:border-brand-700 transition-colors cursor-pointer min-h-[100px]"
-        @click="router.push(`/stories/${post.id}`)"
+        @click="openPost(post)"
       >
         <div class="flex gap-3">
           <!-- Thumbnail -->
@@ -226,6 +250,9 @@ watch(statusFilter, loadPosts)
           <div class="flex-1 min-w-0">
             <div class="flex items-center gap-2 mb-1 flex-wrap">
               <h3 class="font-semibold text-sm md:text-base truncate">{{ post.title || 'Без заголовка' }}</h3>
+              <span class="px-2 py-0.5 rounded-full text-[10px] md:text-xs font-medium shrink-0 bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400">
+                {{ POST_TYPE_LABELS[post.postType] || post.postType }}
+              </span>
               <span :class="['px-2 py-0.5 rounded-full text-[10px] md:text-xs font-medium shrink-0', statusColor(post.status)]">
                 {{ statusLabel(post.status) }}
               </span>
