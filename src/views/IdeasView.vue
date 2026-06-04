@@ -3,7 +3,8 @@ import { ref, onMounted } from 'vue'
 import { http } from '@/api/client'
 import { useToast } from '@/composables/useToast'
 import { formatDate } from '@/composables/useFormatters'
-import { Lightbulb, Plus, Trash2, Loader2, Check } from 'lucide-vue-next'
+import { useCreateModalStore } from '@/stores/createModal'
+import { Lightbulb, Plus, Trash2, Loader2, Check, Send } from 'lucide-vue-next'
 
 interface Idea {
   id: string
@@ -14,6 +15,12 @@ interface Idea {
 }
 
 const toast = useToast()
+const createModal = useCreateModalStore()
+
+/** Идея → Пост: открыть единый композер с предзаполненным текстом */
+function ideaToPost(title: string, body: string) {
+  createModal.open({ title: title || '', body: body || '' })
+}
 
 const ideas = ref<Idea[]>([])
 const loading = ref(true)
@@ -172,6 +179,13 @@ onMounted(loadIdeas)
                 <Trash2 :size="14" />
               </button>
               <button
+                @click="ideaToPost(editForm.title, editForm.body)"
+                :disabled="!editForm.title.trim() && !editForm.body.trim()"
+                class="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium text-brand-600 dark:text-brand-400 hover:bg-brand-50 dark:hover:bg-brand-950 disabled:opacity-40 transition-colors"
+              >
+                <Send :size="13" /> В пост
+              </button>
+              <button
                 @click="closeEditing"
                 class="px-3 py-1.5 rounded-lg text-xs font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"
               >
@@ -193,9 +207,17 @@ onMounted(loadIdeas)
               </p>
               <p v-else class="text-xs text-gray-400 italic">Нажмите чтобы написать...</p>
             </div>
-            <span class="text-[10px] md:text-xs text-gray-400 shrink-0 mt-0.5">
-              {{ formatDate(idea.updatedAt) }}
-            </span>
+            <div class="flex flex-col items-end gap-1.5 shrink-0">
+              <span class="text-[10px] md:text-xs text-gray-400 mt-0.5">
+                {{ formatDate(idea.updatedAt) }}
+              </span>
+              <button
+                @click.stop="ideaToPost(idea.title, idea.body)"
+                class="flex items-center gap-1 text-[11px] font-medium text-brand-500 hover:text-brand-600 dark:hover:text-brand-400"
+              >
+                <Send :size="12" /> В пост
+              </button>
+            </div>
           </div>
         </div>
       </div>
