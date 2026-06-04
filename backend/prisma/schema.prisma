@@ -720,14 +720,19 @@ model PhotoCatalog {
 model AutoPostTask {
   id            String    @id @default(cuid())
   businessId    String    @map("business_id")
-  catalogId     String    @map("catalog_id")              // FK -> PhotoCatalog
+  catalogId     String?   @map("catalog_id")              // FK -> PhotoCatalog (null для digest-задач)
+  source        String    @default("photo")               // "photo" (Google Photos) | "digest" (утренний агент)
   postId        String?   @map("post_id")                  // FK -> Post (после одобрения)
   mediaFileId   String?   @map("media_file_id")            // FK -> MediaFile (после одобрения)
   status        String    @default("pending")              // pending|proposed|approved|rejected|editing|published
+  postType      String?   @map("post_type")               // предлагаемый формат: STORIES|TEXT|PHOTO|REELS
+  title         String?                                     // предлагаемый заголовок
   proposedText  String    @map("proposed_text")            // AI-сгенерированный текст
   proposedTags  String[]  @default([]) @map("proposed_tags")
-  aiReasoning   String?   @map("ai_reasoning")             // почему AI выбрал это фото
+  visualIdea    String?   @map("visual_idea")             // идея визуала (фото/видео)
+  aiReasoning   String?   @map("ai_reasoning")             // почему именно это (погода/бронь/рубрика)
   platforms     String[]  @default([])                      // ["VK", "TELEGRAM"]
+  suggestedFor  DateTime? @map("suggested_for")           // предлагаемая дата/время публикации
   tgMessageId   String?   @map("tg_message_id")            // ID сообщения для edit
   proposedAt    DateTime? @map("proposed_at")
   decidedAt     DateTime? @map("decided_at")
@@ -735,5 +740,6 @@ model AutoPostTask {
 
   @@index([status])
   @@index([businessId])
+  @@index([source])
   @@map("auto_post_tasks")
 }

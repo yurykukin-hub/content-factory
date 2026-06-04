@@ -1,0 +1,177 @@
+<script setup lang="ts">
+import { ref, onMounted, computed } from 'vue'
+import { http } from '@/api/client'
+import { useRouter } from 'vue-router'
+import { useToast } from '@/composables/useToast'
+import { useBusinessesStore } from '@/stores/businesses'
+import { useAuthStore } from '@/stores/auth'
+import { platformColor } from '@/composables/usePlatform'
+import { Sunrise, Sparkles, Loader2, Check, X, Lightbulb, CalendarClock, RefreshCw } from 'lucide-vue-next'
+
+interface DigestTask {
+  id: string
+  businessId: string
+  status: string
+  postType: string | null
+  title: string | null
+  proposedText: string
+  proposedTags: string[]
+  visualIdea: string | null
+  aiReasoning: string | null
+  platforms: string[]
+  createdAt: string
+}
+
+const router = useRouter()
+const toast = useToast()
+const businesses = useBusinessesStore()
+const auth = useAuthStore()
+const isAdmin = computed(() => auth.user?.role === 'ADMIN')
+
+const tasks = ref<DigestTask[]>([])
+const loading = ref(true)
+const generating = ref(false)
+const actingId = ref<string | null>(null)
+
+function bizName(id: string): string {
+  return businesses.businesses.find(b => b.id === id)?.name || ''
+}
+
+const POST_TYPE_LABELS: Record<string, string> = {
+  STORIES: 'Stories', TEXT: 'Пост', PHOTO: 'Фото-пост', VIDEO: 'Видео', REELS: 'Reels',
+}
+
+async function load() {
+  loading.value = true
+  try {
+    tasks.value = await http.get<DigestTask[]>('/auto-posts?source=digest&status=proposed&limit=50')
+  } catch (e: any) {
+    toast.error('Ошибка загрузки: ' + (e.message || e))
+  } finally {
+    loading.value = false
+  }
+}
+
+async function generate() {
+  generating.value = true
+  try {
+    const res = await http.post<{ created: number }>('/auto-posts/generate-digest', {})
+    toast.success(res.created ? `Готово: ${res.created} предложений` : 'Новых предложений нет (возможно, уже сгенерированы сегодня)')
+    await load()
+  } catch (e: any) {
+    toast.error('Ошибка: ' + (e.message || e))
+  } finally {
+    generating.value = false
+  }
+}
+
+async function approve(task: DigestTask) {
+  actingId.value = task.id
+  try {
+    const res = await http.post<{ postId: string; postType: string }>(`/auto-posts/${task.id}/approve`, {})
+    toast.success('Черновик создан — открываю редактор')
+    tasks.value = tasks.value.filter(t => t.id !== task.id)
+    if (res.postType === 'STORIES') router.push(`/stories/${res.postId}`)
+    else router.push(`/posts/${res.postId}`)
+  } catch (e: any) {
+    toast.error('Ошибка: ' + (e.message || e))
+  } finally {
+    actingId.value = null
+  }
+}
+
+async function reject(task: DigestTask) {
+  actingId.value = task.id
+  try {
+    await http.post(`/auto-posts/${task.id}/reject`, {})
+    tasks.value = tasks.value.filter(t => t.id !== task.id)
+    toast.info('Отклонено')
+  } catch (e: any) {
+    toast.error('Ошибка: ' + (e.message || e))
+  } finally {
+    actingId.value = null
+  }
+}
+
+onMounted(load)
+</script>
+
+<template>
+  <div class="max-w-3xl mx-auto">
+    <!-- Header -->
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-2">
+      <h1 class="text-xl md:text-2xl font-bold flex items-center gap-2">
+        <Sunrise :size="24" class="text-brand-500" /> Утренний дайджест
+      </h1>
+      <button v-if="isAdmin" @click="generate" :disabled="generating"
+        class="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium transition-colors disabled:opacity-50 shrink-0">
+        <Loader2 v-if="generating" :size="16" class="animate-spin" /><Sparkles v-else :size="16" />
+        {{ generating ? 'Генерирую...' : 'Сгенерировать сейчас' }}
+      </button>
+    </div>
+    <p class="text-sm text-gray-500 mb-5">
+      AI-агент анализирует погоду, бронирования и контент-план и предлагает, что постить сегодня. Одобрите — создастся черновик, который можно доработать и опубликовать.
+    </p>
+
+    <!-- Loading -->
+    <div v-if="loading" class="space-y-3">
+      <div v-for="i in 3" :key="i" class="bg-white dark:bg-gray-900 rounded-xl p-5 border border-gray-200 dark:border-gray-800 animate-pulse h-40"></div>
+    </div>
+
+    <!-- Empty -->
+    <div v-else-if="tasks.length === 0" class="bg-white dark:bg-gray-900 rounded-xl p-8 border border-gray-200 dark:border-gray-800 text-center">
+      <Sunrise :size="48" class="mx-auto text-gray-300 dark:text-gray-600 mb-3" />
+      <p class="text-gray-500 mb-1">Пока нет предложений</p>
+      <p class="text-xs text-gray-400">Агент готовит дайджест каждое утро. Или нажмите «Сгенерировать сейчас».</p>
+    </div>
+
+    <!-- Suggestions -->
+    <div v-else class="space-y-4">
+      <div v-for="task in tasks" :key="task.id"
+        class="bg-white dark:bg-gray-900 rounded-xl p-5 border border-gray-200 dark:border-gray-800">
+        <!-- Top row: type + platforms + biz -->
+        <div class="flex items-center gap-2 flex-wrap mb-2">
+          <span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-brand-100 dark:bg-brand-950 text-brand-700 dark:text-brand-300">
+            {{ POST_TYPE_LABELS[task.postType || 'TEXT'] || task.postType }}
+          </span>
+          <span v-for="p in task.platforms" :key="p" :class="['px-1.5 py-0.5 rounded text-[11px] font-medium', platformColor(p)]">{{ p }}</span>
+          <span v-if="bizName(task.businessId)" class="text-xs text-gray-400">· {{ bizName(task.businessId) }}</span>
+        </div>
+
+        <!-- Title -->
+        <h3 v-if="task.title" class="font-semibold text-base mb-1">{{ task.title }}</h3>
+
+        <!-- Text -->
+        <p class="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-line mb-3">{{ task.proposedText }}</p>
+
+        <!-- Hashtags -->
+        <div v-if="task.proposedTags?.length" class="flex flex-wrap gap-1 mb-3">
+          <span v-for="t in task.proposedTags" :key="t" class="text-xs text-blue-500">#{{ t }}</span>
+        </div>
+
+        <!-- Visual idea -->
+        <div v-if="task.visualIdea" class="flex items-start gap-1.5 text-xs text-gray-500 mb-2 bg-gray-50 dark:bg-gray-800 rounded-lg p-2">
+          <Lightbulb :size="14" class="shrink-0 mt-0.5 text-amber-500" /><span>Визуал: {{ task.visualIdea }}</span>
+        </div>
+
+        <!-- Reasoning -->
+        <p v-if="task.aiReasoning" class="text-xs text-gray-400 italic mb-3 flex items-start gap-1.5">
+          <CalendarClock :size="14" class="shrink-0 mt-0.5" /><span>{{ task.aiReasoning }}</span>
+        </p>
+
+        <!-- Actions -->
+        <div class="flex gap-2 pt-1">
+          <button @click="approve(task)" :disabled="actingId === task.id"
+            class="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-green-600 hover:bg-green-700 text-white text-sm font-medium disabled:opacity-50">
+            <Loader2 v-if="actingId === task.id" :size="15" class="animate-spin" /><Check v-else :size="15" />
+            Одобрить → черновик
+          </button>
+          <button @click="reject(task)" :disabled="actingId === task.id"
+            class="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 text-sm font-medium text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50">
+            <X :size="15" /> Отклонить
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>

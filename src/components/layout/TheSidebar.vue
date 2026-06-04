@@ -18,6 +18,7 @@ import {
   Camera,
   Activity,
   Music,
+  Sunrise,
   X,
 } from 'lucide-vue-next'
 
@@ -78,6 +79,7 @@ const navGroups: NavGroup[] = [
   {
     title: 'Контент',
     items: [
+      { name: 'digest', label: 'Дайджест', icon: Sunrise, path: '/digest', section: 'posts' },
       { name: 'posts', label: 'Stories', icon: Film, path: '/posts', section: 'posts' },
       { name: 'ideas', label: 'Идеи', icon: Lightbulb, path: '/ideas', section: 'ideas' },
       { name: 'scenarios', label: 'Сценарии', icon: Clapperboard, path: '/scenarios', section: 'scenarios' },

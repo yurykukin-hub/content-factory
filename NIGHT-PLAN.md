@@ -40,19 +40,21 @@
 - [x] NIGHT-PLAN.md создан
 
 ### Эпик A — Сторис под ключ
-- [ ] **A1** Отложка сохраняет кнопку ВК + музыку (migration `post_versions.publish_options Json?`, Zod на `/schedule`, scheduler читает опции, StoryEditor шлёт) → deploy+test+commit
-- [ ] **A2** Управление запланированными (split isPublished/isScheduled, список + cancel + reschedule/edit) → deploy+test+commit
+- [x] **A1** Отложка сохраняет кнопку ВК (+ задел под музыку): migration `publish_options`, Zod на `/schedule`, scheduler читает опции, StoryEditor шлёт. ✅ DEPLOYED (commit c6c2c5e), таймер проверен
+- [x] **A2** Управление запланированными: split isPublished/isScheduled (scheduled редактируем), post.status rollup, PostsView показывает время + отмена. ✅ DEPLOYED (commit c6c2c5e)
 - [ ] **A3** Дизайн-пресеты оверлея (StoryTemplate глобальные + shadow/outline/opacity, seed 3–5, apply) → deploy+test+commit
 - [ ] **A4** Музыка в сторис (`overlayAudioOnVideo()`, мукс в bake-пайплайн, picker в редакторе, persist в publish_options) → deploy+test+commit
 
-### Эпик C — Утренний AI-агент
-- [ ] **C0** Контент-план НаWоде в CF (рубрики в BrandProfile/план на июнь) — прочитать strategic docs
-- [ ] **C1** `nawode-data.ts` (bookings + weather через Bun.sql) + конфиг
-- [ ] **C2** `daily-digest.ts` (данные + план + недавние посты → Sonnet → структурированные предложения)
-- [ ] **C3** Доставка: web-UI карточки (SSE) + Telegram (graceful если нет токена)
-- [ ] **C4** Одобрение → создаёт Post, виден в UI, перехват ручного управления
-- [ ] **C5** Ежедневный триггер в scheduler (AppConfig время, идемпотентно)
-- [ ] **C6** Агент умеет все форматы (помечает недоступные)
+### Эпик C — Утренний AI-агент ✅ DEPLOYED (живой тест: 4 предложения, погода-aware)
+- [x] **C0** Стратегия НаWоде встроена в digest-промпт (10 рубрик + сезонный подход + шаблоны)
+- [x] **C1** `nawode-data.ts` — погода (Bun.sql, дедуп latest fetch, дневные часы) + бронирования. Конфиг `NAWODE_DATABASE_URL`
+- [x] **C2** `daily-digest.ts` — данные + рубрики + недавние посты → Sonnet → 3-4 предложения (формат/канал/текст/визуал/обоснование)
+- [x] **C3** Доставка: web-UI `/digest` (DigestView, карточки) + Telegram graceful (нет токена → тихо)
+- [x] **C4** Одобрить → создаёт ЧЕРНОВИК Post (не авто-публикует) → SSE → открывается в редакторе (перехват ручного)
+- [x] **C5** Ежедневный триггер `checkAndRunDailyDigest()` в scheduler (`digest_enabled`/`digest_time_utc`, идемпотентно). Ручной: `POST /auto-posts/generate-digest`
+- [x] **C6** Агент предлагает STORIES/TEXT/PHOTO/REELS (все форматы)
+- ⚠️ Telegram доставка/кнопки: код готов (graceful) — включится после добавления `telegram_approval_bot_token` + `telegram_approval_chat_id`
+- ⚠️ Расписание: `digest_enabled=true` + `digest_time_utc` нужно выставить в AppConfig (по умолчанию выключено)
 
 ### Эпик B — Все форматы (если время)
 - [ ] B1 PostsView все типы · B2 PostEditor смена типа · B3 Scheduler для всех типов · B4 IG Reels UI · B5 VK Клипы · B6 TG видео

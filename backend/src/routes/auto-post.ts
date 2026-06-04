@@ -13,11 +13,13 @@ export const autoPost = new Hono()
 autoPost.get('/', async (c) => {
   const status = c.req.query('status')
   const businessId = c.req.query('businessId')
+  const source = c.req.query('source')
   const limit = Math.min(parseInt(c.req.query('limit') || '50'), 100)
 
   const where: any = {}
   if (status) where.status = status
   if (businessId) where.businessId = businessId
+  if (source) where.source = source
 
   const tasks = await db.autoPostTask.findMany({
     where,
@@ -28,21 +30,37 @@ autoPost.get('/', async (c) => {
   return c.json(tasks)
 })
 
-// POST /api/auto-posts/:id/approve — approve task (same as Telegram approve)
+// POST /api/auto-posts/:id/approve — approve task
 autoPost.post('/:id/approve', async (c) => {
   const task = await db.autoPostTask.findUnique({ where: { id: c.req.param('id') } })
   if (!task) return c.json({ error: 'Task not found' }, 404)
   if (task.status !== 'proposed') return c.json({ error: 'Task is not in proposed state' }, 400)
 
-  // Trigger approve flow
-  const { handleCallbackQuery } = await import('../services/telegram-approval')
-  await handleCallbackQuery({
-    data: `approve:${task.id}`,
-    message: null,
-    id: '',
-  })
+  // Digest-задача: одобрение создаёт ЧЕРНОВИК поста (human-in-the-loop), без авто-публикации
+  if (task.source === 'digest') {
+    const { approveDigestTask } = await import('../services/daily-digest')
+    const res = await approveDigestTask(task)
+    return c.json({ ok: true, ...res })
+  }
 
+  // Photo-задача: классический флоу (публикация фото) через telegram-approval
+  const { handleCallbackQuery } = await import('../services/telegram-approval')
+  await handleCallbackQuery({ data: `approve:${task.id}`, message: null, id: '' })
   return c.json({ ok: true })
+})
+
+// POST /api/auto-posts/generate-digest — ручной запуск утреннего дайджеста (admin)
+autoPost.post('/generate-digest', async (c) => {
+  const user = c.get('user') as { role?: string }
+  if (user?.role !== 'ADMIN') return c.json({ error: 'Admin only' }, 403)
+  const body = await c.req.json().catch(() => ({}))
+  const { runDailyDigest } = await import('../services/daily-digest')
+  try {
+    const res = await runDailyDigest({ businessId: body?.businessId, force: true })
+    return c.json({ ok: true, ...res })
+  } catch (err: any) {
+    return c.json({ ok: false, error: err.message }, 500)
+  }
 })
 
 // POST /api/auto-posts/:id/reject — reject task
@@ -60,7 +78,7 @@ autoPost.post('/:id/reject', async (c) => {
 
 // POST /api/auto-posts/generate — manual trigger
 autoPost.post('/generate', async (c) => {
-  const user = c.get('user')
+  const user = c.get('user') as { role?: string }
   if (user?.role !== 'ADMIN') return c.json({ error: 'Admin only' }, 403)
 
   const { runAutoPostGeneration } = await import('../services/auto-poster')

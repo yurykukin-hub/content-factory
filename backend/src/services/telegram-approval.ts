@@ -133,7 +133,19 @@ export async function handleCallbackQuery(callbackQuery: any): Promise<void> {
 
   switch (action) {
     case 'approve':
-      await handleApprove(token, task, message, callbackId)
+      if (task.source === 'digest') {
+        // Digest: одобрение создаёт черновик в CF (без авто-публикации)
+        await answerCallback(token, callbackId, 'Создаю черновик...')
+        try {
+          const { approveDigestTask } = await import('./daily-digest')
+          await approveDigestTask(task)
+          await editMessageStatus(token, message, 'Одобрено — черновик создан в Content Factory')
+        } catch (e: any) {
+          await editMessageStatus(token, message, 'Ошибка: ' + (e.message?.slice(0, 100)))
+        }
+      } else {
+        await handleApprove(token, task, message, callbackId)
+      }
       break
     case 'reject':
       await handleReject(token, task, message, callbackId)
@@ -171,6 +183,12 @@ export async function handleTextMessage(message: any): Promise<void> {
       status: 'proposed',
     },
   })
+
+  // Digest-задачи без фото — текст-редактирование через бота тут не применимо
+  if (!editingTask.catalogId) {
+    await answerCallback(token, '', 'Текст обновлён')
+    return
+  }
 
   // Send updated preview
   const photo = await db.photoCatalog.findUnique({ where: { id: editingTask.catalogId } })

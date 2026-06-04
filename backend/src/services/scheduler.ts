@@ -1,6 +1,7 @@
 import { db } from '../db'
 import { getPublisher } from './publishers/base'
 import { checkAndRunAutoPost } from './auto-poster'
+import { checkAndRunDailyDigest } from './daily-digest'
 
 const CHECK_INTERVAL = 60_000 // каждую минуту
 
@@ -17,6 +18,10 @@ export function startPublishScheduler(): ReturnType<typeof setInterval> {
       // Daily auto-poster check (runs at configured time, skips if already ran today)
       await checkAndRunAutoPost().catch(e =>
         console.error('[Scheduler] AutoPoster error:', e.message)
+      )
+      // Daily morning digest check (НаWоде content agent)
+      await checkAndRunDailyDigest().catch(e =>
+        console.error('[Scheduler] DailyDigest error:', e.message)
       )
       const now = new Date()
       const dueVersions = await db.postVersion.findMany({
