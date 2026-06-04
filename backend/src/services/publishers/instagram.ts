@@ -53,7 +53,7 @@ export class InstagramPublisher implements Publisher {
 
   private resolvePublicationType(postType?: string): number {
     if (postType === 'STORIES') return PUB_TYPE.STORY
-    if (postType === 'REELS') return PUB_TYPE.REELS
+    if (postType === 'REELS' || postType === 'CLIPS') return PUB_TYPE.REELS // IG: клипы = вертикальные Reels
     return PUB_TYPE.POST
   }
 

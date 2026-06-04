@@ -50,11 +50,21 @@ ai.post('/generate-plan', async (c) => {
   // 1. Загрузить контекст бренда
   const brandContext = await buildBrandContext(data.businessId)
 
+  // D3: для НаWоде подставляем 10 рубрик по умолчанию (если не заданы вручную)
+  let rubrics = data.rubrics
+  if (!rubrics?.length) {
+    const biz = await db.business.findUnique({ where: { id: data.businessId }, select: { erpType: true } })
+    if (biz?.erpType === 'nawode') {
+      const { NAWODE_RUBRICS } = await import('../services/ai/nawode-strategy')
+      rubrics = NAWODE_RUBRICS
+    }
+  }
+
   // 2. Собрать промпт с параметрами
   const systemPrompt = buildPlanPrompt(brandContext, {
     postsPerWeek: data.postsPerWeek,
     focus: data.focus,
-    rubrics: data.rubrics,
+    rubrics,
   })
 
   const startDate = new Date(data.startDate)
@@ -123,7 +133,7 @@ ai.post('/generate-plan', async (c) => {
     date: new Date(item.date),
     dayOfWeek: item.dayOfWeek || '',
     topic: item.topic || `Тема ${i + 1}`,
-    postType: (['TEXT', 'PHOTO', 'VIDEO'].includes(item.postType) ? item.postType : 'TEXT') as any,
+    postType: (['TEXT', 'PHOTO', 'VIDEO', 'REELS', 'CLIPS', 'STORIES'].includes(item.postType) ? item.postType : 'TEXT') as any,
     description: item.description || null,
     status: 'PLANNED',
   }))
@@ -150,7 +160,7 @@ ai.post('/generate-plan', async (c) => {
 const generatePostSchema = z.object({
   businessId: z.string(),
   topic: z.string().min(1),
-  postType: z.enum(['TEXT', 'PHOTO', 'VIDEO', 'REELS', 'STORIES']).default('TEXT'),
+  postType: z.enum(['TEXT', 'PHOTO', 'VIDEO', 'REELS', 'CLIPS', 'STORIES']).default('TEXT'),
 })
 
 ai.post('/generate-post', async (c) => {

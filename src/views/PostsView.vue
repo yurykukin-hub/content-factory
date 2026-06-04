@@ -45,7 +45,7 @@ const statusFilter = ref('')
 const typeFilter = ref('') // '' = все типы
 
 const POST_TYPE_LABELS: Record<string, string> = {
-  STORIES: 'Сторис', TEXT: 'Пост', PHOTO: 'Фото', VIDEO: 'Видео', REELS: 'Reels',
+  STORIES: 'Сторис', TEXT: 'Пост', PHOTO: 'Фото', VIDEO: 'Видео', REELS: 'Reels', CLIPS: 'Клипы',
 }
 
 function openPost(post: Post) {
@@ -184,6 +184,7 @@ watch(typeFilter, loadPosts)
         <option value="PHOTO">Фото</option>
         <option value="VIDEO">Видео</option>
         <option value="REELS">Reels</option>
+        <option value="CLIPS">Клипы</option>
       </select>
       <select
         v-model="statusFilter"

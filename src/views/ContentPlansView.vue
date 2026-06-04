@@ -7,7 +7,7 @@ import { useToast } from '@/composables/useToast'
 import { formatDate, formatDateFull } from '@/composables/useFormatters'
 import {
   ClipboardList, Sparkles, Plus, Loader2, Table, CalendarDays,
-  Pencil, Wand2, ExternalLink, X, ChevronLeft, ChevronRight, Trash2
+  Pencil, Wand2, ExternalLink, X, ChevronLeft, ChevronRight, Trash2, RefreshCw
 } from 'lucide-vue-next'
 import { useSectionAccess } from '@/composables/useSectionAccess'
 import { postTypeLabel } from '@/composables/useLabels'
@@ -167,6 +167,22 @@ async function skipItem(itemId: string) {
   }
 }
 
+// D2: переделать ячейку плана с направлением (AI)
+async function regenerateItem(itemId: string) {
+  const direction = window.prompt('Как переделать ячейку? Опишите направление (или оставьте пусто для свежего варианта):')
+  if (direction === null) return // отменено
+  itemLoading.value = itemId
+  try {
+    await http.post(`/plan-items/${itemId}/regenerate`, { direction: direction || undefined })
+    toast.success('Ячейка обновлена')
+    if (activePlan.value) await openPlan(activePlan.value.id)
+  } catch (e: any) {
+    toast.error(e.message || 'Ошибка')
+  } finally {
+    itemLoading.value = null
+  }
+}
+
 async function deletePlan(planId: string) {
   if (!confirm('Удалить контент-план?')) return
   try {
@@ -200,7 +216,7 @@ function statusBadge(status: string) {
 function typeColor(type: string) {
   const map: Record<string, string> = {
     TEXT: 'bg-gray-400', PHOTO: 'bg-blue-500', VIDEO: 'bg-purple-500',
-    REELS: 'bg-pink-500', STORIES: 'bg-orange-500',
+    REELS: 'bg-pink-500', CLIPS: 'bg-cyan-500', STORIES: 'bg-orange-500',
   }
   return map[type] || 'bg-gray-400'
 }
@@ -370,6 +386,10 @@ watch(() => businesses.currentBusiness?.id, loadPlans)
                     <button @click="aiGenerateFromItem(item.id)" :disabled="itemLoading === item.id"
                       class="p-1.5 rounded text-gray-400 hover:text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-950" title="AI написать">
                       <Wand2 :size="14" />
+                    </button>
+                    <button @click="regenerateItem(item.id)" :disabled="itemLoading === item.id"
+                      class="p-1.5 rounded text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950" title="Переделать ячейку (AI, с направлением)">
+                      <RefreshCw :size="14" />
                     </button>
                     <button @click="skipItem(item.id)"
                       class="p-1.5 rounded text-gray-400 hover:text-yellow-600 hover:bg-yellow-50 dark:hover:bg-yellow-950" title="Пропустить">

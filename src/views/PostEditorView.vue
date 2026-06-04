@@ -238,6 +238,25 @@ async function createVersionForTab() {
 const activeVersion = computed(() => post.value?.versions.find(v => v.platformAccount.id === activeTab.value))
 const activePlatform = computed(() => platforms.value.find(p => p.id === activeTab.value))
 const isStories = computed(() => post.value?.postType === 'STORIES')
+
+// B2/B4: выбор типа поста + валидация формата
+const POST_TYPES = [
+  { value: 'TEXT', label: 'Пост (текст)' },
+  { value: 'PHOTO', label: 'Фото-пост' },
+  { value: 'VIDEO', label: 'Видео' },
+  { value: 'REELS', label: 'Reels (IG)' },
+  { value: 'CLIPS', label: 'Клипы (VK)' },
+]
+const needsVideo = computed(() => ['VIDEO', 'REELS', 'CLIPS'].includes(post.value?.postType || ''))
+const hasVideo = computed(() => (post.value?.mediaFiles || []).some(f => f.mimeType.startsWith('video/')))
+const formatHint = computed(() => {
+  const t = post.value?.postType
+  if (t === 'REELS') return 'Reels: вертикальное видео 9:16, до 90 сек. Привяжите видео ниже.'
+  if (t === 'CLIPS') return 'Клипы (VK): вертикальное видео 9:16, до 60 сек. Публикуется как видео ВК (отдельного API клипов нет).'
+  if (t === 'VIDEO') return 'Видео-пост: привяжите видеофайл ниже.'
+  if (t === 'PHOTO') return 'Фото-пост: привяжите изображение(я) ниже.'
+  return ''
+})
 const hasUnsavedChanges = computed(() => post.value && post.value.body !== originalBody.value)
 const readyCount = computed(() => post.value?.versions.filter(v => ['PUBLISHED', 'APPROVED'].includes(v.status)).length || 0)
 
@@ -296,6 +315,19 @@ onMounted(loadPost)
             <label class="block text-sm font-medium mb-1">Заголовок</label>
             <input v-model="post.title" placeholder="Заголовок (необязательно)"
               class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 focus:ring-2 focus:ring-brand-500 text-sm" />
+          </div>
+
+          <!-- Post type (B2) -->
+          <div class="mb-3">
+            <label class="block text-sm font-medium mb-1">Тип контента</label>
+            <select v-model="post.postType" @change="savePost"
+              class="w-full sm:w-auto px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-brand-500">
+              <option v-for="t in POST_TYPES" :key="t.value" :value="t.value">{{ t.label }}</option>
+            </select>
+            <p v-if="formatHint" class="text-[11px] text-gray-400 mt-1">{{ formatHint }}</p>
+            <p v-if="needsVideo && !hasVideo" class="text-[11px] text-amber-600 dark:text-amber-400 mt-1 flex items-center gap-1">
+              <AlertCircle :size="12" /> Для этого формата привяжите видео ниже.
+            </p>
           </div>
 
           <!-- Body -->

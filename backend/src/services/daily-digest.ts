@@ -15,6 +15,7 @@ import { log } from '../utils/logger'
 import { emitEvent } from '../eventBus'
 import { buildBrandContext } from './ai/prompt-builder'
 import { getNawodeData } from './nawode-data'
+import { NAWODE_STRATEGY_TEXT, getSeasonHint } from './ai/nawode-strategy'
 
 // --- AppConfig helpers ---
 async function getConfig(key: string): Promise<string | null> {
@@ -23,33 +24,6 @@ async function getConfig(key: string): Promise<string | null> {
 }
 async function setConfig(key: string, value: string): Promise<void> {
   await db.appConfig.upsert({ where: { key }, create: { key, value }, update: { value } })
-}
-
-// Компактная выжимка контент-плана НаWоде (рубрики + сезонный подход)
-const NAWODE_STRATEGY = `КОНТЕНТ-СТРАТЕГИЯ НаWоде (SUP-клуб, Выборг):
-Месседж: «Выборг с воды — впечатления, которых не увидишь с берега». Тон: дружелюбный, живой, от людей, без официоза. Продаём впечатление, не доску.
-10 рубрик:
-1. Выборг с воды — фото/видео достопримечательностей с SUP (вдохновение).
-2. Первый раз на доске — снимаем страхи («упаду?», «с детьми можно?»).
-3. Команда НаWоде — знакомство с инструкторами.
-4. Готовимся к сезону — закулисье (техосмотр досок, точки).
-5. Маршруты НаWоде — туры (Монрепо, Беличьи скалы, Место силы).
-6. SUP и польза — короткие факты о здоровье.
-7. Подари впечатление — сертификаты к праздникам.
-8. Погода и вода — ситуативно («жара! все на воду», «ветер >7 м/с — не выходим, безопасность»).
-9. Корпоратив на воде — B2B кейсы.
-10. Пиратская гавань 2026 — фестиваль 22 августа.
-Форматы: Stories (ежедневный ситуативный — погода/слоты), Reels/Клипы (видео с воды, макс. охват), Карусель (маршруты/чеклисты), Фото+текст (истории, команда).
-Шаблон «Погода + слоты» (ежедневно, Stories/Telegram): день, дата, температура, ветер, категория погоды, свободные слоты, ссылка nawode.ru.`
-
-function seasonHint(month: number): string {
-  // month: 0-11
-  if (month === 5) return 'ИЮНЬ — начало сезона: 30% оперативный (погода/слоты, FOMO), 30% соцдоказательство (фото клиентов, отзывы), 20% вдохновение, 10% продажи, 10% личное. Акция «Ранний старт». Каждый пост = вход в воронку, ссылка nawode.ru.'
-  if (month === 6) return 'ИЮЛЬ — пик: максимальная конверсия, FOMO («осталось N мест»), ежедневный контент, UGC.'
-  if (month === 7) return 'АВГУСТ — золотой закат: закатный контент, Пиратская гавань (22 авг), школьные группы.'
-  if (month === 8) return 'СЕНТЯБРЬ — финал: «Бабье лето» (акция), ностальгия, сертификаты на 2027.'
-  if (month >= 2 && month <= 4) return 'РАЗОГРЕВ (март–май): вдохновение + снятие страхов + знакомство с командой. Не продавать в лоб.'
-  return 'МЕЖСЕЗОНЬЕ: подготовка к сезону, закулисье.'
 }
 
 interface Suggestion {
@@ -147,9 +121,9 @@ async function generateDigestForBusiness(biz: any, force: boolean): Promise<numb
 
 ${brandContext}
 
-${NAWODE_STRATEGY}
+${NAWODE_STRATEGY_TEXT}
 
-СЕЗОН: ${seasonHint(now.getMonth())}
+СЕЗОН: ${getSeasonHint(now.getMonth())}
 
 ДАННЫЕ НА СЕГОДНЯ И БЛИЖАЙШИЕ ДНИ:
 ${dataBlock}
@@ -229,7 +203,7 @@ ${recentSummary}
  * и публикуют/планируют существующим флоу (Stories/Posts редактор).
  */
 export async function approveDigestTask(task: any): Promise<{ postId: string; postType: string }> {
-  const validTypes = ['TEXT', 'PHOTO', 'VIDEO', 'REELS', 'STORIES']
+  const validTypes = ['TEXT', 'PHOTO', 'VIDEO', 'REELS', 'CLIPS', 'STORIES']
   const pt = validTypes.includes((task.postType || '').toUpperCase()) ? task.postType.toUpperCase() : 'TEXT'
 
   const post = await db.post.create({

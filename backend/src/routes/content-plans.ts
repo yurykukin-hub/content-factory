@@ -7,6 +7,19 @@ import { verifyPlanAccess, verifyPlanItemAccess, assertBusinessAccess } from '..
 
 const contentPlans = new Hono()
 
+// D1: краткие сводки недавних постов (чтобы AI не повторялся)
+async function getRecentPostSummaries(businessId: string, take = 8): Promise<string[]> {
+  const posts = await db.post.findMany({
+    where: { businessId },
+    orderBy: { createdAt: 'desc' },
+    take,
+    select: { title: true, body: true },
+  })
+  return posts
+    .map(p => ((p.title ? p.title + ': ' : '') + (p.body || '').replace(/\s+/g, ' ').slice(0, 80)).trim())
+    .filter(Boolean)
+}
+
 // POST /api/plans/import — импорт плана с готовыми items (без AI)
 const importSchema = z.object({
   businessId: z.string(),
@@ -17,7 +30,7 @@ const importSchema = z.object({
     date: z.string(),
     dayOfWeek: z.string(),
     topic: z.string(),
-    postType: z.enum(['TEXT', 'PHOTO', 'VIDEO', 'REELS', 'STORIES']).default('PHOTO'),
+    postType: z.enum(['TEXT', 'PHOTO', 'VIDEO', 'REELS', 'CLIPS', 'STORIES']).default('PHOTO'),
     description: z.string().optional(),
   })).min(1).max(100),
   skipPastDates: z.boolean().default(true),
@@ -227,9 +240,10 @@ contentPlans.post('/plan-items/:id/ai-generate', async (c) => {
 
   // Генерировать текст поста по теме из плана
   const brandContext = await buildBrandContext(item.contentPlan.businessId)
+  const recentPosts = await getRecentPostSummaries(item.contentPlan.businessId)
   const rubricMatch = item.description?.match(/^\[(.+?)\]/)
   const rubric = rubricMatch?.[1] || undefined
-  const systemPrompt = buildPostPrompt(brandContext, { rubric })
+  const systemPrompt = buildPostPrompt(brandContext, { rubric, recentPosts })
   const result = await aiComplete({
     systemPrompt,
     userPrompt: `Тема поста: ${item.topic}. ${item.description || ''}`,
@@ -286,13 +300,14 @@ contentPlans.post('/plans/:id/generate-all', async (c) => {
   const { config } = await import('../config')
 
   const brandContext = await buildBrandContext(plan.businessId)
+  const recentPosts = await getRecentPostSummaries(plan.businessId)
   const posts = []
 
   for (const item of plan.items) {
     try {
       const rubricMatch = item.description?.match(/^\[(.+?)\]/)
       const rubric = rubricMatch?.[1] || undefined
-      const systemPrompt = buildPostPrompt(brandContext, { rubric })
+      const systemPrompt = buildPostPrompt(brandContext, { rubric, recentPosts })
       const result = await aiComplete({
         systemPrompt,
         userPrompt: `Тема поста: ${item.topic}. ${item.description || ''}`,
@@ -326,6 +341,61 @@ contentPlans.post('/plans/:id/generate-all', async (c) => {
   }
 
   return c.json({ generated: posts.filter(p => !('error' in p)).length, total: plan.items.length, posts }, 201)
+})
+
+// POST /api/plan-items/:id/regenerate — переписать ячейку плана по направлению (D2)
+const regenerateSchema = z.object({ direction: z.string().max(500).optional() })
+contentPlans.post('/plan-items/:id/regenerate', async (c) => {
+  const { id } = c.req.param()
+  const user = c.get('user') as AuthUser
+  try {
+    await verifyPlanItemAccess(user, id)
+  } catch (e: any) {
+    if (e.message === 'NOT_FOUND') return c.json({ error: 'Не найдено' }, 404)
+    if (e.message === 'FORBIDDEN') return c.json({ error: 'Нет доступа' }, 403)
+    throw e
+  }
+  const item = await db.contentPlanItem.findUnique({ where: { id }, include: { contentPlan: true } })
+  if (!item) return c.json({ error: 'Элемент плана не найден' }, 404)
+
+  const { direction } = regenerateSchema.parse(await c.req.json().catch(() => ({})))
+  const { buildBrandContext } = await import('../services/ai/prompt-builder')
+  const { aiComplete } = await import('../services/ai/openrouter')
+  const { config } = await import('../config')
+
+  const brandContext = await buildBrandContext(item.contentPlan.businessId)
+  const recent = await getRecentPostSummaries(item.contentPlan.businessId, 6)
+  const systemPrompt = `Ты — SMM-стратег. Перепиши ОДНУ ячейку контент-плана (тема + тип + краткое описание).
+${brandContext}
+${recent.length ? '\nНедавние посты (не повторяйся):\n' + recent.map(r => '- ' + r).join('\n') : ''}
+Ответь СТРОГО JSON без markdown: {"topic":"тема 2-5 слов","postType":"TEXT|PHOTO|VIDEO|REELS|CLIPS|STORIES","description":"1 предложение"}`
+  const userPrompt = `Текущая ячейка: тема «${item.topic}», тип ${item.postType}, описание «${item.description || ''}». ${direction ? 'Направление переделки: ' + direction : 'Предложи свежий альтернативный вариант на ту же дату.'}`
+
+  const result = await aiComplete({
+    systemPrompt,
+    userPrompt,
+    model: config.models.haiku,
+    businessId: item.contentPlan.businessId,
+    action: 'regenerate_plan_item',
+    userId: user.userId,
+  })
+
+  let parsed: any
+  try {
+    parsed = JSON.parse(result.content.replace(/```json?/gi, '').replace(/```/g, '').trim())
+  } catch {
+    return c.json({ error: 'AI вернул некорректный ответ', raw: result.content }, 422)
+  }
+  const allowed = ['TEXT', 'PHOTO', 'VIDEO', 'REELS', 'CLIPS', 'STORIES']
+  const updated = await db.contentPlanItem.update({
+    where: { id },
+    data: {
+      topic: parsed.topic || item.topic,
+      postType: (allowed.includes(parsed.postType) ? parsed.postType : item.postType) as any,
+      description: parsed.description ?? item.description,
+    },
+  })
+  return c.json(updated)
 })
 
 export { contentPlans }

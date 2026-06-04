@@ -36,6 +36,7 @@ enum PostType {
   PHOTO
   VIDEO
   REELS
+  CLIPS
   STORIES
 }
 

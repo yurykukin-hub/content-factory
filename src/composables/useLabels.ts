@@ -8,6 +8,7 @@ const POST_TYPE_LABELS: Record<string, string> = {
   PHOTO: 'Фото',
   VIDEO: 'Видео',
   REELS: 'Reels',
+  CLIPS: 'Клипы',
   STORIES: 'Stories',
 }
 

@@ -91,7 +91,7 @@ export function buildPlanPrompt(
   }
 
   parts.push('- Учитывай сезонность и актуальные события')
-  parts.push('- Каждый пост: дата, тема (2-5 слов), тип контента (TEXT/PHOTO/VIDEO), краткое описание (1 предложение)')
+  parts.push('- Каждый пост: дата, тема (2-5 слов), тип контента (TEXT/PHOTO/VIDEO/REELS), краткое описание (1 предложение)')
 
   if (params?.focus) {
     parts.push(`- Тематический фокус периода: ${params.focus}`)
@@ -114,7 +114,7 @@ export function buildPlanPrompt(
  */
 export function buildPostPrompt(
   brandContext: string,
-  options?: { rubric?: string }
+  options?: { rubric?: string; recentPosts?: string[] }
 ): string {
   const parts = [
     'Напиши пост для социальных сетей.',
@@ -131,6 +131,13 @@ export function buildPostPrompt(
 
   if (options?.rubric) {
     parts.push(`- Рубрика поста: "${options.rubric}". Пиши в стиле и тоне этой рубрики.`)
+  }
+
+  // D1: не повторяться с недавними публикациями
+  if (options?.recentPosts?.length) {
+    parts.push('')
+    parts.push('## Недавние посты (НЕ повторяй темы и формулировки):')
+    options.recentPosts.forEach((p) => parts.push(`- ${p}`))
   }
 
   parts.push('')
