@@ -2,6 +2,7 @@ import { db } from '../db'
 import { getPublisher } from './publishers/base'
 import { checkAndRunAutoPost } from './auto-poster'
 import { checkAndRunDailyDigest } from './daily-digest'
+import { checkAndRunMetricsCollection } from './metrics-poller'
 import { applyUtmForPublish } from './publish-utm'
 
 const CHECK_INTERVAL = 60_000 // каждую минуту
@@ -23,6 +24,10 @@ export function startPublishScheduler(): ReturnType<typeof setInterval> {
       // Daily morning digest check (НаWоде content agent)
       await checkAndRunDailyDigest().catch(e =>
         console.error('[Scheduler] DailyDigest error:', e.message)
+      )
+      // SMM metrics collection (VK/IG/Метрика) — в окна metrics_times_utc
+      await checkAndRunMetricsCollection().catch(e =>
+        console.error('[Scheduler] MetricsCollection error:', e.message)
       )
       const now = new Date()
       const dueVersions = await db.postVersion.findMany({

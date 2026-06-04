@@ -60,7 +60,7 @@ export async function generateAuthUrl(): Promise<{ authUrl: string }> {
   const params = new URLSearchParams({
     response_type: 'code',
     client_id: appId,
-    scope: 'wall photos video stories offline',
+    scope: 'wall photos video stories stats offline', // stats — для stats.get/stories.getStats (SMM-аналитика, Эпик B)
     redirect_uri: VK_REDIRECT_URI,
     code_challenge: challenge,
     code_challenge_method: 's256',

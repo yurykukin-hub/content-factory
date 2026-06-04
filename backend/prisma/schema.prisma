@@ -147,6 +147,10 @@ model Business {
   promptEntries       PromptEntry[]
   promptTemplates     PromptTemplate[]
   sessions            GenerationSession[]
+  socialPostMetrics    SocialPostMetricSnapshot[]
+  socialAccountMetrics SocialAccountMetricSnapshot[]
+  siteTraffic          SiteTrafficSnapshot[]
+  analyticsReports     AnalyticsReport[]
 
   @@map("businesses")
 }
@@ -279,6 +283,8 @@ model Post {
   versions         PostVersion[]
   mediaFiles       MediaFile[]
   contentPlanItems ContentPlanItem[]
+  metricSnapshots  SocialPostMetricSnapshot[]
+  siteTraffic      SiteTrafficSnapshot[]
 
   @@index([businessId])
   @@index([status])
@@ -304,6 +310,7 @@ model PostVersion {
   post            Post             @relation(fields: [postId], references: [id], onDelete: Cascade)
   platformAccount PlatformAccount  @relation(fields: [platformAccountId], references: [id])
   publishLogs     PublishLog[]
+  metricSnapshots SocialPostMetricSnapshot[]
 
   @@unique([postId, platformAccountId])
   @@index([status])
@@ -746,4 +753,126 @@ model AutoPostTask {
   @@index([businessId])
   @@index([source])
   @@map("auto_post_tasks")
+}
+
+// ============================================================
+// SMM ANALYTICS (Эпик B — сбор статистики + петля обратной связи)
+// ============================================================
+
+/// Снимок метрик опубликованного поста/сторис/рилса (append-only, по каждому pull).
+/// Площадки удаляют историю (IG-сторис ~14д), поэтому НЕ UPDATE, а новый snapshot —
+/// получаем time-series. `raw` ловит недокументированные ключи площадки.
+/// Связь с CF Post — best-effort (post_id/post_version_id nullable): снимок ценен и без неё.
+model SocialPostMetricSnapshot {
+  id              String   @id @default(cuid())
+  businessId      String   @map("business_id")
+  postId          String?  @map("post_id")               // best-effort связь с CF Post
+  postVersionId   String?  @map("post_version_id")        // и с конкретной версией-публикацией
+  platform        Platform
+  source          String                                  // "VK" | "POSTMYPOST" | "TELEGRAM"
+  publicationType String   @default("POST") @map("publication_type") // POST|STORY|REELS
+  externalId      String   @map("external_id")            // VK post_id / IG media id
+  externalUrl     String?  @map("external_url")
+
+  // Нормализованные метрики (что доступно у площадки — остальное null + raw)
+  impressions     Int?
+  reach           Int?
+  views           Int?
+  likes           Int?
+  comments        Int?
+  shares          Int?
+  saves           Int?
+  storyExits      Int?     @map("story_exits")
+  storyReplies    Int?     @map("story_replies")
+  engagementRate  Float?   @map("engagement_rate")        // сами считаем или берём у площадки
+
+  capturedAt      DateTime @default(now()) @map("captured_at")
+  raw             Json?                                    // вербатим ответ площадки
+
+  business    Business     @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  post        Post?        @relation(fields: [postId], references: [id])
+  postVersion PostVersion? @relation(fields: [postVersionId], references: [id])
+
+  @@index([businessId, platform])
+  @@index([postId])
+  @@index([externalId])
+  @@index([capturedAt])
+  @@map("social_post_metric_snapshots")
+}
+
+/// Снимок метрик аккаунта/профиля (подписчики, охват профиля, демография) — time-series.
+/// Upsert по (бизнес, аккаунт, метрика, дата) — данные стабильны исторически.
+model SocialAccountMetricSnapshot {
+  id                String   @id @default(cuid())
+  businessId        String   @map("business_id")
+  platform          Platform
+  source            String                                  // VK|POSTMYPOST|TELEGRAM
+  accountExternalId String   @map("account_external_id")
+  metricCode        String   @map("metric_code")            // followers|reach|profile_views|...
+  value             Float
+  metricDate        DateTime @map("metric_date") @db.Date
+  capturedAt        DateTime @default(now()) @map("captured_at")
+  raw               Json?
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, accountExternalId, metricCode, metricDate])
+  @@index([businessId, platform])
+  @@map("social_account_metric_snapshots")
+}
+
+/// Снимок веб-трафика из Яндекс.Метрики по UTM-меткам (мост соцтрафик → конверсии).
+/// utm_content = postId — главный ключ джойна к CF Post и его метрикам.
+/// Upsert по (бизнес, счётчик, utm_content, utm_source, дата) — Метрика исторична.
+model SiteTrafficSnapshot {
+  id           String   @id @default(cuid())
+  businessId   String   @map("business_id")
+  counterId    String   @map("counter_id")                 // Metrika counter (напр. 92916147)
+  source       String   @default("METRIKA")
+  utmSource    String?  @map("utm_source")                 // vk|telegram|instagram
+  utmMedium    String?  @map("utm_medium")
+  utmCampaign  String?  @map("utm_campaign")               // cf_YYYY_MM
+  utmContent   String?  @map("utm_content")                // = postId (JOIN key)
+  postId       String?  @map("post_id")                    // резолв из utm_content
+  metricDate   DateTime @map("metric_date") @db.Date
+  visits       Int      @default(0)
+  users        Int?
+  bounceRate   Float?   @map("bounce_rate")
+  goalReaches  Json?    @map("goal_reaches")               // {goalId: reaches} — конверсии (брони)
+  capturedAt   DateTime @default(now()) @map("captured_at")
+  raw          Json?
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  post     Post?    @relation(fields: [postId], references: [id])
+
+  @@unique([businessId, counterId, utmContent, utmSource, metricDate])
+  @@index([businessId])
+  @@index([postId])
+  @@index([metricDate])
+  @@map("site_traffic_snapshots")
+}
+
+/// Недельный отчёт агента-аналитика (петля улучшения SMM, Phase 5).
+/// Sonnet анализирует контент + метрики + конверсии(UTM) → выводы + рекомендации.
+/// Human-in-the-loop: proposed → approved/dismissed (как daily-digest).
+model AnalyticsReport {
+  id              String    @id @default(cuid())
+  businessId      String    @map("business_id")
+  periodStart     DateTime  @map("period_start")
+  periodEnd       DateTime  @map("period_end")
+  status          String    @default("proposed")            // proposed|approved|dismissed
+  summary         String                                     // краткий вывод (что зашло/не зашло)
+  findings        Json?                                      // [{type, title, detail, metric}]
+  recommendations Json?     @map("recommendations")          // [{area, action, reason}]
+  metricsJson     Json?     @map("metrics_json")             // агрегаты на момент отчёта (для дашборда)
+  model           String    @default("anthropic/claude-sonnet-4")
+  generatedBy     String    @default("agent") @map("generated_by") // agent|manual
+  createdAt       DateTime  @default(now()) @map("created_at")
+  decidedAt       DateTime? @map("decided_at")
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([status])
+  @@map("analytics_reports")
 }

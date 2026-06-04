@@ -37,6 +37,7 @@ import { aiLogs } from './routes/ai-logs'
 import { apiKeys } from './routes/api-keys'
 import { telegramBot } from './routes/telegram-bot'
 import { autoPost } from './routes/auto-post'
+import { analytics } from './routes/analytics'
 
 const app = new Hono()
 
@@ -160,6 +161,7 @@ app.route('/api/music', music)  // /api/music/*
 app.route('/api/photos', photos)  // /api/photos/*
 app.route('/api/ai-logs', aiLogs)
 app.route('/api/auto-posts', autoPost)
+app.route('/api/analytics', analytics)
 app.route('/api/dashboard', dashboard)
 app.route('/api/sse', sse)
 
