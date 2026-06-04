@@ -14,6 +14,8 @@ const templateSchema = z.object({
   textColor: z.string().max(20).default('#ffffff'),
   fontSize: z.enum(['S', 'M', 'L']).default('M'),
   bgStyle: z.enum(['dark', 'light', 'none']).default('dark'),
+  textAlign: z.enum(['left', 'center', 'right']).default('center'),
+  bgRadius: z.enum(['round', 'square']).default('round'),
   linkType: z.string().max(20).default(''),
   sortOrder: z.number().int().default(0),
 })
@@ -26,9 +28,10 @@ storyTemplates.get('/businesses/:bizId/story-templates', async (c) => {
     if (e.message === 'FORBIDDEN') return c.json({ error: 'Нет доступа' }, 403); throw e
   }
 
+  // Глобальные системные пресеты (businessId=null) + шаблоны бизнеса
   const templates = await db.storyTemplate.findMany({
-    where: { businessId: bizId },
-    orderBy: { sortOrder: 'asc' },
+    where: { OR: [{ businessId: bizId }, { businessId: null }] },
+    orderBy: [{ isSystem: 'desc' }, { sortOrder: 'asc' }],
   })
   return c.json(templates)
 })
@@ -55,8 +58,12 @@ storyTemplates.put('/story-templates/:id', async (c) => {
   const existing = await db.storyTemplate.findUnique({ where: { id } })
   if (!existing) return c.json({ error: 'Не найден' }, 404)
 
-  try { await assertBusinessAccess(user, existing.businessId) } catch (e: any) {
-    if (e.message === 'FORBIDDEN') return c.json({ error: 'Нет доступа' }, 403); throw e
+  if (existing.businessId) {
+    try { await assertBusinessAccess(user, existing.businessId) } catch (e: any) {
+      if (e.message === 'FORBIDDEN') return c.json({ error: 'Нет доступа' }, 403); throw e
+    }
+  } else if (user.role !== 'ADMIN') {
+    return c.json({ error: 'Системные пресеты редактирует только админ' }, 403)
   }
 
   const data = templateSchema.partial().parse(await c.req.json())
@@ -71,8 +78,12 @@ storyTemplates.delete('/story-templates/:id', async (c) => {
   const existing = await db.storyTemplate.findUnique({ where: { id } })
   if (!existing) return c.json({ error: 'Не найден' }, 404)
 
-  try { await assertBusinessAccess(user, existing.businessId) } catch (e: any) {
-    if (e.message === 'FORBIDDEN') return c.json({ error: 'Нет доступа' }, 403); throw e
+  if (existing.businessId) {
+    try { await assertBusinessAccess(user, existing.businessId) } catch (e: any) {
+      if (e.message === 'FORBIDDEN') return c.json({ error: 'Нет доступа' }, 403); throw e
+    }
+  } else if (user.role !== 'ADMIN') {
+    return c.json({ error: 'Системные пресеты редактирует только админ' }, 403)
   }
 
   await db.storyTemplate.delete({ where: { id } })

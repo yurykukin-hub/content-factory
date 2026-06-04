@@ -151,20 +151,23 @@ model Business {
 }
 
 model StoryTemplate {
-  id           String  @id @default(cuid())
-  businessId   String  @map("business_id")
+  id           String   @id @default(cuid())
+  businessId   String?  @map("business_id")              // null = глобальный пресет
+  isSystem     Boolean  @default(false) @map("is_system") // системный дизайн-пресет
   name         String                                    // "SUP рассвет", "Акция"
-  emoji        String  @default("")                      // "🌅", "🔥"
-  overlayText  String  @default("") @map("overlay_text") // текст на фото
-  textPosition String  @default("bottom") @map("text_position") // top/center/bottom
-  textColor    String  @default("#ffffff") @map("text_color")
-  fontSize     String  @default("M") @map("font_size")  // S/M/L
-  bgStyle      String  @default("dark") @map("bg_style") // dark/light/none
-  linkType     String  @default("") @map("link_type")   // book/order/learn_more/""
-  sortOrder    Int     @default(0) @map("sort_order")
+  emoji        String   @default("")                     // "🌅", "🔥"
+  overlayText  String   @default("") @map("overlay_text") // текст на фото (пусто = пресет только стиля)
+  textPosition String   @default("bottom") @map("text_position") // top/center/bottom
+  textColor    String   @default("#ffffff") @map("text_color")
+  fontSize     String   @default("M") @map("font_size")  // S/M/L
+  bgStyle      String   @default("dark") @map("bg_style") // dark/light/none
+  textAlign    String   @default("center") @map("text_align") // left/center/right
+  bgRadius     String   @default("round") @map("bg_radius")    // round/square
+  linkType     String   @default("") @map("link_type")   // book/order/learn_more/""
+  sortOrder    Int      @default(0) @map("sort_order")
   createdAt    DateTime @default(now()) @map("created_at")
 
-  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  business Business? @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
   @@index([businessId])
   @@map("story_templates")

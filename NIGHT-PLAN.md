@@ -42,8 +42,8 @@
 ### Эпик A — Сторис под ключ
 - [x] **A1** Отложка сохраняет кнопку ВК (+ задел под музыку): migration `publish_options`, Zod на `/schedule`, scheduler читает опции, StoryEditor шлёт. ✅ DEPLOYED (commit c6c2c5e), таймер проверен
 - [x] **A2** Управление запланированными: split isPublished/isScheduled (scheduled редактируем), post.status rollup, PostsView показывает время + отмена. ✅ DEPLOYED (commit c6c2c5e)
-- [ ] **A3** Дизайн-пресеты оверлея (StoryTemplate глобальные + shadow/outline/opacity, seed 3–5, apply) → deploy+test+commit
-- [ ] **A4** Музыка в сторис (`overlayAudioOnVideo()`, мукс в bake-пайплайн, picker в редакторе, persist в publish_options) → deploy+test+commit
+- [x] **A3** Дизайн-пресеты оверлея: StoryTemplate глобальные (`isSystem`, nullable businessId, +textAlign/bgRadius), 5 пресетов засидено, applyTemplate расширен. ✅ DEPLOYED
+- [ ] **A4** Музыка в сторис (`overlayAudioOnVideo()`, мукс в bake-пайплайн, picker в редакторе, persist в publish_options) — IN PROGRESS
 
 ### Эпик C — Утренний AI-агент ✅ DEPLOYED (живой тест: 4 предложения, погода-aware)
 - [x] **C0** Стратегия НаWоде встроена в digest-промпт (10 рубрик + сезонный подход + шаблоны)

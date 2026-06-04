@@ -198,6 +198,7 @@ const generatingText = ref(false)
 interface DbStoryTemplate {
   id: string; name: string; emoji: string; overlayText: string
   textPosition: string; textColor: string; fontSize: string; bgStyle: string; linkType: string
+  textAlign?: string; bgRadius?: string
 }
 const storyTemplates = ref<DbStoryTemplate[]>([])
 
@@ -1006,6 +1007,8 @@ function applyTemplate(tpl: DbStoryTemplate) {
   if (tpl.textColor) textColor.value = tpl.textColor
   if (tpl.fontSize) fontSize.value = tpl.fontSize as any
   if (tpl.bgStyle) bgStyle.value = tpl.bgStyle as any
+  if (tpl.textAlign) textAlign.value = tpl.textAlign as any
+  if (tpl.bgRadius) bgRadius.value = tpl.bgRadius as any
   if (tpl.linkType !== undefined) linkType.value = tpl.linkType
   render()
   toast.info(`Шаблон "${tpl.name}" применён`)
