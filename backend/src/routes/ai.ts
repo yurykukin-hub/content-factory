@@ -998,6 +998,10 @@ const agentChatSchema = z.object({
     resolution: z.string(),
     generateAudio: z.boolean(),
     currentPrompt: z.string().default(''),
+    // Story context (optional) — для модалки «AI Видео» в StoryEditor
+    storyText: z.string().optional(),
+    photoDescription: z.string().optional(),
+    animateMode: z.boolean().optional(),
   }),
   mode: z.enum(['simple', 'advanced']).default('simple'),
   businessId: z.string(),

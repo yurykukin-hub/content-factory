@@ -14,6 +14,8 @@ const props = defineProps<{
   disabled: boolean
   /** Context summary for local welcome message */
   contextSummary: string
+  /** Высота контейнера (Tailwind class). Default h-[360px] для VideoStudio */
+  heightClass?: string
 }>()
 
 const emit = defineEmits<{
@@ -99,7 +101,7 @@ watch(() => props.loading, () => {
 </script>
 
 <template>
-  <div class="flex flex-col h-[360px]">
+  <div :class="['flex flex-col', heightClass || 'h-[360px]']">
     <!-- Header: mode toggle -->
     <div class="flex items-center justify-between px-4 py-2 border-b border-gray-100 dark:border-gray-800">
       <div class="flex items-center gap-2">

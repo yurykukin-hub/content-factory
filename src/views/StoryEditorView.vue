@@ -10,11 +10,13 @@ import { useRates } from '@/composables/useRates'
 import {
   ArrowLeft, Upload, Sparkles, Loader2, Send, CheckCircle,
   ExternalLink, AlertCircle, Image, Images, Link, Trash2, ZoomIn, ZoomOut, Eye, Wand2, Eraser,
-  ChevronLeft, ChevronRight, Calendar, Clock, Video
+  ChevronLeft, ChevronRight, Calendar, Clock, Video, X
 } from 'lucide-vue-next'
 import ImageEditModal from '@/components/ai/ImageEditModal.vue'
 import MediaPickerModal from '@/components/MediaPickerModal.vue'
 import { platformColor, platformBgColor, platformLabel } from '@/composables/usePlatform'
+import VsAgentChat from '@/components/video/VsAgentChat.vue'
+import type { AgentMessage } from '@/components/video/VsAgentMessage.vue'
 
 interface MediaFile { id: string; url: string; thumbUrl: string | null; filename: string; mimeType: string; sizeBytes: number; durationSec?: number | null; aiModel?: string | null; aiCostUsd?: number | null; altText?: string | null }
 interface PlatformAccount { id: string; platform: string; accountName: string; accountId: string }
@@ -125,45 +127,45 @@ const aiEnhancing = ref(false)
 const selectedCharacterId = ref<string | null>(null)
 const showAiVideo = ref(false)
 const videoPrompt = ref('')
-const aiVideoLoading = ref(false)
+const aiVideoLoading = ref(false)    // создание задачи (короткий)
+const videoGenerating = ref(false)   // идёт генерация (до SSE completed)
 const videoDuration = ref(5)
-const videoAudio = ref(true)
-const videoEnhancing = ref(false)
-const videoPromptHistory = ref<string[]>([])
-const videoHistoryIndex = ref(-1)
+const videoAudio = ref(false)        // сторис обычно без звука (дешевле вдвое)
+const videoSessionId = ref<string | null>(null)
+
+// AI-агент для крафта видео-промпта (переиспользуем VsAgentChat из VideoStudio)
+const chatMessages = ref<AgentMessage[]>([])
+const agentLoading = ref(false)
+const agentMode = ref<'simple' | 'advanced'>('simple')
+const photoDescription = ref('')     // кэш описания фото (Gemini Vision) для «Оживить»
+const animating = ref(false)
 
 function openVideoModal() {
-  // Восстановить последний промпт из истории
-  if (!videoPrompt.value && videoPromptHistory.value.length) {
-    videoPrompt.value = videoPromptHistory.value[videoPromptHistory.value.length - 1]
-    videoHistoryIndex.value = videoPromptHistory.value.length - 1
-  }
   showAiVideo.value = true
 }
 
-// Ценообразование Seedance 2 (KIE.ai): 41 credits/sec (720p), 1 credit = $0.005
-const VIDEO_CREDITS_PER_SEC = 41
+// Ценообразование Seedance 2 (KIE.ai): 41 credits/sec text, 25 img2video (720p), 1 credit = $0.005
+const VIDEO_CREDITS_TEXT = 41
+const VIDEO_CREDITS_IMG = 25
 const VIDEO_CREDIT_PRICE = 0.005
 const VIDEO_AUDIO_MULTIPLIER = 2.0
 const { USD_RUB: USD_TO_RUB } = useRates()
 
-const videoFirstFrame = ref<{ url: string; thumbUrl?: string | null; filename: string } | null>(null)
-const videoLastFrame = ref<{ url: string; thumbUrl?: string | null; filename: string } | null>(null)
-const videoRefImages = ref<{ url: string; thumbUrl?: string | null; filename: string }[]>([])
-const videoInputMode = ref<'text' | 'frames' | 'references'>('text')
+// Фото сториса АВТОМАТИЧЕСКИ = основа для оживления (img2video). Нет фото → text2video.
+const videoBaseImage = computed(() => (photo.value && !isVideoMedia.value) ? photo.value : null)
 
 const videoCostUsd = computed(() => {
-  const hasImages = videoInputMode.value !== 'text' && (videoFirstFrame.value || videoRefImages.value.length > 0)
-  const creditsPerSec = hasImages ? 25 : VIDEO_CREDITS_PER_SEC // image-to-video дешевле
+  const creditsPerSec = videoBaseImage.value ? VIDEO_CREDITS_IMG : VIDEO_CREDITS_TEXT
   const base = creditsPerSec * videoDuration.value * VIDEO_CREDIT_PRICE
   return videoAudio.value ? base * VIDEO_AUDIO_MULTIPLIER : base
 })
 const videoCostRub = computed(() => Math.round(videoCostUsd.value * USD_TO_RUB.value))
 
-// Video prompt templates — loaded from DB (per-business) + AI suggestions
-const videoTemplates = ref<{ id: string; name: string; emoji: string; prompt: string }[]>([])
-const aiVideoSuggestions = ref<{ name: string; emoji: string; prompt: string }[]>([])
-const suggestingVideoTemplates = ref(false)
+// Приветствие AI-агента (контекст сториса)
+const videoAgentContext = computed(() =>
+  videoBaseImage.value
+    ? 'Оживлю фото сториса в видео. Нажмите «Оживить» или опишите движение в чате.'
+    : 'Опишите видео для сториса — помогу собрать промпт.')
 
 // Characters for AI image generation
 interface CharacterRef {
@@ -532,9 +534,6 @@ async function loadPost() {
     try {
       imageTemplates.value = await http.get<any[]>(`/prompt-templates?type=image&businessId=${post.value.businessId}`)
     } catch { imageTemplates.value = [] }
-    try {
-      videoTemplates.value = await http.get<any[]>(`/prompt-templates?type=video&businessId=${post.value.businessId}`)
-    } catch { videoTemplates.value = [] }
     loadCharacters(post.value.businessId)
     try {
       const bp = await http.get<{ links?: { label: string; url: string }[] }>(`/businesses/${post.value.businessId}/brand-profile`)
@@ -654,20 +653,6 @@ async function suggestTemplates() {
   finally { suggestingTemplates.value = false }
 }
 
-async function suggestVideoTemplates() {
-  if (!post.value) return
-  suggestingVideoTemplates.value = true
-  try {
-    const res = await http.post<{ suggestions: any[] }>('/ai/suggest-video-templates', {
-      businessId: post.value.businessId,
-      storyTitle: storyTitle.value || '',
-      storyText: overlayText.value || '',
-    })
-    aiVideoSuggestions.value = res.suggestions || []
-  } catch (e: any) { toast.error('Ошибка: ' + (e.message || e)) }
-  finally { suggestingVideoTemplates.value = false }
-}
-
 async function generateAiImage() {
   if (!post.value || !aiPrompt.value.trim()) return
   aiLoading.value = true
@@ -687,107 +672,128 @@ async function generateAiImage() {
   finally { aiLoading.value = false }
 }
 
+// --- AI Видео: оживление фото сториса + AI-агент ---
+
+function parseAgentResponse(raw: string): { text: string; prompts: string[]; suggestions: string[] } {
+  const prompts: string[] = []
+  const suggestions: string[] = []
+  let text = raw.replace(/<prompt>([\s\S]*?)<\/prompt>/g, (_, p) => { prompts.push(p.trim()); return '' })
+  text = text.replace(/<suggestions>([\s\S]*?)<\/suggestions>/g, (_, s) => {
+    suggestions.push(...s.split('|').map((x: string) => x.trim()).filter(Boolean)); return ''
+  })
+  return { text: text.trim(), prompts, suggestions }
+}
+
+async function sendAgentMessage(userText: string) {
+  if (!post.value || agentLoading.value) return
+  chatMessages.value.push({ role: 'user', content: userText, createdAt: new Date().toISOString() })
+  agentLoading.value = true
+  try {
+    const context = {
+      inputMode: videoBaseImage.value ? 'frames' : 'text',
+      refImages: [] as { filename: string; altText: string | null }[],
+      duration: videoDuration.value,
+      aspectRatio: '9:16',
+      resolution: '720p',
+      generateAudio: videoAudio.value,
+      currentPrompt: videoPrompt.value,
+      storyText: overlayText.value || undefined,
+      photoDescription: photoDescription.value || undefined,
+      animateMode: !!videoBaseImage.value,
+    }
+    const recent = chatMessages.value.slice(-20).map(m => ({ role: m.role, content: m.content }))
+    const res = await http.post<{ content: string }>('/ai/agent-chat', {
+      messages: recent, context, mode: agentMode.value, businessId: post.value.businessId,
+    })
+    const parsed = parseAgentResponse(res.content)
+    chatMessages.value.push({ role: 'assistant', content: parsed.text, prompts: parsed.prompts, suggestions: parsed.suggestions, createdAt: new Date().toISOString() })
+  } catch (e: any) { toast.error(e.message || 'Ошибка агента') }
+  finally { agentLoading.value = false }
+}
+
+function onAgentUsePrompt(promptText: string) {
+  videoPrompt.value = promptText
+  toast.success('Промпт загружен из агента')
+}
+
+// «Оживить»: описать фото (Gemini Vision) → попросить агента собрать промпт движения
+async function animatePhoto() {
+  if (!videoBaseImage.value) { toast.error('В сторисе нет фото для оживления'); return }
+  if (animating.value || agentLoading.value) return
+  animating.value = true
+  try {
+    if (!photoDescription.value) {
+      const d = await http.post<{ description: string }>('/ai/describe-image', {
+        imageUrl: videoBaseImage.value.url, type: 'auto',
+      })
+      photoDescription.value = d.description || ''
+    }
+    await sendAgentMessage('Оживи это фото для сториса: добавь естественное движение (камера, вода, ветер, свет, лёгкое движение в кадре), сохрани композицию и субъект. Дай готовый промпт.')
+  } catch (e: any) { toast.error('Ошибка: ' + (e.message || e)) }
+  finally { animating.value = false }
+}
+
 async function generateAiVideo() {
   if (!post.value || !videoPrompt.value.trim()) return
   aiVideoLoading.value = true
   try {
-    if (photo.value) await http.post(`/media/${photo.value.id}/attach`, { postId: null }).catch(() => {})
-    const payload: any = {
-      businessId: post.value.businessId, postId: post.value.id,
-      prompt: videoPrompt.value, duration: videoDuration.value,
-      aspectRatio: '9:16', generateAudio: videoAudio.value,
-    }
-    if (videoInputMode.value === 'frames') {
-      payload.firstFrameUrl = videoFirstFrame.value?.url || null
-      payload.lastFrameUrl = videoLastFrame.value?.url || null
-    } else if (videoInputMode.value === 'references' && videoRefImages.value.length) {
-      payload.referenceImageUrls = videoRefImages.value.map(r => r.url)
-    }
-    const result = await http.post<{ mediaFile: any }>('/ai/generate-video', payload)
-    // Сохранить промпт в историю
-    videoPromptHistory.value.push(videoPrompt.value)
-    videoHistoryIndex.value = videoPromptHistory.value.length - 1
-    // Сохранить в БД (fire and forget)
-    http.post('/ai/generate-edit-prompt', {
-      businessId: post.value.businessId, postId: post.value.id,
-      template: videoPrompt.value, type: 'video',
-    }).catch(() => {})
+    const firstFrameUrl = videoBaseImage.value?.url || undefined
+    // 1. Создать GenerationSession type=video (video-poller ищет сессии с kieTaskId)
+    const session = await http.post<{ id: string }>('/sessions', {
+      businessId: post.value.businessId,
+      type: 'video',
+      prompt: videoPrompt.value,
+      duration: videoDuration.value,
+      generateAudio: videoAudio.value,
+      aspectRatio: '9:16',
+      resolution: '720p',
+      inputMode: firstFrameUrl ? 'frames' : 'text',
+      firstFrameUrl: firstFrameUrl || null,
+    })
+    videoSessionId.value = session.id
+    try { sessionStorage.setItem('story-video-' + post.value.id, session.id) } catch {}
 
-    post.value.mediaFiles = [result.mediaFile]
+    // 2. Запустить генерацию (202, НЕ ждём mediaFile — придёт через SSE)
+    await http.post('/ai/generate-video', {
+      businessId: post.value.businessId,
+      postId: post.value.id,
+      sessionId: session.id,
+      prompt: videoPrompt.value,
+      duration: videoDuration.value,
+      aspectRatio: '9:16',
+      generateAudio: videoAudio.value,
+      firstFrameUrl,
+    })
+
+    videoGenerating.value = true
     showAiVideo.value = false
-    toast.success(`Видео сгенерировано (${videoDuration.value} сек)`)
-    await loadPost()
-  } catch (e: any) { toast.error('Ошибка: ' + e.message) }
+    toast.info('Видео генерируется — 1-3 минуты. Можно подождать здесь.')
+  } catch (e: any) { toast.error('Ошибка: ' + (e.message || e)) }
   finally { aiVideoLoading.value = false }
 }
 
-async function enhanceVideoPrompt() {
-  if (!post.value || !videoPrompt.value.trim()) return
-  videoEnhancing.value = true
+// Привязать готовое видео сессии к сторису (вызывается по SSE / при загрузке)
+async function attachVideoFromSession(sessionId: string) {
+  if (!post.value) return
   try {
-    const result = await http.post<{ enhancedPrompt: string }>('/ai/enhance-video-prompt', {
-      prompt: videoPrompt.value,
-      duration: videoDuration.value,
-      businessId: post.value.businessId,
-    })
-    videoPrompt.value = result.enhancedPrompt
-    videoPromptHistory.value.push(result.enhancedPrompt)
-    videoHistoryIndex.value = videoPromptHistory.value.length - 1
-    toast.success('Промпт улучшен')
-  } catch (e: any) { toast.error('Ошибка: ' + e.message) }
-  finally { videoEnhancing.value = false }
-}
-
-async function addRefImage(event: Event) {
-  const input = event.target as HTMLInputElement
-  if (!input.files?.length || !post.value || videoRefImages.value.length >= 9) return
-  const formData = new FormData()
-  formData.append('file', input.files[0])
-  formData.append('businessId', post.value.businessId)
-  formData.append('tags', JSON.stringify(['video-reference']))
-  try {
-    const res = await fetch('/api/media/upload', { method: 'POST', credentials: 'include', headers: { 'X-Tab-ID': TAB_ID }, body: formData })
-    if (!res.ok) throw new Error('Файл не загружен')
-    const media = await res.json()
-    videoRefImages.value.push({ url: media.url, thumbUrl: media.thumbUrl, filename: media.filename })
-    toast.success(`Референс @Image${videoRefImages.value.length} загружен`)
-  } catch { toast.error('Ошибка загрузки') }
-  input.value = ''
-}
-
-function removeRefImage(index: number) {
-  videoRefImages.value.splice(index, 1)
-}
-
-async function pickFrame(event: Event, which: 'first' | 'last') {
-  const input = event.target as HTMLInputElement
-  if (!input.files?.length || !post.value) return
-  const formData = new FormData()
-  formData.append('file', input.files[0])
-  formData.append('businessId', post.value.businessId)
-  formData.append('tags', JSON.stringify(['video-frame']))
-  try {
-    const res = await fetch('/api/media/upload', { method: 'POST', credentials: 'include', headers: { 'X-Tab-ID': TAB_ID }, body: formData })
-    if (!res.ok) throw new Error('Файл не загружен')
-    const media = await res.json()
-    const frame = { url: media.url, thumbUrl: media.thumbUrl, filename: media.filename }
-    if (which === 'first') videoFirstFrame.value = frame
-    else videoLastFrame.value = frame
-    toast.success(`${which === 'first' ? 'Первый' : 'Последний'} кадр загружен`)
-  } catch { toast.error('Ошибка загрузки') }
-  input.value = ''
-}
-
-function videoHistoryBack() {
-  if (videoHistoryIndex.value <= 0) return
-  videoHistoryIndex.value--
-  videoPrompt.value = videoPromptHistory.value[videoHistoryIndex.value]
-}
-
-function videoHistoryForward() {
-  if (videoHistoryIndex.value >= videoPromptHistory.value.length - 1) return
-  videoHistoryIndex.value++
-  videoPrompt.value = videoPromptHistory.value[videoHistoryIndex.value]
+    const s = await http.get<{ status: string; mediaFileId?: string | null; errorMessage?: string | null }>(`/sessions/${sessionId}`)
+    if (s.status === 'completed' && s.mediaFileId) {
+      if (photo.value) await http.post(`/media/${photo.value.id}/attach`, { postId: null }).catch(() => {})
+      await http.post(`/media/${s.mediaFileId}/attach`, { postId: post.value.id }).catch(() => {})
+      const fresh = await http.get<Post>(`/posts/${post.value.id}`)
+      if (fresh) post.value.mediaFiles = fresh.mediaFiles
+      videoGenerating.value = false
+      videoSessionId.value = null
+      try { sessionStorage.removeItem('story-video-' + post.value.id) } catch {}
+      nextTick(renderOverlayPreview)
+      toast.success('Видео готово и добавлено в сторис!')
+    } else if (s.status === 'failed') {
+      videoGenerating.value = false
+      videoSessionId.value = null
+      try { sessionStorage.removeItem('story-video-' + post.value.id) } catch {}
+      toast.error('Не удалось сгенерировать видео: ' + (s.errorMessage || ''))
+    }
+  } catch {}
 }
 
 async function enhanceImagePrompt() {
@@ -1028,12 +1034,50 @@ watch(canvasRef, (canvas) => {
 // Re-render overlay-слой когда видео-canvas появляется в DOM (переключение фото→видео)
 watch(overlayCanvasRef, (cv) => { if (cv) nextTick(renderOverlayPreview) })
 
-onMounted(() => {
-  loadPost()
+// --- SSE: реал-тайм статус видео-генерации (как в VideoStudio) ---
+let sseSource: EventSource | null = null
+let sseReconnectTimer: ReturnType<typeof setTimeout> | null = null
+
+function connectSSE() {
+  sseSource = new EventSource(`/api/sse?tabId=${TAB_ID}`)
+  sseSource.onmessage = (e) => {
+    if (e.data === 'ping' || e.data === 'connected') return
+    try {
+      const ev = JSON.parse(e.data)
+      if (ev.type === 'session_updated' && ev.sessionId && ev.sessionId === videoSessionId.value) {
+        if (ev.status === 'completed' || ev.status === 'failed') attachVideoFromSession(ev.sessionId)
+      }
+    } catch {}
+  }
+  sseSource.onerror = () => {
+    sseSource?.close()
+    sseReconnectTimer = setTimeout(connectSSE, 5000)
+  }
+}
+
+// Восстановить незавершённую видео-генерацию после F5/навигации
+async function restoreVideoSession() {
+  if (!post.value) return
+  try {
+    const sid = sessionStorage.getItem('story-video-' + post.value.id)
+    if (!sid) return
+    const s = await http.get<{ status: string }>(`/sessions/${sid}`)
+    if (s.status === 'generating') { videoSessionId.value = sid; videoGenerating.value = true }
+    else if (s.status === 'completed') { videoSessionId.value = sid; await attachVideoFromSession(sid) }
+    else sessionStorage.removeItem('story-video-' + post.value.id)
+  } catch {}
+}
+
+onMounted(async () => {
+  await loadPost()
+  restoreVideoSession()
+  connectSSE()
   window.addEventListener('mouseup', onMouseUp)
   window.addEventListener('mousemove', onMouseMove)
 })
 onUnmounted(() => {
+  sseSource?.close()
+  if (sseReconnectTimer) clearTimeout(sseReconnectTimer)
   window.removeEventListener('mouseup', onMouseUp)
   window.removeEventListener('mousemove', onMouseMove)
 })
@@ -1092,10 +1136,10 @@ onUnmounted(() => {
             @wheel.prevent="!isPublished && onWheel($event)"
           />
           <!-- Overlay: generation in progress -->
-          <div v-if="editingImage || aiVideoLoading" class="absolute inset-2 rounded-[1.5rem] bg-black/50 flex items-center justify-center">
+          <div v-if="editingImage || aiVideoLoading || videoGenerating" class="absolute inset-2 rounded-[1.5rem] bg-black/50 flex items-center justify-center">
             <div class="flex flex-col items-center gap-2 text-white">
-              <Loader2 :size="28" class="animate-spin" :class="aiVideoLoading ? 'text-emerald-400' : 'text-purple-400'" />
-              <span class="text-xs font-medium">{{ aiVideoLoading ? 'Генерация видео...' : 'Генерация изображения...' }}</span>
+              <Loader2 :size="28" class="animate-spin" :class="(aiVideoLoading || videoGenerating) ? 'text-emerald-400' : 'text-purple-400'" />
+              <span class="text-xs font-medium text-center px-3">{{ videoGenerating ? 'Видео генерируется (1-3 мин)...' : aiVideoLoading ? 'Запуск генерации...' : 'Генерация изображения...' }}</span>
             </div>
           </div>
         </div>
@@ -1502,194 +1546,99 @@ onUnmounted(() => {
 
     <!-- AI Video Modal (расширенный) -->
     <div v-if="showAiVideo" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" @click.self="showAiVideo = false">
-      <div class="bg-white dark:bg-gray-900 rounded-2xl p-6 w-full max-w-xl shadow-xl max-h-[90vh] overflow-y-auto">
-        <h2 class="text-lg font-bold mb-4 flex items-center gap-2">
-          <Video :size="20" class="text-emerald-500" /> AI Видео (9:16)
-          <!-- History navigation -->
-          <div v-if="videoPromptHistory.length > 0" class="flex items-center gap-0.5 ml-auto">
-            <button @click="videoHistoryBack" :disabled="videoHistoryIndex <= 0"
-              class="p-0.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-30">
-              <ChevronLeft :size="14" />
-            </button>
-            <span class="text-[10px] text-gray-400 min-w-[24px] text-center">
-              {{ videoHistoryIndex + 1 }}/{{ videoPromptHistory.length }}
-            </span>
-            <button @click="videoHistoryForward" :disabled="videoHistoryIndex >= videoPromptHistory.length - 1"
-              class="p-0.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-30">
-              <ChevronRight :size="14" />
-            </button>
-          </div>
-        </h2>
+      <div class="bg-white dark:bg-gray-900 rounded-2xl shadow-xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
+        <!-- Header -->
+        <div class="flex items-center justify-between px-5 py-4 border-b border-gray-100 dark:border-gray-800">
+          <h2 class="text-lg font-bold flex items-center gap-2">
+            <Video :size="20" class="text-emerald-500" /> AI Видео для сториса
+          </h2>
+          <button @click="showAiVideo = false" class="p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"><X :size="18" class="text-gray-400" /></button>
+        </div>
 
-        <div class="space-y-4">
-          <!-- Template pills (from DB) -->
-          <div v-if="videoTemplates.length">
-            <label class="block text-xs font-medium text-gray-500 mb-1.5">Шаблоны</label>
-            <div class="flex flex-wrap gap-1.5">
-              <button v-for="t in videoTemplates" :key="t.id" @click="videoPrompt = t.prompt"
-                class="px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-200 dark:hover:bg-emerald-800 transition-colors">
-                {{ t.emoji }} {{ t.name }}
-              </button>
-            </div>
-          </div>
-          <!-- AI suggest -->
-          <div>
-            <button @click="suggestVideoTemplates" :disabled="suggestingVideoTemplates"
-              class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-emerald-300 dark:border-emerald-700 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950 disabled:opacity-50 transition-colors">
-              <Loader2 v-if="suggestingVideoTemplates" :size="14" class="animate-spin" /><Wand2 v-else :size="14" />
-              {{ suggestingVideoTemplates ? 'Подбираю...' : '✨ Подобрать по контексту' }}
-            </button>
-            <div v-if="aiVideoSuggestions.length" class="flex flex-wrap gap-1.5 mt-2">
-              <button v-for="s in aiVideoSuggestions" :key="s.name" @click="videoPrompt = s.prompt"
-                class="px-2.5 py-1 rounded-full text-xs font-medium bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300 hover:bg-amber-200 dark:hover:bg-amber-800 transition-colors">
-                {{ s.emoji }} {{ s.name }}
-              </button>
-            </div>
-          </div>
-
-          <!-- Входные изображения -->
-          <div>
-            <label class="block text-xs font-medium text-gray-500 mb-1.5">Исходные изображения <span class="font-normal text-gray-400">(дешевле на 40%)</span></label>
-            <!-- Mode selector -->
-            <div class="flex gap-1 mb-2">
-              <button v-for="m in [{ id: 'text', label: 'Без фото' }, { id: 'frames', label: 'Кадры (1-2)' }, { id: 'references', label: 'Референсы (до 9)' }]" :key="m.id"
-                @click="videoInputMode = m.id as any"
-                :class="['px-2.5 py-1 rounded-lg text-[10px] font-medium border transition-colors',
-                  videoInputMode === m.id
-                    ? 'bg-emerald-100 dark:bg-emerald-900 text-emerald-700 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700'
-                    : 'bg-gray-100 dark:bg-gray-800 text-gray-500 border-gray-200 dark:border-gray-700 hover:border-emerald-300']">
-                {{ m.label }}
-              </button>
+        <div class="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-2">
+          <!-- Левая колонка: превью + Оживить + настройки + Generate -->
+          <div class="p-5 overflow-y-auto border-b lg:border-b-0 lg:border-r border-gray-100 dark:border-gray-800 flex flex-col gap-4">
+            <!-- Превью фото сториса -->
+            <div class="flex flex-col items-center">
+              <div v-if="videoBaseImage" class="relative bg-black rounded-2xl overflow-hidden" style="width: 150px; aspect-ratio: 9/16;">
+                <img :src="videoBaseImage.thumbUrl || videoBaseImage.url" class="w-full h-full object-cover" />
+              </div>
+              <div v-else class="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-gray-300 dark:border-gray-700 text-gray-400" style="width: 150px; aspect-ratio: 9/16;">
+                <Video :size="28" /><span class="text-[10px] mt-1 px-2 text-center">Видео из текста</span>
+              </div>
+              <p class="text-[11px] text-gray-500 mt-2 text-center font-medium">
+                {{ videoBaseImage ? 'Оживляем это фото' : 'Нет фото — видео из текста' }}
+              </p>
             </div>
 
-            <!-- Frames mode: first + last -->
-            <div v-if="videoInputMode === 'frames'" class="grid grid-cols-2 gap-2">
+            <!-- Кнопка Оживить -->
+            <button v-if="videoBaseImage" @click="animatePhoto" :disabled="animating || agentLoading"
+              class="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-emerald-50 dark:bg-emerald-950 border border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-300 text-sm font-medium hover:bg-emerald-100 dark:hover:bg-emerald-900 disabled:opacity-50">
+              <Loader2 v-if="animating" :size="16" class="animate-spin" /><Sparkles v-else :size="16" />
+              {{ animating ? 'Анализирую фото...' : 'Оживить — AI подберёт промпт' }}
+            </button>
+
+            <!-- Итоговый промпт -->
+            <div>
+              <label class="block text-xs font-medium text-gray-500 mb-1.5">Промпт видео</label>
+              <textarea v-model="videoPrompt" rows="4" placeholder="Нажмите «Оживить» или попросите AI-агента справа собрать промпт..."
+                class="w-full px-3 py-2.5 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 focus:ring-2 focus:ring-emerald-500 text-sm resize-none" />
+            </div>
+
+            <!-- Длительность + звук -->
+            <div class="grid grid-cols-2 gap-4">
               <div>
-                <div v-if="videoFirstFrame" class="flex items-center gap-2 p-2 rounded-lg bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-200 dark:border-emerald-800">
-                  <img :src="videoFirstFrame.thumbUrl || videoFirstFrame.url" class="w-10 h-10 rounded object-cover" />
-                  <div class="flex-1 min-w-0"><div class="text-[10px] font-medium">Первый кадр</div></div>
-                  <button @click="videoFirstFrame = null" class="p-0.5 text-gray-400 hover:text-red-500"><Trash2 :size="12" /></button>
-                </div>
-                <label v-else class="flex flex-col items-center gap-1 p-3 rounded-lg border-2 border-dashed border-gray-300 dark:border-gray-700 cursor-pointer hover:border-emerald-400">
-                  <Image :size="16" class="text-gray-400" /><span class="text-[10px] text-gray-500">Первый кадр</span>
-                  <input type="file" accept="image/*" class="hidden" @change="(e: Event) => pickFrame(e, 'first')" />
-                </label>
+                <label class="block text-xs font-medium text-gray-500 mb-1.5">Длительность: {{ videoDuration }} сек</label>
+                <input type="range" v-model.number="videoDuration" min="4" max="15" step="1"
+                  class="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-emerald-500" />
+                <div class="flex justify-between text-[10px] text-gray-400 mt-0.5"><span>4с</span><span>15с</span></div>
               </div>
               <div>
-                <div v-if="videoLastFrame" class="flex items-center gap-2 p-2 rounded-lg bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-200 dark:border-emerald-800">
-                  <img :src="videoLastFrame.thumbUrl || videoLastFrame.url" class="w-10 h-10 rounded object-cover" />
-                  <div class="flex-1 min-w-0"><div class="text-[10px] font-medium">Последний кадр</div></div>
-                  <button @click="videoLastFrame = null" class="p-0.5 text-gray-400 hover:text-red-500"><Trash2 :size="12" /></button>
-                </div>
-                <label v-else class="flex flex-col items-center gap-1 p-3 rounded-lg border-2 border-dashed border-gray-300 dark:border-gray-700 cursor-pointer hover:border-emerald-400">
-                  <Image :size="16" class="text-gray-400" /><span class="text-[10px] text-gray-500">Последний кадр</span>
-                  <input type="file" accept="image/*" class="hidden" @change="(e: Event) => pickFrame(e, 'last')" />
-                </label>
-              </div>
-              <button v-if="photo && !isVideoMedia && !videoFirstFrame"
-                @click="videoFirstFrame = { url: photo!.url, thumbUrl: photo!.thumbUrl, filename: photo!.filename }"
-                class="col-span-2 text-[10px] text-emerald-600 dark:text-emerald-400 hover:underline text-left">
-                Использовать текущее фото как первый кадр
-              </button>
-            </div>
-
-            <!-- References mode: до 9 изображений -->
-            <div v-if="videoInputMode === 'references'">
-              <div class="flex flex-wrap gap-2 mb-2">
-                <div v-for="(ref, idx) in videoRefImages" :key="idx"
-                  class="relative group w-16 h-16 rounded-lg overflow-hidden border border-emerald-200 dark:border-emerald-800">
-                  <img :src="ref.thumbUrl || ref.url" class="w-full h-full object-cover" />
-                  <div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
-                    <button @click="removeRefImage(idx)" class="p-1 bg-red-500/80 rounded-full"><Trash2 :size="10" class="text-white" /></button>
+                <label class="block text-xs font-medium text-gray-500 mb-1.5">Звук</label>
+                <label class="flex items-center gap-2 cursor-pointer mt-1">
+                  <div class="relative">
+                    <input type="checkbox" v-model="videoAudio" class="sr-only peer" />
+                    <div class="w-9 h-5 bg-gray-200 dark:bg-gray-700 rounded-full peer peer-checked:bg-emerald-500 transition-colors"></div>
+                    <div class="absolute left-0.5 top-0.5 w-4 h-4 bg-white rounded-full transition-transform peer-checked:translate-x-4 shadow-sm"></div>
                   </div>
-                  <span class="absolute bottom-0.5 left-0.5 px-1 py-0.5 bg-black/60 text-white text-[8px] rounded font-mono">@Image{{ idx + 1 }}</span>
-                </div>
-                <label v-if="videoRefImages.length < 9"
-                  class="w-16 h-16 rounded-lg border-2 border-dashed border-gray-300 dark:border-gray-700 flex flex-col items-center justify-center cursor-pointer hover:border-emerald-400 transition-colors">
-                  <Plus :size="14" class="text-gray-400" />
-                  <span class="text-[8px] text-gray-400">{{ videoRefImages.length }}/9</span>
-                  <input type="file" accept="image/*" class="hidden" @change="addRefImage" />
+                  <span class="text-xs text-gray-600 dark:text-gray-400">{{ videoAudio ? 'Со звуком' : 'Без звука' }}</span>
                 </label>
               </div>
-              <p class="text-[9px] text-gray-400">В промпте ссылайтесь: <code class="text-emerald-500">@Image1</code>, <code class="text-emerald-500">@Image2</code> и т.д.</p>
             </div>
-          </div>
 
-          <!-- Prompt textarea -->
-          <div>
-            <textarea v-model="videoPrompt" rows="5" placeholder="Опишите видео: что в кадре, действие, движение камеры, освещение, настроение..."
-              class="w-full px-3 py-2.5 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 focus:ring-2 focus:ring-emerald-500 text-sm resize-none" />
-            <!-- Enhance button -->
-            <button @click="enhanceVideoPrompt" :disabled="videoEnhancing || !videoPrompt.trim()"
-              class="mt-1.5 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-emerald-300 dark:border-emerald-700 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950 disabled:opacity-50 transition-colors">
-              <Loader2 v-if="videoEnhancing" :size="14" class="animate-spin" /><Wand2 v-else :size="14" />
-              {{ videoEnhancing ? 'Улучшаю...' : 'Улучшить промпт (AI)' }}
-            </button>
-          </div>
-
-          <!-- Duration slider + Audio toggle row -->
-          <div class="grid grid-cols-2 gap-4">
-            <div>
-              <label class="block text-xs font-medium text-gray-500 mb-1.5">Длительность: {{ videoDuration }} сек</label>
-              <input type="range" v-model.number="videoDuration" min="4" max="15" step="1"
-                class="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-emerald-500" />
-              <div class="flex justify-between text-[10px] text-gray-400 mt-0.5">
-                <span>4с</span>
-                <span>15с</span>
-              </div>
-            </div>
-            <div>
-              <label class="block text-xs font-medium text-gray-500 mb-1.5">Звук</label>
-              <label class="flex items-center gap-2 cursor-pointer">
-                <div class="relative">
-                  <input type="checkbox" v-model="videoAudio" class="sr-only peer" />
-                  <div class="w-9 h-5 bg-gray-200 dark:bg-gray-700 rounded-full peer peer-checked:bg-emerald-500 transition-colors"></div>
-                  <div class="absolute left-0.5 top-0.5 w-4 h-4 bg-white rounded-full transition-transform peer-checked:translate-x-4 shadow-sm"></div>
-                </div>
-                <span class="text-xs text-gray-600 dark:text-gray-400">
-                  {{ videoAudio ? 'Генерировать звук' : 'Без звука' }}
-                </span>
-              </label>
-            </div>
-          </div>
-
-          <!-- Character selector -->
-          <div v-if="characters.length">
-            <label class="block text-xs font-medium text-gray-500 mb-1.5">Персонаж</label>
-            <select v-model="selectedCharacterId"
-              class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm">
-              <option :value="null">Без персонажа</option>
-              <option v-for="char in characters" :key="char.id" :value="char.id">
-                {{ char.name }} ({{ char.type === 'person' ? 'человек' : char.type === 'mascot' ? 'маскот' : 'аватар' }})
-              </option>
-            </select>
-          </div>
-
-          <div class="p-2.5 rounded-lg bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
-            <div class="flex items-center justify-between">
-              <div class="flex items-center gap-2 text-[10px] text-gray-400">
+            <!-- Цена -->
+            <div class="p-2.5 rounded-lg bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 flex items-center justify-between">
+              <div class="flex items-center gap-1.5 text-[10px] text-gray-400 flex-wrap">
                 <span class="px-1.5 py-0.5 bg-emerald-100 dark:bg-emerald-900/50 text-emerald-600 dark:text-emerald-400 rounded font-medium">seedance-2</span>
-                <span>720p</span>
-                <span>·</span>
-                <span>{{ videoFirstFrame ? 'img→video' : 'text→video' }}</span>
-                <span>·</span>
-                <span>~1-3 мин</span>
+                <span>720p · 9:16</span><span>·</span><span>{{ videoBaseImage ? 'оживление' : 'из текста' }}</span>
               </div>
               <div class="text-right">
                 <div class="text-sm font-bold text-emerald-600 dark:text-emerald-400">~{{ videoCostRub }} ₽</div>
                 <div class="text-[9px] text-gray-400">${{ videoCostUsd.toFixed(2) }}</div>
               </div>
             </div>
-          </div>
-        </div>
 
-        <div class="flex justify-end gap-2 mt-5">
-          <button @click="showAiVideo = false" class="px-4 py-2.5 rounded-lg text-sm text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800">Отмена</button>
-          <button @click="generateAiVideo" :disabled="aiVideoLoading || !videoPrompt.trim()"
-            class="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium disabled:opacity-50">
-            <Loader2 v-if="aiVideoLoading" :size="16" class="animate-spin" /><Video v-else :size="16" />
-            {{ aiVideoLoading ? 'Генерация...' : 'Сгенерировать' }}
-          </button>
+            <!-- Generate -->
+            <button @click="generateAiVideo" :disabled="aiVideoLoading || !videoPrompt.trim()"
+              class="mt-auto flex items-center justify-center gap-2 px-5 py-3 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold disabled:opacity-50">
+              <Loader2 v-if="aiVideoLoading" :size="16" class="animate-spin" /><Video v-else :size="16" />
+              {{ aiVideoLoading ? 'Запуск...' : 'Сгенерировать видео' }}
+            </button>
+          </div>
+
+          <!-- Правая колонка: AI-агент -->
+          <div class="flex flex-col min-h-0">
+            <VsAgentChat
+              :messages="chatMessages"
+              :loading="agentLoading"
+              :mode="agentMode"
+              :disabled="false"
+              :context-summary="videoAgentContext"
+              height-class="h-[50vh] lg:h-full"
+              @send="sendAgentMessage"
+              @use-prompt="onAgentUsePrompt"
+              @update:mode="agentMode = $event" />
+          </div>
         </div>
       </div>
     </div>

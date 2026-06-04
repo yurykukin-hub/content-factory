@@ -1239,6 +1239,11 @@ export interface AgentContext {
   resolution: string
   generateAudio: boolean
   currentPrompt: string
+  // Story context (optional) — для модалки «AI Видео» в StoryEditor.
+  // VideoStudio эти поля не передаёт → его поведение не меняется.
+  storyText?: string
+  photoDescription?: string
+  animateMode?: boolean
 }
 
 /**
@@ -1304,6 +1309,12 @@ The user has uploaded ${context.refImages.length} reference image(s): ${refsDesc
     ? `## Brand context\n${brandContext}`
     : ''
 
+  const storySection = (context.animateMode || context.photoDescription || context.storyText)
+    ? `## Story context (IMPORTANT)
+This video is for a vertical 9:16 Stories post${context.animateMode ? ', created by ANIMATING an existing photo (image-to-video)' : ''}.
+${context.photoDescription ? `- Photo content: ${context.photoDescription}\n` : ''}${context.storyText ? `- Story overlay text: "${context.storyText}"\n` : ''}${context.animateMode ? `- ANIMATION RULE: describe ONLY natural motion (camera movement, water ripples, wind, light shifts, subtle subject motion) while PRESERVING the photo's composition and subject. Do NOT change the scene or add/replace subjects — bring the existing photo to life.\n` : ''}- Keep it short and punchy for social Stories (viewers watch 2-5 seconds).`
+    : ''
+
   return `You are a Seedance 2.0 video prompt engineering expert embedded in the Video Studio.
 Your role is to help users craft effective prompts for AI video generation through conversation.
 Detect the language of the user's message and respond in the same language.
@@ -1313,6 +1324,8 @@ IMPORTANT: Write all final video prompts in ENGLISH regardless of the conversati
 ${brandSection}
 
 ${sessionState}
+
+${storySection}
 
 ${SEEDANCE_BEST_PRACTICES}
 
