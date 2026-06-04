@@ -132,3 +132,23 @@ export async function getNawodeData(daysAhead = 3): Promise<NawodeData | null> {
     return null
   }
 }
+
+/** Бронирования в произвольном диапазоне дат (для контент-плана) */
+export async function getBookingsInRange(startISO: string, endISO: string): Promise<BookingDay[]> {
+  const db = getSql()
+  if (!db) return []
+  try {
+    const rows = await db<any[]>`
+      SELECT to_char(date::date, 'YYYY-MM-DD') AS date, count(*)::int AS bookings, coalesce(sum(group_size), 0)::int AS people
+      FROM bookings
+      WHERE date::date BETWEEN ${startISO}::date AND ${endISO}::date
+        AND status::text NOT IN ('CANCELLED', 'cancelled', 'CANCELED')
+      GROUP BY date::date
+      ORDER BY date::date
+    `
+    return (rows || []).map((r: any) => ({ date: r.date, bookings: r.bookings, people: r.people }))
+  } catch (err: any) {
+    log.error('[NawodeData] getBookingsInRange failed', { error: err.message })
+    return []
+  }
+}

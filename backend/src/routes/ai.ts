@@ -47,17 +47,26 @@ ai.post('/generate-plan', async (c) => {
     throw e
   }
 
-  // 1. Загрузить контекст бренда
+  // 1. Контекст бренда + даты периода
   const brandContext = await buildBrandContext(data.businessId)
+  const startDate = new Date(data.startDate)
+  const endDate = new Date(data.endDate)
+  const weeks = Math.ceil((endDate.getTime() - startDate.getTime()) / (7 * 24 * 60 * 60 * 1000))
 
-  // D3: для НаWоде подставляем 10 рубрик по умолчанию (если не заданы вручную)
+  // D: для НаWоде — рубрики по умолчанию + ERP-события (праздники/поводы) + брони в план
   let rubrics = data.rubrics
-  if (!rubrics?.length) {
-    const biz = await db.business.findUnique({ where: { id: data.businessId }, select: { erpType: true } })
-    if (biz?.erpType === 'nawode') {
-      const { NAWODE_RUBRICS } = await import('../services/ai/nawode-strategy')
-      rubrics = NAWODE_RUBRICS
-    }
+  let events: { date: string; topic: string; rubric: string; postType?: string }[] = []
+  let bookingsNote = ''
+  const biz = await db.business.findUnique({ where: { id: data.businessId }, select: { erpType: true } })
+  if (biz?.erpType === 'nawode') {
+    const { NAWODE_RUBRICS, getEventsInRange } = await import('../services/ai/nawode-strategy')
+    if (!rubrics?.length) rubrics = NAWODE_RUBRICS
+    events = getEventsInRange(startDate, endDate)
+    try {
+      const { getBookingsInRange } = await import('../services/nawode-data')
+      const b = await getBookingsInRange(data.startDate, data.endDate)
+      if (b.length) bookingsNote = b.map(x => `${x.date}: ${x.bookings} брони, ${x.people} чел`).join('\n')
+    } catch {}
   }
 
   // 2. Собрать промпт с параметрами
@@ -65,11 +74,9 @@ ai.post('/generate-plan', async (c) => {
     postsPerWeek: data.postsPerWeek,
     focus: data.focus,
     rubrics,
+    events,
+    bookingsNote,
   })
-
-  const startDate = new Date(data.startDate)
-  const endDate = new Date(data.endDate)
-  const weeks = Math.ceil((endDate.getTime() - startDate.getTime()) / (7 * 24 * 60 * 60 * 1000))
 
   // 3. Вызвать AI
   const result = await aiComplete({
@@ -126,6 +133,18 @@ ai.post('/generate-plan', async (c) => {
       aiPromptUsed: data.focus || null,
     },
   })
+
+  // D: гарантируем, что ключевые ERP-события/праздники попали в план (если AI пропустил даты)
+  if (events.length) {
+    const dn = ['Воскресенье', 'Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота']
+    const have = new Set(items.map((it: any) => String(it.date || '').slice(0, 10)))
+    for (const ev of events) {
+      if (!have.has(ev.date)) {
+        items.push({ date: ev.date, dayOfWeek: dn[new Date(ev.date).getDay()], topic: ev.topic, postType: ev.postType || 'PHOTO', description: `[${ev.rubric}] ${ev.topic}` })
+      }
+    }
+    items.sort((a: any, b: any) => String(a.date).localeCompare(String(b.date)))
+  }
 
   // Создать items
   const planItems = items.map((item: any, i: number) => ({

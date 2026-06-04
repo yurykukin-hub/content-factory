@@ -67,7 +67,13 @@ export async function buildBrandContext(businessId: string): Promise<string> {
  */
 export function buildPlanPrompt(
   brandContext: string,
-  params?: { postsPerWeek?: number; focus?: string; rubrics?: string[] }
+  params?: {
+    postsPerWeek?: number
+    focus?: string
+    rubrics?: string[]
+    events?: { date: string; topic: string; rubric: string; postType?: string }[]
+    bookingsNote?: string
+  }
 ): string {
   const parts: string[] = [
     `Ты — опытный SMM-стратег. Составь детальный контент-план для бренда.`,
@@ -95,6 +101,20 @@ export function buildPlanPrompt(
 
   if (params?.focus) {
     parts.push(`- Тематический фокус периода: ${params.focus}`)
+  }
+
+  // ERP-события/праздники — обязательные поводы на конкретные даты
+  if (params?.events?.length) {
+    parts.push('')
+    parts.push('## ОБЯЗАТЕЛЬНО включи посты на эти даты и поводы (привяжи к точной дате):')
+    params.events.forEach((e) => parts.push(`- ${e.date}: ${e.topic} (рубрика: ${e.rubric})`))
+  }
+
+  // Реальные брони/туры из ERP — для анонсов и соцдоказательства
+  if (params?.bookingsNote) {
+    parts.push('')
+    parts.push('## Реальные брони/туры в этот период (используй для анонсов и соцдоказательства):')
+    parts.push(params.bookingsNote)
   }
 
   parts.push('')

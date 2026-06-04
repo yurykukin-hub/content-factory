@@ -34,6 +34,34 @@ export const NAWODE_STRATEGY_TEXT = `КОНТЕНТ-СТРАТЕГИЯ НаWод
 Форматы: Stories (ежедневный ситуативный — погода/слоты), Reels/Клипы (видео с воды, макс. охват), Карусель (маршруты/чеклисты), Фото+текст (истории, команда).
 Шаблон «Погода + слоты» (ежедневно, Stories/Telegram): день, дата, температура, ветер, категория погоды, свободные слоты, ссылка nawode.ru.`
 
+// Фиксированные сезонные поводы/праздники НаWоде (месяц-день → тема + рубрика)
+export interface NawodeEvent { md: string; topic: string; rubric: string; postType?: string }
+export const NAWODE_EVENTS: NawodeEvent[] = [
+  { md: '06-01', topic: 'Открытие сезона + акция «Ранний старт»', rubric: 'Готовимся к сезону' },
+  { md: '06-12', topic: 'День России — длинные выходные, есть места', rubric: 'Погода и вода' },
+  { md: '06-21', topic: 'Солнцестояние — самый длинный день, тур до заката', rubric: 'Маршруты НаWоде' },
+  { md: '07-01', topic: 'Пик сезона — ежедневные слоты, FOMO', rubric: 'Погода и вода' },
+  { md: '08-01', topic: 'Закатный тур — новый продукт', rubric: 'Маршруты НаWоде' },
+  { md: '08-22', topic: 'Пиратская гавань 2026 — фестиваль (мы партнёр)', rubric: 'Пиратская гавань 2026', postType: 'REELS' },
+  { md: '09-01', topic: 'День знаний — класс на воде (школьные группы)', rubric: 'Первый раз на доске' },
+  { md: '09-15', topic: 'Бабье лето — акция -15%, последний шанс', rubric: 'Подари впечатление' },
+]
+
+/** Поводы, попадающие в диапазон дат (с учётом года) */
+export function getEventsInRange(start: Date, end: Date): { date: string; topic: string; rubric: string; postType?: string }[] {
+  const res: { date: string; topic: string; rubric: string; postType?: string }[] = []
+  for (let y = start.getUTCFullYear(); y <= end.getUTCFullYear(); y++) {
+    for (const ev of NAWODE_EVENTS) {
+      const [mm, dd] = ev.md.split('-').map(Number)
+      const d = new Date(Date.UTC(y, mm - 1, dd))
+      if (d >= start && d <= end) {
+        res.push({ date: d.toISOString().slice(0, 10), topic: ev.topic, rubric: ev.rubric, postType: ev.postType })
+      }
+    }
+  }
+  return res.sort((a, b) => a.date.localeCompare(b.date))
+}
+
 /** Сезонный ориентир по месяцу (0-11) */
 export function getSeasonHint(month: number): string {
   if (month === 5) return 'ИЮНЬ — начало сезона: 30% оперативный (погода/слоты, FOMO), 30% соцдоказательство (фото клиентов, отзывы), 20% вдохновение, 10% продажи, 10% личное. Акция «Ранний старт». Каждый пост = вход в воронку, ссылка nawode.ru.'
