@@ -3,6 +3,7 @@ import { getPublisher } from './publishers/base'
 import { checkAndRunAutoPost } from './auto-poster'
 import { checkAndRunDailyDigest } from './daily-digest'
 import { checkAndRunMetricsCollection } from './metrics-poller'
+import { checkAndRunWeeklyAnalysis } from './analytics/analyst-agent'
 import { applyUtmForPublish } from './publish-utm'
 
 const CHECK_INTERVAL = 60_000 // каждую минуту
@@ -28,6 +29,10 @@ export function startPublishScheduler(): ReturnType<typeof setInterval> {
       // SMM metrics collection (VK/IG/Метрика) — в окна metrics_times_utc
       await checkAndRunMetricsCollection().catch(e =>
         console.error('[Scheduler] MetricsCollection error:', e.message)
+      )
+      // Weekly SMM analyst report (петля обратной связи)
+      await checkAndRunWeeklyAnalysis().catch(e =>
+        console.error('[Scheduler] WeeklyAnalysis error:', e.message)
       )
       const now = new Date()
       const dueVersions = await db.postVersion.findMany({

@@ -8,6 +8,7 @@ import { useSectionAccess, type Section } from '@/composables/useSectionAccess'
 import { http } from '@/api/client'
 import {
   LayoutDashboard,
+  BarChart3,
   Film,
   Lightbulb,
   Clapperboard,
@@ -69,6 +70,7 @@ const navGroups: NavGroup[] = [
     title: '',
     items: [
       { name: 'dashboard', label: 'Обзор', icon: LayoutDashboard, path: '/', section: 'dashboard' },
+      { name: 'analytics', label: 'Аналитика', icon: BarChart3, path: '/analytics', section: 'dashboard' },
     ],
   },
   {

@@ -5,6 +5,7 @@ import type { AuthUser } from '../middleware/auth'
 import { getUserBusinessIds } from '../middleware/business-access'
 import { collectBusinessMetrics, collectAllBusinesses } from '../services/analytics/collector'
 import { getMetrikaToken } from '../services/analytics/metrika-adapter'
+import { generateAnalyticsReport } from '../services/analytics/analyst-agent'
 
 const analytics = new Hono()
 
@@ -178,6 +179,50 @@ analytics.get('/post/:postId/history', async (c) => {
     select: { capturedAt: true, platform: true, source: true, reach: true, views: true, likes: true, comments: true, shares: true, engagementRate: true },
   })
   return c.json({ postId, snapshots: snaps })
+})
+
+// ---------------------------------------------------------------------------
+// Агент-аналитик (петля обратной связи)
+// ---------------------------------------------------------------------------
+
+// POST /api/analytics/report — сгенерировать отчёт сейчас (Sonnet)
+const reportSchema = z.object({ businessId: z.string(), days: z.number().int().min(7).max(180).optional() })
+analytics.post('/report', async (c) => {
+  const user = c.get('user') as AuthUser
+  const body = reportSchema.parse(await c.req.json().catch(() => ({})))
+  if (!(await assertAccess(user, body.businessId))) return c.json({ error: 'FORBIDDEN' }, 403)
+  const res = await generateAnalyticsReport(body.businessId, { days: body.days ?? 30, userId: user.userId })
+  if (!res) return c.json({ error: 'Недостаточно данных для отчёта (сначала соберите метрики)' }, 422)
+  const report = await db.analyticsReport.findUnique({ where: { id: res.reportId } })
+  return c.json({ report })
+})
+
+// GET /api/analytics/reports?businessId — список отчётов
+analytics.get('/reports', async (c) => {
+  const user = c.get('user') as AuthUser
+  const businessId = c.req.query('businessId')
+  if (!businessId) return c.json({ error: 'businessId required' }, 400)
+  if (!(await assertAccess(user, businessId))) return c.json({ error: 'FORBIDDEN' }, 403)
+  const reports = await db.analyticsReport.findMany({
+    where: { businessId }, orderBy: { createdAt: 'desc' }, take: 20,
+  })
+  return c.json({ reports })
+})
+
+// POST /api/analytics/reports/:id/:decision  (approve|dismiss)
+analytics.post('/reports/:id/:decision', async (c) => {
+  const user = c.get('user') as AuthUser
+  const id = c.req.param('id')
+  const decision = c.req.param('decision')
+  if (decision !== 'approve' && decision !== 'dismiss') return c.json({ error: 'bad decision' }, 400)
+  const report = await db.analyticsReport.findUnique({ where: { id } })
+  if (!report) return c.json({ error: 'not found' }, 404)
+  if (!(await assertAccess(user, report.businessId))) return c.json({ error: 'FORBIDDEN' }, 403)
+  const updated = await db.analyticsReport.update({
+    where: { id },
+    data: { status: decision === 'approve' ? 'approved' : 'dismissed', decidedAt: new Date() },
+  })
+  return c.json({ report: updated })
 })
 
 export { analytics }
