@@ -4,6 +4,20 @@
 
 ---
 
+## Архив: базовые факты + сторис-сессия 2026-06-03 (перенесено 2026-06-04)
+- [2026-04-05] Порты: backend :3800, frontend :5176, postgres :5441 (актуально в CLAUDE.md)
+- [2026-04-05] Brand color: Fuchsia/Magenta (#d946ef)
+- [2026-04-05] AI: OpenRouter (Haiku для адаптации, Sonnet для генерации)
+- [2026-06-03] Фикс vk.ts: `import('../vk-oauth')` (был `../services/vk-oauth` — неверный путь). VK сторис на ЛИЧНУЮ страницу работают (publishStory без group_id)
+- [2026-06-03] Тест VK+Instagram сторис одновременно из CF — успешен (VK личная 77596 + IG @yurykukin 2163523)
+- [2026-06-03] UI-мультипостинг в StoryEditorView: чипы каналов VK+IG (selectedChannels[]), per-канал try/catch, готовый сторис сохраняется в медиатеку (тег 'story'), ensureVersion find-or-create
+- [2026-06-03] Текст на сторис вшивается в картинку (canvas/sharp) → идентично VK+IG. Кнопка-ссылка: VK нативная, IG через Postmypost не гарантирован
+- [2026-06-03] Редизайн модалки «AI Видео» в StoryEditor: автоподхват фото (img2video), «Оживить» (describe-image→agent-chat), встроенный VsAgentChat. Async через GenerationSession+SSE, sessionStorage переживает F5
+- [2026-06-03] VK сторис в группу работает (publishStory с group_id, юзер-токен админа). Фикс vk.ts: безопасный JSON.parse upload-ответа
+- [2026-06-03] Дизайн сторис без нейронок: sharp-композиция (фото-кроп + панель + CTA + бейдж). Nano Banana НЕ годится для текстовых сторис (кривой русский). Паттерн: docker exec backend bun /app/story_gen.js
+
+---
+
 ## Архив: Решения 2026-04-05 (создание проекта)
 
 - [2026-04-05] Проект создан. AI Content Factory — AI-контент-фабрика для SMM

@@ -15,7 +15,7 @@ AI-контент-фабрика для автоматизации SMM. Гене
 - **ORM/DB:** Prisma + PostgreSQL 16
 - **AI:** OpenRouter (Haiku для адаптации, Sonnet для генерации, Gemini Flash для vision) + KIE.ai (Nano Banana 2 + **Nano Banana Pro** + **GPT Image 2** для text2img/img2img, FLUX Kontext Pro для img2img, recraft для удаления фона, Seedance 2 для видео, **Suno V4/V4_5/V5_5 для музыки — API v2**) + **OpenAI Whisper** (голосовой ввод)
 - **Audio:** wavesurfer.js v7 (waveform visualization)
-- **Testing:** Vitest (96 тестов — 7 файлов)
+- **Testing:** Vitest (138 тестов — 11 файлов)
 - **Deploy:** Docker Compose + Caddy (SSL auto)
 
 ## Порты
@@ -336,4 +336,7 @@ API keys: OpenRouter — из БД (AppConfig) или .env. FAL — из .env (F
 - Stories-first UI: навигация "Stories" (не "Посты"), только STORIES тип, lock после публикации
 - Business isActive toggle: ADMIN видит неактивные, toggle на карточках
 - VK Stories: кнопка-ссылка рисуется ТОЛЬКО в превью canvas, НЕ в JPEG (VK рисует нативную)
+- **Единый композер (Эпик A, рефактор 2026-06):** PostEditorView = одноколоночный flow (Текст→Медиа→Каналы→**Опубликовать ▾**: Сейчас/Запланировать/Черновик). Чипы каналов + per-канал счётчики символов/валидация лимита (effective text = оверрайд PostVersion ИЛИ мастер-текст Post). Per-канал «Настроить» (⚙): adapt-one / повтор / отмена-плана. Composable `usePlatformLimits`. Сторис = ОТДЕЛЬНАЯ поверхность (канвас), но создаётся из общего входа. Phase 4 (per-channel превью + master/override данные à la Mixpost/Postiz) — TODO.
+- **Единый вход создания:** `stores/createModal` + `components/posts/CreateContentModal.vue` (смонтирован 1 раз в App.vue). Типы: Пост/Фото/Видео/Reels/Клипы/Сторис → STORIES роутит в канвас (`/stories/:id`), прочее в композер (`/posts/:id`). Кнопка «Создать» в сайдбаре; PostsView/IdeasView зовут `createModal.open(prefill?)` (Идея→Пост предзаполняет title/body).
+- **UTM-конвенция (мост к аналитике, Эпик B):** `utils/utm.ts` (pure) + `services/publish-utm.ts` (db-aware) метят ссылки на домены бренда (BrandProfile.links) при публикации — ручной И scheduler. `utm_source`=канал · `utm_medium`=social · `utm_campaign`=cf_YYYY_MM · `utm_content`=postId. Лента=ссылки в тексте, сторис=кнопка-ссылка. Идемпотентно, чужие домены не трогаем. AppConfig `utm_enabled` (default on). Док: `docs/utm-convention.md`.
 - Webhook для ERP-интеграции: POST /api/webhooks/erp
