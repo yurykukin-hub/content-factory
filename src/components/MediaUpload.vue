@@ -153,26 +153,27 @@ function formatSize(bytes: number) {
 
 <template>
   <div>
-    <!-- File gallery -->
-    <div v-if="files.length" class="grid grid-cols-3 sm:grid-cols-4 gap-2 mb-3">
+    <!-- File gallery — показывает реальное соотношение (фикс. высота, ширина по кадру) -->
+    <div v-if="files.length" class="flex flex-wrap gap-2 mb-3">
       <div
         v-for="f in files"
         :key="f.id"
-        class="relative group rounded-lg overflow-hidden bg-gray-100 dark:bg-gray-800 aspect-square"
+        class="relative group rounded-lg overflow-hidden bg-gray-100 dark:bg-gray-800 flex items-center justify-center"
       >
         <img
           v-if="f.mimeType.startsWith('image/')"
-          :src="f.thumbUrl || f.url"
+          :src="f.url"
           :alt="f.filename"
-          class="w-full h-full object-cover"
+          loading="lazy"
+          class="h-32 w-auto block"
         />
-        <div v-else class="w-full h-full flex flex-col items-center justify-center text-gray-400">
+        <div v-else class="h-32 w-32 flex flex-col items-center justify-center text-gray-400">
           <component :is="mediaIcon(f.mimeType)" :size="24" />
           <span class="text-[10px] mt-1 truncate max-w-full px-1">{{ f.filename }}</span>
         </div>
         <!-- Overlay buttons -->
-        <div class="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors" />
-        <div class="absolute top-1 right-1 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        <div class="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors pointer-events-none" />
+        <div class="absolute top-1 right-1 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
           <button v-if="f.mimeType.startsWith('image/')" @click="editingFile = f" title="Редактировать AI"
             class="p-1 rounded-full bg-purple-600/80 hover:bg-purple-600 text-white">
             <Wand2 :size="13" />
@@ -190,7 +191,7 @@ function formatSize(bytes: number) {
             <X :size="13" />
           </button>
         </div>
-        <span class="absolute bottom-1 left-1 text-[9px] text-white bg-black/50 px-1 rounded">
+        <span class="absolute bottom-1 left-1 text-[9px] text-white bg-black/50 px-1 rounded z-10">
           {{ formatSize(f.sizeBytes) }}
         </span>
       </div>
