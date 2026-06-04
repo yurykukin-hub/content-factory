@@ -604,7 +604,7 @@ onMounted(loadPost)
             <button @click="scheduleMode = false; scheduleAtAll = ''" class="p-2 rounded-lg text-gray-400 hover:bg-white dark:hover:bg-gray-800 shrink-0"><X :size="14" /></button>
           </div>
 
-          <p class="text-[10px] text-gray-400 mt-2">Мастер-текст уйдёт во все выбранные каналы. «Настроить» (⚙) — адаптация и публикация по конкретному каналу.</p>
+          <p class="text-[10px] text-gray-400 mt-2">Мастер-текст уйдёт во все выбранные каналы. «Настроить» (⚙) — адаптация и публикация по конкретному каналу. Ссылки на сайт бренда авто-помечаются UTM по каналу.</p>
         </div>
         <div v-else class="text-xs text-red-500">
           Нет подключённых каналов. <router-link to="/settings" class="text-brand-500 underline">Настроить →</router-link>
