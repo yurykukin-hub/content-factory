@@ -214,6 +214,80 @@ media.post('/overlay-video', async (c) => {
   }
 })
 
+// POST /api/media/fit — подогнать фото под формат: crop (умная обрезка) или pad (поля с размытым фоном)
+const FIT_RATIOS: Record<string, [number, number]> = {
+  '1:1': [1080, 1080],
+  '4:5': [1080, 1350],
+  '3:4': [1080, 1440],
+  '9:16': [1080, 1920],
+  '16:9': [1920, 1080],
+}
+media.post('/fit', async (c) => {
+  const user = c.get('user') as AuthUser
+  const { mediaId, businessId, postId, ratio, mode } = await c.req.json<{
+    mediaId: string; businessId: string; postId?: string; ratio: string; mode: 'crop' | 'pad'
+  }>()
+  if (!mediaId || !businessId) return c.json({ error: 'mediaId и businessId обязательны' }, 400)
+  const dims = FIT_RATIOS[ratio]
+  if (!dims) return c.json({ error: 'Неверное соотношение' }, 400)
+  if (mode !== 'crop' && mode !== 'pad') return c.json({ error: 'Неверный режим' }, 400)
+  try {
+    await assertBusinessAccess(user, businessId)
+  } catch (e: any) {
+    if (e.message === 'FORBIDDEN') return c.json({ error: 'Нет доступа' }, 403)
+    throw e
+  }
+
+  const mf = await db.mediaFile.findUnique({ where: { id: mediaId } })
+  if (!mf || mf.businessId !== businessId) return c.json({ error: 'Файл не найден' }, 404)
+  if (!mf.mimeType.startsWith('image/')) return c.json({ error: 'Подгон формата только для изображений' }, 400)
+
+  const srcPath = join(UPLOAD_DIR, mf.url.replace('/uploads/', ''))
+  if (!existsSync(srcPath)) return c.json({ error: 'Файл отсутствует на диске' }, 404)
+
+  const [w, h] = dims
+  const bizDir = join(UPLOAD_DIR, businessId)
+  await mkdir(bizDir, { recursive: true })
+  const fileId = nanoid(12)
+  const outName = `fit_${ratio.replace(':', 'x')}_${mode}_${fileId}.jpg`
+  const outPath = join(bizDir, outName)
+
+  try {
+    let outBuf: Buffer
+    if (mode === 'crop') {
+      // Умная обрезка под формат (фокус на значимой области кадра)
+      outBuf = await sharp(srcPath).rotate().resize(w, h, { fit: 'cover', position: sharp.strategy.attention }).jpeg({ quality: 90 }).toBuffer()
+    } else {
+      // Поля: размытая увеличенная копия как фон + фото целиком по центру (без обрезки)
+      const bg = await sharp(srcPath).rotate().resize(w, h, { fit: 'cover' }).blur(40).modulate({ brightness: 0.85 }).toBuffer()
+      const fg = await sharp(srcPath).rotate().resize(w, h, { fit: 'inside' }).toBuffer()
+      outBuf = await sharp(bg).composite([{ input: fg, gravity: 'center' }]).jpeg({ quality: 90 }).toBuffer()
+    }
+    await Bun.write(outPath, outBuf)
+
+    const thumbName = `fit_${fileId}_thumb.webp`
+    await sharp(outBuf).resize(400, 400, { fit: 'cover' }).webp({ quality: 70 }).toFile(join(bizDir, thumbName))
+
+    const created = await db.mediaFile.create({
+      data: {
+        businessId,
+        postId: postId || null,
+        filename: `${ratio} ${mode === 'crop' ? 'обрезка' : 'фон'} · ${(mf.filename || 'фото').slice(0, 30)}`,
+        url: `/uploads/${businessId}/${outName}`,
+        thumbUrl: `/uploads/${businessId}/${thumbName}`,
+        mimeType: 'image/jpeg',
+        sizeBytes: outBuf.length,
+        tags: ['fitted', ratio],
+        sortOrder: 0,
+      },
+    })
+    return c.json(created, 201)
+  } catch (e: any) {
+    await unlink(outPath).catch(() => {})
+    return c.json({ error: 'Ошибка обработки: ' + String(e?.message || e).slice(0, 200) }, 500)
+  }
+})
+
 // GET /api/media/library/:bizId — медиа-библиотека бизнеса (cursor pagination)
 media.get('/library/:bizId', async (c) => {
   const { bizId } = c.req.param()

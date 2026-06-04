@@ -2,7 +2,7 @@
 import { ref } from 'vue'
 import { http, TAB_ID } from '@/api/client'
 import { useToast } from '@/composables/useToast'
-import { Upload, X, Loader2, Image, Film, Music, Wand2, Eraser } from 'lucide-vue-next'
+import { Upload, X, Loader2, Image, Film, Music, Wand2, Eraser, Crop } from 'lucide-vue-next'
 import ImageEditModal from '@/components/ai/ImageEditModal.vue'
 
 interface MediaFile {
@@ -30,6 +30,40 @@ const uploading = ref(false)
 const dragOver = ref(false)
 const removingBgId = ref<string | null>(null)
 const editingFile = ref<MediaFile | null>(null)
+
+// Подгон формата (обрезка / размытый фон) — адаптация под ленту IG и др.
+const fittingFile = ref<MediaFile | null>(null)
+const fitRatio = ref('4:5')
+const fitMode = ref<'crop' | 'pad'>('pad')
+const fitLoading = ref(false)
+const FIT_RATIOS = ['1:1', '4:5', '3:4', '9:16', '16:9']
+
+async function applyFit() {
+  if (!fittingFile.value || fitLoading.value) return
+  fitLoading.value = true
+  try {
+    const srcId = fittingFile.value.id
+    const newFile = await http.post<MediaFile>('/media/fit', {
+      mediaId: srcId,
+      businessId: props.businessId,
+      postId: props.postId,
+      ratio: fitRatio.value,
+      mode: fitMode.value,
+    })
+    emit('uploaded', newFile)
+    // Открепить исходник от поста (остаётся в медиатеке)
+    if (props.postId) {
+      await http.post(`/media/${srcId}/attach`, { postId: null }).catch(() => {})
+      emit('removed', srcId)
+    }
+    toast.success('Формат применён')
+    fittingFile.value = null
+  } catch (e: any) {
+    toast.error('Ошибка: ' + (e.message || e))
+  } finally {
+    fitLoading.value = false
+  }
+}
 
 async function removeBg(file: MediaFile) {
   if (removingBgId.value) return
@@ -142,6 +176,10 @@ function formatSize(bytes: number) {
             class="p-1 rounded-full bg-purple-600/80 hover:bg-purple-600 text-white">
             <Wand2 :size="13" />
           </button>
+          <button v-if="f.mimeType.startsWith('image/')" @click="fittingFile = f" title="Подогнать формат (обрезка / поля)"
+            class="p-1 rounded-full bg-blue-600/80 hover:bg-blue-600 text-white">
+            <Crop :size="13" />
+          </button>
           <button v-if="f.mimeType.startsWith('image/')" @click="removeBg(f)" :disabled="removingBgId === f.id" title="Убрать фон"
             class="p-1 rounded-full bg-purple-600/80 hover:bg-purple-600 text-white disabled:opacity-50">
             <Loader2 v-if="removingBgId === f.id" :size="13" class="animate-spin" /><Eraser v-else :size="13" />
@@ -198,5 +236,43 @@ function formatSize(bytes: number) {
       @close="editingFile = null"
       @edited="onEdited"
     />
+
+    <!-- Format fit modal (обрезка / размытый фон, на выбор) -->
+    <div v-if="fittingFile" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" @click.self="fittingFile = null">
+      <div class="bg-white dark:bg-gray-900 rounded-2xl p-5 w-full max-w-sm shadow-xl">
+        <h3 class="text-base font-bold mb-3 flex items-center gap-2"><Crop :size="18" class="text-blue-500" /> Подгон формата</h3>
+        <img :src="fittingFile.thumbUrl || fittingFile.url" class="w-24 h-24 object-cover rounded-lg mx-auto mb-3" />
+
+        <label class="block text-xs font-medium text-gray-500 mb-1.5">Соотношение</label>
+        <div class="flex flex-wrap gap-1.5 mb-3">
+          <button v-for="r in FIT_RATIOS" :key="r" @click="fitRatio = r"
+            :class="['px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors',
+              fitRatio === r ? 'border-blue-500 bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300' : 'border-gray-200 dark:border-gray-700 text-gray-500 hover:border-blue-300']">
+            {{ r }}
+          </button>
+        </div>
+
+        <label class="block text-xs font-medium text-gray-500 mb-1.5">Режим</label>
+        <div class="grid grid-cols-2 gap-2 mb-4">
+          <button @click="fitMode = 'pad'"
+            :class="['px-3 py-2 rounded-lg text-xs font-medium border text-center', fitMode === 'pad' ? 'border-blue-500 bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300' : 'border-gray-200 dark:border-gray-700 text-gray-500']">
+            Размытый фон<br><span class="text-[10px] opacity-70">без обрезки</span>
+          </button>
+          <button @click="fitMode = 'crop'"
+            :class="['px-3 py-2 rounded-lg text-xs font-medium border text-center', fitMode === 'crop' ? 'border-blue-500 bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300' : 'border-gray-200 dark:border-gray-700 text-gray-500']">
+            Обрезка<br><span class="text-[10px] opacity-70">умная, под формат</span>
+          </button>
+        </div>
+
+        <div class="flex gap-2">
+          <button @click="fittingFile = null" class="flex-1 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800">Отмена</button>
+          <button @click="applyFit" :disabled="fitLoading"
+            class="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium disabled:opacity-50">
+            <Loader2 v-if="fitLoading" :size="15" class="animate-spin" /><Crop v-else :size="15" /> Применить
+          </button>
+        </div>
+        <p class="text-[10px] text-gray-400 mt-2 text-center">Создаст подогнанную копию (исходник останется в медиатеке). Для ленты IG — 4:5.</p>
+      </div>
+    </div>
   </div>
 </template>
