@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { http, TAB_ID } from '@/api/client'
 import { useToast } from '@/composables/useToast'
 import { Upload, X, Loader2, Image, Film, Music, Wand2, Eraser, Crop } from 'lucide-vue-next'
@@ -37,6 +37,7 @@ const fitRatio = ref('4:5')
 const fitMode = ref<'crop' | 'pad'>('pad')
 const fitLoading = ref(false)
 const FIT_RATIOS = ['1:1', '4:5', '3:4', '9:16', '16:9']
+const fitAspectCss = computed(() => fitRatio.value.replace(':', ' / '))
 
 async function applyFit() {
   if (!fittingFile.value || fitLoading.value) return
@@ -241,7 +242,15 @@ function formatSize(bytes: number) {
     <div v-if="fittingFile" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" @click.self="fittingFile = null">
       <div class="bg-white dark:bg-gray-900 rounded-2xl p-5 w-full max-w-sm shadow-xl">
         <h3 class="text-base font-bold mb-3 flex items-center gap-2"><Crop :size="18" class="text-blue-500" /> Подгон формата</h3>
-        <img :src="fittingFile.thumbUrl || fittingFile.url" class="w-24 h-24 object-cover rounded-lg mx-auto mb-3" />
+
+        <!-- Живое превью: реальное соотношение + выбранный режим -->
+        <div class="flex justify-center mb-1">
+          <div class="rounded-lg overflow-hidden bg-black relative" :style="{ aspectRatio: fitAspectCss, height: '210px', maxWidth: '100%' }">
+            <img v-if="fitMode === 'pad'" :src="fittingFile.url" class="absolute inset-0 w-full h-full object-cover blur-lg scale-110 opacity-80" />
+            <img :src="fittingFile.url" :class="['relative w-full h-full', fitMode === 'crop' ? 'object-cover' : 'object-contain']" />
+          </div>
+        </div>
+        <p class="text-[10px] text-gray-400 text-center mb-3">Превью {{ fitRatio }} · {{ fitMode === 'crop' ? 'обрезка (по центру; реально — умная по содержимому)' : 'размытый фон' }}</p>
 
         <label class="block text-xs font-medium text-gray-500 mb-1.5">Соотношение</label>
         <div class="flex flex-wrap gap-1.5 mb-3">
