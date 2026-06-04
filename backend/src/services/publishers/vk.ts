@@ -50,6 +50,18 @@ export class VkPublisher implements Publisher {
       return this.publishStory({ text: fullText, mediaFiles, accountId, accountType, token, storiesOptions: params.storiesOptions })
     }
 
+    // Загрузка фото/видео на стену сообщества требует ПОЛЬЗОВАТЕЛЬСКОГО (админского) токена:
+    // токен сообщества даёт VK error 27 ("method is unavailable with group auth").
+    // Берём app-level user-токен (админ группы). На текст он не влияет (постим from_group).
+    let wallToken = token
+    if (accountType === 'GROUP' && mediaFiles?.length) {
+      try {
+        const { ensureValidToken } = await import('../vk-oauth')
+        const userTok = await ensureValidToken()
+        if (userTok) wallToken = userTok
+      } catch { /* fallback на community-токен */ }
+    }
+
     try {
       // Upload media and collect attachment strings
       const attachments: string[] = []
@@ -57,18 +69,25 @@ export class VkPublisher implements Publisher {
       if (mediaFiles?.length) {
         for (const mf of mediaFiles) {
           if (mf.mimeType.startsWith('image/')) {
-            const photoAttachment = await this.uploadPhoto(mf, accountId, token, accountType)
+            const photoAttachment = await this.uploadPhoto(mf, accountId, wallToken, accountType)
             if (photoAttachment) attachments.push(photoAttachment)
           } else if (mf.mimeType.startsWith('video/')) {
-            const videoAttachment = await this.uploadVideo(mf, accountId, token, accountType)
+            const videoAttachment = await this.uploadVideo(mf, accountId, wallToken, accountType)
             if (videoAttachment) attachments.push(videoAttachment)
+          }
+        }
+        // Медиа приложили, но всё упало — НЕ публиковать молча текст без фото
+        if (!attachments.length) {
+          return {
+            success: false,
+            error: 'VK: не удалось загрузить медиа (нужен админский токен с правом фото — error 27). Пост НЕ опубликован. Проверьте VK OAuth в Настройках.',
           }
         }
       }
 
       const urlParams: Record<string, string> = {
         message: fullText,
-        access_token: token,
+        access_token: wallToken,
         v: this.apiVersion,
       }
 
