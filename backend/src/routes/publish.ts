@@ -5,15 +5,9 @@ import { emitEvent } from '../eventBus'
 import { getPublisher } from '../services/publishers/base'
 import type { AuthUser } from '../middleware/auth'
 import { verifyPostVersionAccess } from '../middleware/resource-access'
-import { hostsFromLinks, platformUtmSource, utmCampaign, tagBusinessLinks, tagBusinessUrl } from '../utils/utm'
+import { applyUtmForPublish } from '../services/publish-utm'
 
 const publish = new Hono()
-
-/** UTM включён? AppConfig.utm_enabled (default true) */
-async function isUtmEnabled(): Promise<boolean> {
-  const row = await db.appConfig.findUnique({ where: { key: 'utm_enabled' } })
-  return row ? row.value !== 'false' : true
-}
 
 // Опции публикации сторис, сохраняемые для отложенной публикации (кнопка ВК, музыка)
 const storiesOptionsSchema = z
@@ -67,35 +61,17 @@ publish.post('/post-versions/:id/publish', async (c) => {
 
   const isStories = version.post.postType === 'STORIES'
   // Для Stories: overlay текст = post.body (короткий), не version.body (AI-адаптация)
-  let publishText = isStories ? version.post.body : version.body
-  let effectiveStoriesOptions = storiesOptions
+  const baseText = isStories ? version.post.body : version.body
 
   // UTM-метки на ссылки бренда (мост к аналитике, Эпик B)
-  if (await isUtmEnabled()) {
-    const biz = await db.business.findUnique({
-      where: { id: version.post.businessId },
-      include: { brandProfile: { select: { links: true } } },
-    })
-    const hosts = hostsFromLinks(biz?.brandProfile?.links)
-    if (hosts.length) {
-      const utm = {
-        hosts,
-        source: platformUtmSource(version.platformAccount.platform),
-        medium: 'social',
-        campaign: utmCampaign(new Date()),
-        content: version.postId,
-      }
-      if (isStories) {
-        // У сторис текст накладывается на фото (не кликабелен) — метим кнопку-ссылку
-        if (effectiveStoriesOptions?.linkUrl) {
-          effectiveStoriesOptions = { ...effectiveStoriesOptions, linkUrl: tagBusinessUrl(effectiveStoriesOptions.linkUrl, utm) }
-        }
-      } else {
-        // Лента: метим ссылки бренда прямо в тексте
-        publishText = tagBusinessLinks(publishText, utm)
-      }
-    }
-  }
+  const { text: publishText, storiesOptions: effectiveStoriesOptions } = await applyUtmForPublish({
+    businessId: version.post.businessId,
+    platform: version.platformAccount.platform,
+    postType: version.post.postType,
+    postId: version.postId,
+    text: baseText,
+    storiesOptions,
+  })
 
   const result = await publisher.publish({
     text: publishText,

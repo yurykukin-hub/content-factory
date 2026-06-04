@@ -2,6 +2,7 @@ import { db } from '../db'
 import { getPublisher } from './publishers/base'
 import { checkAndRunAutoPost } from './auto-poster'
 import { checkAndRunDailyDigest } from './daily-digest'
+import { applyUtmForPublish } from './publish-utm'
 
 const CHECK_INTERVAL = 60_000 // каждую минуту
 
@@ -52,13 +53,13 @@ export function startPublishScheduler(): ReturnType<typeof setInterval> {
           // Опции публикации, сохранённые при планировании (кнопка ВК, музыка вшита в видео заранее)
           const opts = (version.publishOptions as Record<string, any> | null) || {}
 
-          const result = await publisher.publish({
-            // Для STORIES оверлей-текст = post.body (короткий), медиа уже отрендерено клиентом
-            text: isStories ? version.post.body : version.body,
-            hashtags: isStories ? [] : version.hashtags,
-            mediaFiles: postMedia.map(m => ({ url: m.url, mimeType: m.mimeType, filename: m.filename })),
-            platformAccount: version.platformAccount,
+          // UTM-метки на ссылки бренда (тот же слой, что и при ручной публикации)
+          const { text: schedText, storiesOptions: schedStories } = await applyUtmForPublish({
+            businessId: version.post.businessId,
+            platform: version.platformAccount.platform,
             postType: version.post.postType,
+            postId: version.postId,
+            text: isStories ? version.post.body : version.body,
             storiesOptions: isStories
               ? {
                   skipOverlay: opts.skipOverlay ?? true,
@@ -67,6 +68,16 @@ export function startPublishScheduler(): ReturnType<typeof setInterval> {
                   photoPosition: opts.photoPosition,
                 }
               : undefined,
+          })
+
+          const result = await publisher.publish({
+            // Для STORIES оверлей-текст = post.body (короткий), медиа уже отрендерено клиентом
+            text: schedText,
+            hashtags: isStories ? [] : version.hashtags,
+            mediaFiles: postMedia.map(m => ({ url: m.url, mimeType: m.mimeType, filename: m.filename })),
+            platformAccount: version.platformAccount,
+            postType: version.post.postType,
+            storiesOptions: schedStories,
           })
 
           console.log(`[Scheduler] Published ${version.id} to ${version.platformAccount.platform}: ${result.success}`)
