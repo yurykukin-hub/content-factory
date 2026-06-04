@@ -10,7 +10,7 @@ import { useRates } from '@/composables/useRates'
 import {
   ArrowLeft, Upload, Sparkles, Loader2, Send, CheckCircle,
   ExternalLink, AlertCircle, Image, Images, Link, Trash2, ZoomIn, ZoomOut, Eye, Wand2, Eraser,
-  ChevronLeft, ChevronRight, Calendar, Clock, Video, X
+  ChevronLeft, ChevronRight, Calendar, Clock, Video, X, Music
 } from 'lucide-vue-next'
 import ImageEditModal from '@/components/ai/ImageEditModal.vue'
 import MediaPickerModal from '@/components/MediaPickerModal.vue'
@@ -110,6 +110,11 @@ const TEXT_COLORS = ['#ffffff', '#000000', '#ef4444', '#f97316', '#eab308', '#22
 const linkType = ref('')
 const linkUrl = ref('')
 const savedLinks = ref<{ label: string; url: string }[]>([])
+
+// A4: музыка для видео-сторис (трек из Звуковой студии вшивается в видео при публикации)
+interface MusicTrack { id: string; title: string }
+const musicTracks = ref<MusicTrack[]>([])
+const selectedMusicSessionId = ref<string | null>(null)
 
 // Preview modal
 const showPreview = ref(false)
@@ -535,6 +540,11 @@ async function loadPost() {
     try {
       storyTemplates.value = await http.get<DbStoryTemplate[]>(`/businesses/${post.value.businessId}/story-templates`)
     } catch {}
+    // Load finished music tracks (Sound Studio) for video stories
+    try {
+      const ms = await http.get<any[]>(`/sessions?businessId=${post.value.businessId}&type=music&status=completed`)
+      musicTracks.value = (ms || []).filter(s => s.audioUrl).map(s => ({ id: s.id, title: s.musicTitle || s.title || 'Трек' }))
+    } catch { musicTracks.value = [] }
     // Load prompt templates from DB (global + per-business)
     try {
       imageTemplates.value = await http.get<any[]>(`/prompt-templates?type=image&businessId=${post.value.businessId}`)
@@ -878,6 +888,7 @@ async function renderVideoForPublish(): Promise<MediaFile> {
   fd.append('overlay', overlayBlob, 'overlay.png')
   fd.append('videoMediaFileId', photo.value!.id)
   fd.append('businessId', post.value!.businessId)
+  if (selectedMusicSessionId.value) fd.append('musicSessionId', selectedMusicSessionId.value)
   const res = await fetch('/api/media/overlay-video', {
     method: 'POST', body: fd, credentials: 'include', headers: { 'X-Tab-ID': TAB_ID },
   })
@@ -928,7 +939,7 @@ async function confirmPublish() {
         const versionId = await ensureVersion(channelId)
         const res = await http.post<{ success: boolean; externalUrl: string | null; error: string | null }>(
           `/post-versions/${versionId}/publish`, {
-            storiesOptions: { skipOverlay: true, linkText: linkType.value || undefined, linkUrl: linkUrl.value || undefined },
+            storiesOptions: { skipOverlay: true, linkText: linkType.value || undefined, linkUrl: linkUrl.value || undefined, musicSessionId: selectedMusicSessionId.value || undefined },
           })
         item.success = res.success; item.externalUrl = res.externalUrl; item.error = res.error
       } catch (e: any) { item.error = e.message || String(e) }
@@ -973,7 +984,7 @@ async function schedulePublish() {
         await http.post(`/post-versions/${versionId}/schedule`, {
           scheduledAt: iso,
           // Сохраняем кнопку ВК (и в будущем музыку), чтобы отложка не потеряла их
-          storiesOptions: { skipOverlay: true, linkText: linkType.value || undefined, linkUrl: linkUrl.value || undefined },
+          storiesOptions: { skipOverlay: true, linkText: linkType.value || undefined, linkUrl: linkUrl.value || undefined, musicSessionId: selectedMusicSessionId.value || undefined },
         })
         item.success = true
       } catch (e: any) { item.error = e.message || String(e) }
@@ -1329,6 +1340,16 @@ onUnmounted(() => {
             <button v-for="s in (['S','M','L'] as const)" :key="s" @click="fontSize = s"
               :class="['px-2.5 py-1 rounded text-[11px] font-medium', fontSize === s ? 'bg-brand-600 text-white' : 'bg-gray-100 dark:bg-gray-800 text-gray-500']">{{ s }}</button>
           </div>
+        </div>
+
+        <!-- A4: Музыка для видео-сторис (вшивается в видео) -->
+        <div v-if="isVideoMedia && musicTracks.length" :class="['bg-white dark:bg-gray-900 rounded-xl p-5 border border-gray-200 dark:border-gray-800', isPublished && 'opacity-60 pointer-events-none select-none']">
+          <h3 class="font-semibold text-sm mb-3 flex items-center gap-2"><Music :size="16" /> Музыка</h3>
+          <select v-model="selectedMusicSessionId" class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm">
+            <option :value="null">Без музыки</option>
+            <option v-for="t in musicTracks" :key="t.id" :value="t.id">🎵 {{ t.title }}</option>
+          </select>
+          <p class="text-[10px] text-gray-400 mt-1.5">Трек из Звуковой студии вшивается в видео (VK/IG нативную музыку в сторис через API не добавляют).</p>
         </div>
 
         <!-- Link -->

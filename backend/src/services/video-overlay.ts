@@ -72,3 +72,38 @@ export async function overlayImageOnVideo(
     throw new Error('ffmpeg завершился без ошибки, но выходной файл не создан')
   }
 }
+
+/**
+ * Вшить аудио-дорожку (музыку) в видео — "bake once" для сторис.
+ * Заменяет звук видео музыкой, длительность = по видео (-shortest).
+ * Нативную музыку в VK/IG сторис через API добавить нельзя, поэтому вшиваем сами.
+ * @param videoPath абсолютный путь к видео (обычно уже с текст-оверлеем)
+ * @param audioPath абсолютный путь к аудио (mp3/m4a)
+ * @param outPath   путь для результата (.mp4)
+ */
+export async function overlayAudioOnVideo(
+  videoPath: string,
+  audioPath: string,
+  outPath: string,
+): Promise<void> {
+  // -c:v copy: видео уже H.264 (после text-overlay) — не перекодируем.
+  // map 0:v:0 (видео) + 1:a:0 (музыка), -shortest обрезает по видео.
+  const primary =
+    `ffmpeg -y -i "${videoPath}" -i "${audioPath}" ` +
+    `-map 0:v:0 -map 1:a:0 ` +
+    `-c:v copy -c:a aac -b:a 192k -shortest -movflags +faststart "${outPath}"`
+  try {
+    await execAsync(primary, EXEC_OPTS)
+  } catch (err) {
+    log.warn('[VideoOverlay] audio mux (copy) failed, re-encoding', { error: String(err).slice(0, 200) })
+    const reencode =
+      `ffmpeg -y -i "${videoPath}" -i "${audioPath}" ` +
+      `-map 0:v:0 -map 1:a:0 ` +
+      `-c:v libx264 -profile:v high -level 4.0 -pix_fmt yuv420p -preset veryfast -crf 20 ` +
+      `-c:a aac -b:a 192k -shortest -movflags +faststart "${outPath}"`
+    await execAsync(reencode, EXEC_OPTS)
+  }
+  if (!existsSync(outPath)) {
+    throw new Error('ffmpeg (audio mux) завершился без ошибки, но выходной файл не создан')
+  }
+}

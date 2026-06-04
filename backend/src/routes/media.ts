@@ -9,7 +9,7 @@ import { getModuleDir } from '../utils/paths'
 import type { AuthUser } from '../middleware/auth'
 import { verifyMediaAccess, assertBusinessAccess } from '../middleware/resource-access'
 import { extractVideoThumbnail } from '../utils/video-thumbnail'
-import { overlayImageOnVideo } from '../services/video-overlay'
+import { overlayImageOnVideo, overlayAudioOnVideo } from '../services/video-overlay'
 
 const media = new Hono()
 
@@ -111,6 +111,9 @@ media.post('/overlay-video', async (c) => {
   const overlay = body['overlay']
   const videoMediaFileId = body['videoMediaFileId'] as string
   const businessId = body['businessId'] as string
+  // Опциональная музыка для сторис: из медиатеки (audioMediaFileId) или Sound Studio (musicSessionId)
+  const audioMediaFileId = body['audioMediaFileId'] as string | undefined
+  const musicSessionId = body['musicSessionId'] as string | undefined
 
   if (!overlay || typeof overlay === 'string') return c.json({ error: 'overlay PNG не найден' }, 400)
   if (!videoMediaFileId) return c.json({ error: 'videoMediaFileId обязателен' }, 400)
@@ -138,6 +141,22 @@ media.post('/overlay-video', async (c) => {
   const videoPath = join(UPLOAD_DIR, videoMf.url.replace('/uploads/', ''))
   if (!existsSync(videoPath)) return c.json({ error: 'Файл видео отсутствует на диске' }, 404)
 
+  // Резолвим аудио (опц.): из медиатеки или из музыкальной сессии Sound Studio
+  let audioPath: string | null = null
+  if (audioMediaFileId) {
+    const af = await db.mediaFile.findUnique({ where: { id: audioMediaFileId } })
+    if (af && af.businessId === businessId) {
+      const p = join(UPLOAD_DIR, af.url.replace('/uploads/', ''))
+      if (existsSync(p)) audioPath = p
+    }
+  } else if (musicSessionId) {
+    const sess = await db.generationSession.findUnique({ where: { id: musicSessionId } })
+    if (sess && sess.businessId === businessId && sess.audioUrl) {
+      const p = join(UPLOAD_DIR, sess.audioUrl.replace('/uploads/', ''))
+      if (existsSync(p)) audioPath = p
+    }
+  }
+
   const bizDir = join(UPLOAD_DIR, businessId)
   await mkdir(bizDir, { recursive: true })
 
@@ -151,7 +170,18 @@ media.post('/overlay-video', async (c) => {
     await Bun.write(overlayTmpPath, Buffer.from(await overlayBlob.arrayBuffer()))
 
     // 2. ffmpeg: наложить текст-слой на видео (синхронно, ~3-12 сек)
-    await overlayImageOnVideo(videoPath, overlayTmpPath, outPath)
+    if (audioPath) {
+      // С музыкой: сначала текст в промежуточный файл, затем вшиваем аудио ("bake once")
+      const txtPath = join(bizDir, `story_video_${fileId}_txt.mp4`)
+      try {
+        await overlayImageOnVideo(videoPath, overlayTmpPath, txtPath)
+        await overlayAudioOnVideo(txtPath, audioPath, outPath)
+      } finally {
+        await unlink(txtPath).catch(() => {})
+      }
+    } else {
+      await overlayImageOnVideo(videoPath, overlayTmpPath, outPath)
+    }
 
     // 3. Thumbnail из готового видео (текст виден на превью)
     const thumbFile = await extractVideoThumbnail(outPath, bizDir, `story_video_${fileId}`)
