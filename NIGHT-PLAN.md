@@ -57,7 +57,9 @@
 - ⚠️ Расписание: `digest_enabled=true` + `digest_time_utc` нужно выставить в AppConfig (по умолчанию выключено)
 
 ### Эпик B — Все форматы (если время)
-- [ ] B1 PostsView все типы · B2 PostEditor смена типа · B3 Scheduler для всех типов · B4 IG Reels UI · B5 VK Клипы · B6 TG видео
+- [x] **B1** PostsView показывает все типы (фильтр Все/Сторис/Посты/Фото/Видео/Reels + бейдж + роутинг по типу). Sidebar «Stories»→«Контент». ✅ DEPLOYED. Драфты агента (TEXT/PHOTO/REELS) теперь видны в списке.
+- [~] PostEditorView уже умеет: редактировать/адаптировать/публиковать non-story посты (TEXT/PHOTO/REELS), редирект STORIES→StoryEditor. Scheduler бэкенд уже публикует все типы.
+- [ ] B2 смена типа в редакторе · B3 UI планирования non-story · B4 IG Reels UI-валидация · B5 VK Клипы (нужен API research) · B6 TG видео
 
 ### Эпик D — Интеллект плана (если время)
 - [ ] История публикаций в контекст · ERP-события · рубрики с примерами · regenerate ячейки
