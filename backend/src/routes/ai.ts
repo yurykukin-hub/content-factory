@@ -10,6 +10,8 @@ import { emitEvent } from '../eventBus'
 import type { AuthUser } from '../middleware/auth'
 import { verifyPostAccess, assertBusinessAccess } from '../middleware/resource-access'
 import { canAfford, getMarkupPercent, getChargedRub, chargeUser } from '../services/billing'
+import { getRubricNames, getOccasionsInRange } from '../services/ai/strategy'
+import { getDataSourceAdapter } from '../services/datasource'
 
 const ai = new Hono()
 
@@ -53,21 +55,20 @@ ai.post('/generate-plan', async (c) => {
   const endDate = new Date(data.endDate)
   const weeks = Math.ceil((endDate.getTime() - startDate.getTime()) / (7 * 24 * 60 * 60 * 1000))
 
-  // D: для НаWоде — рубрики по умолчанию + ERP-события (праздники/поводы) + брони в план
+  // strategy-as-data (Эпик B): рубрики/поводы из БД + брони через DataSourceAdapter (generic, без литерала 'nawode')
   let rubrics = data.rubrics
   let events: { date: string; topic: string; rubric: string; postType?: string }[] = []
   let bookingsNote = ''
   const biz = await db.business.findUnique({ where: { id: data.businessId }, select: { erpType: true } })
-  if (biz?.erpType === 'nawode') {
-    const { NAWODE_RUBRICS, getEventsInRange } = await import('../services/ai/nawode-strategy')
-    if (!rubrics?.length) rubrics = NAWODE_RUBRICS
-    events = getEventsInRange(startDate, endDate)
-    try {
-      const { getBookingsInRange } = await import('../services/nawode-data')
-      const b = await getBookingsInRange(data.startDate, data.endDate)
-      if (b.length) bookingsNote = b.map(x => `${x.date}: ${x.bookings} брони, ${x.people} чел`).join('\n')
-    } catch {}
+  if (!rubrics?.length) {
+    const names = await getRubricNames(data.businessId)
+    if (names.length) rubrics = names
   }
+  events = await getOccasionsInRange(data.businessId, startDate, endDate)
+  try {
+    const b = await getDataSourceAdapter(biz ?? {}).getBookingsInRange(data.startDate, data.endDate)
+    if (b.length) bookingsNote = b.map(x => `${x.date}: ${x.bookings} брони, ${x.people} чел`).join('\n')
+  } catch {}
 
   // 2. Собрать промпт с параметрами
   const systemPrompt = buildPlanPrompt(brandContext, {

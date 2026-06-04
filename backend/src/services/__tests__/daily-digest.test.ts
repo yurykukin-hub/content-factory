@@ -2,7 +2,7 @@
  * Integration tests for the morning agent (Epic C):
  * - approveDigestTask creates a DRAFT post (human-in-the-loop, no auto-publish)
  * - runDailyDigest turns AI suggestions into AutoPostTasks
- * DB / aiComplete / nawode-data / telegram all mocked (Node env — no real bun SQL / AI).
+ * DB / aiComplete / datasource / strategy / telegram all mocked (Node env — no real bun SQL / AI).
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 
@@ -26,10 +26,17 @@ const { mockDb } = vi.hoisted(() => {
 
 vi.mock('../../db', () => ({ db: mockDb }))
 vi.mock('../../eventBus', () => ({ emitEvent: vi.fn() }))
-vi.mock('../nawode-data', () => ({
-  getNawodeData: vi.fn().mockResolvedValue(null),
-  getBookingsInRange: vi.fn().mockResolvedValue([]),
-  isNawodeDataAvailable: vi.fn().mockReturnValue(false),
+vi.mock('../datasource', () => ({
+  getDataSourceAdapter: vi.fn(() => ({
+    getDailySummary: vi.fn().mockResolvedValue(null),
+    getBookingsInRange: vi.fn().mockResolvedValue([]),
+  })),
+}))
+vi.mock('../ai/strategy', () => ({
+  getStrategyBlock: vi.fn().mockResolvedValue({ strategyText: 'СТРАТЕГИЯ', seasonHints: [] }),
+  getSeasonHint: vi.fn().mockReturnValue('СЕЗОН'),
+  getRubricNames: vi.fn().mockResolvedValue([]),
+  getOccasionsInRange: vi.fn().mockResolvedValue([]),
 }))
 vi.mock('../ai/prompt-builder', () => ({ buildBrandContext: vi.fn().mockResolvedValue('## Бренд: НаWоде') }))
 vi.mock('../ai/openrouter', () => ({ aiComplete: vi.fn() }))

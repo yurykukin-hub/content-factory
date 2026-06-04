@@ -151,8 +151,43 @@ model Business {
   socialAccountMetrics SocialAccountMetricSnapshot[]
   siteTraffic          SiteTrafficSnapshot[]
   analyticsReports     AnalyticsReport[]
+  rubrics              Rubric[]
+  occasions            Occasion[]
 
   @@map("businesses")
+}
+
+/// Контент-рубрика бизнеса (strategy-as-data, Эпик B Phase 3) — вместо хардкода NAWODE_RUBRICS
+model Rubric {
+  id          String   @id @default(cuid())
+  businessId  String   @map("business_id")
+  name        String                          // "Выборг с воды"
+  description String?                          // опц. описание/гайд для AI
+  sortOrder   Int      @default(0) @map("sort_order")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@map("rubrics")
+}
+
+/// Сезонный повод/праздник бизнеса (strategy-as-data, Эпик B Phase 3) — вместо хардкода NAWODE_EVENTS
+model Occasion {
+  id         String   @id @default(cuid())
+  businessId String   @map("business_id")
+  monthDay   String   @map("month_day")        // "MM-DD" (год-независимо)
+  topic      String                            // тема поста на этот повод
+  rubric     String                            // название рубрики (строкой, как в коде)
+  postType   String?  @map("post_type")        // опц. предпочтительный формат
+  isActive   Boolean  @default(true) @map("is_active")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@map("occasions")
 }
 
 model StoryTemplate {
@@ -191,6 +226,9 @@ model BrandProfile {
   examplePosts    Json?    @map("example_posts") // примеры хороших постов
   postsPerWeek    Int      @default(3) @map("posts_per_week")
   links           Json?    // [{label: "Сайт", url: "https://..."}, {label: "Бронирование", url: "..."}]
+  // strategy-as-data (Эпик B Phase 3): контент-стратегия per-business вместо хардкода в коде
+  contentStrategy String?  @map("content_strategy") // блок стратегии для system-промптов агента/плана
+  seasonHints     Json?    @map("season_hints")     // [{months:number[], hint:string}] — сезонные ориентиры (months:[] = default)
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
 

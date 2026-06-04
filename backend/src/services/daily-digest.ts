@@ -14,8 +14,8 @@ import { db } from '../db'
 import { log } from '../utils/logger'
 import { emitEvent } from '../eventBus'
 import { buildBrandContext } from './ai/prompt-builder'
-import { getNawodeData } from './nawode-data'
-import { NAWODE_STRATEGY_TEXT, getSeasonHint } from './ai/nawode-strategy'
+import { getDataSourceAdapter } from './datasource'
+import { getStrategyBlock, getSeasonHint } from './ai/strategy'
 
 // --- AppConfig helpers ---
 async function getConfig(key: string): Promise<string | null> {
@@ -57,8 +57,9 @@ export async function checkAndRunDailyDigest(): Promise<void> {
 
 /** Сгенерировать дайджест для НаWоде-бизнесов (или конкретного). force = игнорировать дневной дедуп. */
 export async function runDailyDigest(opts?: { businessId?: string; force?: boolean }): Promise<{ created: number }> {
+  // Бизнесы с настроенным источником данных (erpType) — generic, не литерал 'nawode'.
   const businesses = await db.business.findMany({
-    where: opts?.businessId ? { id: opts.businessId } : { erpType: 'nawode', isActive: true },
+    where: opts?.businessId ? { id: opts.businessId } : { erpType: { not: null }, isActive: true },
     include: { platformAccounts: { where: { isActive: true } } },
   })
 
@@ -87,8 +88,9 @@ async function generateDigestForBusiness(biz: any, force: boolean): Promise<numb
     }
   }
 
-  const data = await getNawodeData(3)
+  const data = await getDataSourceAdapter(biz).getDailySummary(3)
   const brandContext = await buildBrandContext(biz.id)
+  const { strategyText, seasonHints } = await getStrategyBlock(biz.id)
   const platforms = [...new Set((biz.platformAccounts || []).map((p: any) => p.platform))] as string[]
 
   const recentPosts = await db.post.findMany({
@@ -121,9 +123,9 @@ async function generateDigestForBusiness(biz: any, force: boolean): Promise<numb
 
 ${brandContext}
 
-${NAWODE_STRATEGY_TEXT}
+${strategyText}
 
-СЕЗОН: ${getSeasonHint(now.getMonth())}
+СЕЗОН: ${getSeasonHint(seasonHints, now.getMonth())}
 
 ДАННЫЕ НА СЕГОДНЯ И БЛИЖАЙШИЕ ДНИ:
 ${dataBlock}

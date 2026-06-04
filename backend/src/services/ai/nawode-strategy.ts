@@ -71,3 +71,14 @@ export function getSeasonHint(month: number): string {
   if (month >= 2 && month <= 4) return 'РАЗОГРЕВ (март–май): вдохновение + снятие страхов + знакомство с командой. Не продавать в лоб.'
   return 'МЕЖСЕЗОНЬЕ: подготовка к сезону, закулисье.'
 }
+
+// Структурированные сезонные ориентиры для strategy-as-data (сидер → BrandProfile.seasonHints).
+// months:[] = дефолтный (межсезонье). Соответствует веткам getSeasonHint выше.
+export const NAWODE_SEASON_HINTS: { months: number[]; hint: string }[] = [
+  { months: [5], hint: getSeasonHint(5) },
+  { months: [6], hint: getSeasonHint(6) },
+  { months: [7], hint: getSeasonHint(7) },
+  { months: [8], hint: getSeasonHint(8) },
+  { months: [2, 3, 4], hint: getSeasonHint(2) },
+  { months: [], hint: getSeasonHint(0) }, // дефолт = межсезонье
+]
