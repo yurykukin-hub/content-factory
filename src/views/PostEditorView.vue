@@ -203,6 +203,18 @@ async function savePost() {
   finally { saving.value = false }
 }
 
+// Смена типа. Сторис — отдельная поверхность (канвас): сохраняем тип и уходим в визуальный редактор.
+async function onTypeChange() {
+  if (!post.value) return
+  if (post.value.postType === 'STORIES') {
+    await savePost()
+    toast.info('Сторис открывается в визуальном редакторе')
+    router.push(`/stories/${post.value.id}`)
+    return
+  }
+  await savePost()
+}
+
 async function adaptToAllPlatforms() {
   if (!post.value || !platforms.value.length) return
   adapting.value = true
@@ -295,11 +307,12 @@ const hasUnsavedChanges = computed(() => post.value && post.value.body !== origi
 const readyCount = computed(() => post.value?.versions.filter(v => ['PUBLISHED', 'APPROVED'].includes(v.status)).length || 0)
 
 const POST_TYPES = [
-  { value: 'TEXT', label: 'Пост (текст)' },
+  { value: 'TEXT', label: 'Пост' },
   { value: 'PHOTO', label: 'Фото-пост' },
   { value: 'VIDEO', label: 'Видео' },
   { value: 'REELS', label: 'Reels (IG)' },
   { value: 'CLIPS', label: 'Клипы (VK)' },
+  { value: 'STORIES', label: 'Сторис (канвас)' },
 ]
 const needsVideo = computed(() => formatNeedsVideo(post.value?.postType || ''))
 const needsImage = computed(() => formatNeedsImage(post.value?.postType || ''))
@@ -393,7 +406,7 @@ onMounted(loadPost)
         <!-- Тип -->
         <div class="mb-3">
           <label class="block text-sm font-medium mb-1">Тип контента</label>
-          <select v-model="post.postType" @change="savePost"
+          <select v-model="post.postType" @change="onTypeChange"
             class="w-full sm:w-auto px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm focus:ring-2 focus:ring-brand-500">
             <option v-for="t in POST_TYPES" :key="t.value" :value="t.value">{{ t.label }}</option>
           </select>

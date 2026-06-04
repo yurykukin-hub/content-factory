@@ -42,6 +42,10 @@ export function formatHint(postType: string): string {
       return 'Видео-пост: привяжите видеофайл ниже.'
     case 'PHOTO':
       return 'Фото-пост: привяжите изображение(я) ниже.'
+    case 'TEXT':
+      return 'Обычный пост. Фото или видео можно добавить ниже — по желанию.'
+    case 'STORIES':
+      return 'Сторис редактируется в визуальном редакторе (канвас).'
     default:
       return ''
   }
