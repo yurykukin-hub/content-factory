@@ -75,6 +75,20 @@ describe('buildPlanPrompt', () => {
     const result = buildPlanPrompt(brandContext)
     expect(result).toContain('REELS')
   })
+
+  it('includes mandatory ERP events when provided (Epic D)', () => {
+    const result = buildPlanPrompt(brandContext, {
+      events: [{ date: '2026-06-12', topic: 'День России', rubric: 'Погода и вода' }],
+    })
+    expect(result).toContain('2026-06-12')
+    expect(result).toContain('День России')
+    expect(result).toMatch(/обязательно/i)
+  })
+
+  it('includes bookings note when provided (Epic D)', () => {
+    const result = buildPlanPrompt(brandContext, { bookingsNote: '2026-06-15: 3 брони, 9 чел' })
+    expect(result).toContain('3 брони')
+  })
 })
 
 describe('buildPostPrompt', () => {

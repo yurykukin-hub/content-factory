@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { NAWODE_RUBRICS, NAWODE_STRATEGY_TEXT, getSeasonHint } from '../nawode-strategy'
+import { NAWODE_RUBRICS, NAWODE_STRATEGY_TEXT, getSeasonHint, getEventsInRange } from '../nawode-strategy'
 
 // Pure function tests — no mocks needed (Epic D)
 
@@ -43,5 +43,27 @@ describe('getSeasonHint', () => {
     for (let m = 0; m < 12; m++) {
       expect(getSeasonHint(m).length).toBeGreaterThan(0)
     }
+  })
+})
+
+describe('getEventsInRange (Epic D — ERP events into plan)', () => {
+  it('includes День России (06-12) in a June range', () => {
+    const evs = getEventsInRange(new Date('2026-06-01'), new Date('2026-06-30'))
+    expect(evs.some((e) => e.date === '2026-06-12')).toBe(true)
+  })
+
+  it('includes Пиратская гавань (08-22) in August', () => {
+    const evs = getEventsInRange(new Date('2026-08-01'), new Date('2026-08-31'))
+    expect(evs.some((e) => e.date === '2026-08-22')).toBe(true)
+  })
+
+  it('returns empty for a range with no events (January)', () => {
+    expect(getEventsInRange(new Date('2026-01-05'), new Date('2026-01-20'))).toHaveLength(0)
+  })
+
+  it('returns events sorted by date', () => {
+    const evs = getEventsInRange(new Date('2026-06-01'), new Date('2026-09-30'))
+    const dates = evs.map((e) => e.date)
+    expect(dates).toEqual([...dates].sort())
   })
 })
