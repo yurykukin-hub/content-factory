@@ -290,8 +290,12 @@ function toggleChannel(id: string) {
 
 const photo = computed(() => post.value?.mediaFiles?.[0] || null)
 const isVideoMedia = computed(() => photo.value?.mimeType?.startsWith('video/') || false)
+// Полная блокировка — только после реальной публикации
 const isPublished = computed(() =>
-  (post.value?.versions || []).some(v => v.status === 'PUBLISHED' || v.status === 'SCHEDULED'))
+  (post.value?.versions || []).some(v => v.status === 'PUBLISHED'))
+// Запланировано (но ещё не опубликовано) — редактирование разрешено, нужно перепланировать
+const isScheduled = computed(() =>
+  !isPublished.value && (post.value?.versions || []).some(v => v.status === 'SCHEDULED'))
 
 const fontSizePx = computed(() => ({ S: 14, M: 18, L: 24 }[fontSize.value]))
 const fontSizeExport = computed(() => ({ S: 42, M: 54, L: 72 }[fontSize.value]))
@@ -965,7 +969,11 @@ async function schedulePublish() {
       const item: PublishResultItem = { channelId, platform: ch?.platform || '', accountName: ch?.accountName || '', success: false, externalUrl: null, error: null }
       try {
         const versionId = await ensureVersion(channelId)
-        await http.post(`/post-versions/${versionId}/schedule`, { scheduledAt: iso })
+        await http.post(`/post-versions/${versionId}/schedule`, {
+          scheduledAt: iso,
+          // Сохраняем кнопку ВК (и в будущем музыку), чтобы отложка не потеряла их
+          storiesOptions: { skipOverlay: true, linkText: linkType.value || undefined, linkUrl: linkUrl.value || undefined },
+        })
         item.success = true
       } catch (e: any) { item.error = e.message || String(e) }
       publishResults.value.push(item)
@@ -1160,6 +1168,16 @@ onUnmounted(() => {
         <!-- Published lock banner -->
         <div v-if="isPublished" class="p-3 rounded-xl bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 text-center">
           <p class="text-xs text-amber-700 dark:text-amber-300 font-medium">Редактирование заблокировано после публикации</p>
+        </div>
+
+        <!-- Scheduled banner — редактирование разрешено, но нужно перепланировать -->
+        <div v-else-if="isScheduled" class="p-3 rounded-xl bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800">
+          <p class="text-xs text-blue-700 dark:text-blue-300 font-medium flex items-center gap-1.5">
+            <Clock :size="14" /> Сторис запланирован
+          </p>
+          <p class="text-[10px] text-blue-500 dark:text-blue-400 mt-1">
+            Можно отредактировать ниже. Чтобы изменения вступили в силу — снова нажмите «Предпросмотр и публикация» и перепланируйте (или отмените запланированную ниже).
+          </p>
         </div>
 
         <!-- Title -->

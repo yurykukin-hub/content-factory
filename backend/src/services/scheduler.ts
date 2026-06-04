@@ -44,6 +44,8 @@ export function startPublishScheduler(): ReturnType<typeof setInterval> {
             orderBy: { sortOrder: 'asc' },
           })
           const isStories = version.post.postType === 'STORIES'
+          // Опции публикации, сохранённые при планировании (кнопка ВК, музыка вшита в видео заранее)
+          const opts = (version.publishOptions as Record<string, any> | null) || {}
 
           const result = await publisher.publish({
             // Для STORIES оверлей-текст = post.body (короткий), медиа уже отрендерено клиентом
@@ -52,7 +54,14 @@ export function startPublishScheduler(): ReturnType<typeof setInterval> {
             mediaFiles: postMedia.map(m => ({ url: m.url, mimeType: m.mimeType, filename: m.filename })),
             platformAccount: version.platformAccount,
             postType: version.post.postType,
-            storiesOptions: isStories ? { skipOverlay: true } : undefined,
+            storiesOptions: isStories
+              ? {
+                  skipOverlay: opts.skipOverlay ?? true,
+                  linkText: opts.linkText,
+                  linkUrl: opts.linkUrl,
+                  photoPosition: opts.photoPosition,
+                }
+              : undefined,
           })
 
           console.log(`[Scheduler] Published ${version.id} to ${version.platformAccount.platform}: ${result.success}`)

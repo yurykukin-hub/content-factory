@@ -7,3 +7,4 @@ dist/
 .DS_Store
 backend/node_modules/
 uploads/
+.night-backup/

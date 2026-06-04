@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import { z } from 'zod'
 import { db } from '../db'
 import { emitEvent } from '../eventBus'
 import { getPublisher } from '../services/publishers/base'
@@ -6,6 +7,23 @@ import type { AuthUser } from '../middleware/auth'
 import { verifyPostVersionAccess } from '../middleware/resource-access'
 
 const publish = new Hono()
+
+// Опции публикации сторис, сохраняемые для отложенной публикации (кнопка ВК, музыка)
+const storiesOptionsSchema = z
+  .object({
+    skipOverlay: z.boolean().optional(),
+    linkText: z.string().optional(),
+    linkUrl: z.string().optional(),
+    photoPosition: z.string().optional(),
+    audioUrl: z.string().optional(),
+    musicSessionId: z.string().optional(),
+  })
+  .optional()
+
+const scheduleSchema = z.object({
+  scheduledAt: z.string().nullable(),
+  storiesOptions: storiesOptionsSchema,
+})
 
 // POST /api/post-versions/:id/publish — опубликовать сейчас
 publish.post('/post-versions/:id/publish', async (c) => {
@@ -111,19 +129,44 @@ publish.post('/post-versions/:id/schedule', async (c) => {
     if (e.message === 'FORBIDDEN') return c.json({ error: 'Нет доступа' }, 403)
     throw e
   }
-  const { scheduledAt } = await c.req.json<{ scheduledAt: string | null }>()
+  const raw = await c.req.json().catch(() => ({ scheduledAt: null }))
+  const parsed = scheduleSchema.safeParse(raw)
+  if (!parsed.success) {
+    return c.json({ error: 'Неверные данные', details: parsed.error.flatten() }, 400)
+  }
+  const { scheduledAt, storiesOptions } = parsed.data
 
   // null = отменить планирование
   const version = await db.postVersion.update({
     where: { id },
     data: scheduledAt
-      ? { scheduledAt: new Date(scheduledAt), status: 'SCHEDULED' }
+      ? {
+          scheduledAt: new Date(scheduledAt),
+          status: 'SCHEDULED',
+          // Сохраняем опции (кнопка ВК, музыка), чтобы они не потерялись при отложке
+          publishOptions: storiesOptions ?? undefined,
+        }
       : { scheduledAt: null, status: 'DRAFT' },
   })
 
-  // Sync post status
-  if (!scheduledAt) {
-    await db.post.update({ where: { id: version.postId }, data: { status: 'DRAFT' } })
+  // Rollup статуса поста, чтобы списки/фильтры/бейджи отражали реальное состояние
+  if (scheduledAt) {
+    const p = await db.post.findUnique({ where: { id: version.postId }, select: { status: true } })
+    if (p && p.status !== 'PUBLISHED') {
+      await db.post.update({ where: { id: version.postId }, data: { status: 'SCHEDULED' } })
+    }
+  } else {
+    // Отмена — пересчитать статус по оставшимся версиям
+    const siblings = await db.postVersion.findMany({
+      where: { postId: version.postId },
+      select: { status: true },
+    })
+    const rollup = siblings.some(s => s.status === 'PUBLISHED')
+      ? 'PUBLISHED'
+      : siblings.some(s => s.status === 'SCHEDULED')
+        ? 'SCHEDULED'
+        : 'DRAFT'
+    await db.post.update({ where: { id: version.postId }, data: { status: rollup as any } })
   }
 
   return c.json(version)

@@ -7,7 +7,7 @@ import { useToast } from '@/composables/useToast'
 import { statusColor, statusLabel } from '@/composables/useStatus'
 import { formatDate } from '@/composables/useFormatters'
 import { platformColor } from '@/composables/usePlatform'
-import { Film, Plus, Send, Trash2, Loader2, ChevronDown } from 'lucide-vue-next'
+import { Film, Plus, Send, Trash2, Loader2, ChevronDown, Clock, CalendarX } from 'lucide-vue-next'
 import { useSectionAccess } from '@/composables/useSectionAccess'
 
 const { canEdit: canEditPosts } = useSectionAccess()
@@ -15,6 +15,7 @@ const { canEdit: canEditPosts } = useSectionAccess()
 interface PostVersion {
   id: string
   status: string
+  scheduledAt?: string | null
   platformAccount: { platform: string; accountName: string }
 }
 
@@ -48,6 +49,32 @@ const publishDropdownId = ref<string | null>(null)
 
 // Confirm delete
 const deleteConfirmId = ref<string | null>(null)
+
+// Scheduled management
+const cancellingId = ref<string | null>(null)
+function nextSchedule(post: Post): string | null {
+  const times = post.versions
+    .filter(v => v.status === 'SCHEDULED' && v.scheduledAt)
+    .map(v => v.scheduledAt as string)
+  return times.length ? times.sort()[0] : null
+}
+function fmtSchedule(iso: string): string {
+  return new Date(iso).toLocaleString('ru', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+}
+async function cancelSchedule(post: Post) {
+  cancellingId.value = post.id
+  try {
+    for (const v of post.versions.filter(v => v.status === 'SCHEDULED')) {
+      await http.post(`/post-versions/${v.id}/schedule`, { scheduledAt: null })
+    }
+    toast.success('Запланированная публикация отменена')
+    await loadPosts()
+  } catch (e: any) {
+    toast.error(e.message || 'Ошибка')
+  } finally {
+    cancellingId.value = null
+  }
+}
 
 async function loadPosts() {
   if (!businesses.currentBusiness) return
@@ -220,6 +247,9 @@ watch(statusFilter, loadPosts)
                   </span>
                 </template>
               </span>
+              <span v-if="nextSchedule(post)" class="px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-950 text-blue-600 dark:text-blue-300 font-medium inline-flex items-center gap-1">
+                <Clock :size="10" /> {{ fmtSchedule(nextSchedule(post)!) }}
+              </span>
             </div>
           </div>
 
@@ -248,6 +278,18 @@ watch(statusFilter, loadPosts)
                 </button>
               </div>
             </div>
+
+            <!-- Cancel schedule -->
+            <button
+              v-if="post.versions.some(v => v.status === 'SCHEDULED')"
+              @click="cancelSchedule(post)"
+              :disabled="cancellingId === post.id"
+              class="p-1.5 rounded-lg text-blue-500 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950 transition-colors disabled:opacity-50"
+              title="Отменить запланированную публикацию"
+            >
+              <Loader2 v-if="cancellingId === post.id" :size="14" class="animate-spin" />
+              <CalendarX v-else :size="14" />
+            </button>
 
             <!-- Delete -->
             <button

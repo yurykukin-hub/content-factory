@@ -293,6 +293,7 @@ model PostVersion {
   publishedAt       DateTime?  @map("published_at")
   externalPostId    String?    @map("external_post_id") // ID в соцсети
   externalUrl       String?    @map("external_url") // ссылка на пост
+  publishOptions    Json?      @map("publish_options") // опции публикации для отложки сторис: { skipOverlay, linkText, linkUrl, photoPosition, audioUrl?, musicSessionId? }
   createdAt         DateTime   @default(now()) @map("created_at")
   updatedAt         DateTime   @updatedAt @map("updated_at")
 
