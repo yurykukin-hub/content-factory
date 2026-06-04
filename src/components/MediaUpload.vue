@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { http } from '@/api/client'
+import { http, TAB_ID } from '@/api/client'
 import { useToast } from '@/composables/useToast'
 import { Upload, X, Loader2, Image, Film, Music, Wand2, Eraser } from 'lucide-vue-next'
 import ImageEditModal from '@/components/ai/ImageEditModal.vue'
@@ -71,8 +71,12 @@ async function uploadFile(file: File) {
       method: 'POST',
       body: formData,
       credentials: 'include',
+      headers: { 'X-Tab-ID': TAB_ID },
     })
-    if (!res.ok) throw new Error('Файл не загружен')
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({})) as { error?: string }
+      throw new Error(err.error || `Файл не загружен (HTTP ${res.status})`)
+    }
     const mediaFile = await res.json() as MediaFile
     emit('uploaded', mediaFile)
   } catch (e: any) {

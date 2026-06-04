@@ -8,9 +8,10 @@ import { statusColor, statusLabel } from '@/composables/useStatus'
 import { formatDate } from '@/composables/useFormatters'
 import { platformColor } from '@/composables/usePlatform'
 import MediaUpload from '@/components/MediaUpload.vue'
+import MediaPickerModal from '@/components/MediaPickerModal.vue'
 import {
   ArrowLeft, Send, Save, Plus, Sparkles, Loader2, ExternalLink,
-  AlertCircle, CheckCircle, XCircle, Image, Wand2, Info,
+  AlertCircle, CheckCircle, XCircle, Image, Images, Wand2, Info,
   Scissors, MessageSquare, RefreshCw, Type, Clock
 } from 'lucide-vue-next'
 
@@ -47,6 +48,18 @@ const originalBody = ref('') // для защиты от потери измен
 // Platform tabs
 const platforms = ref<PlatformAccount[]>([])
 const activeTab = ref('')
+
+// Media library picker
+const showMediaPicker = ref(false)
+async function pickFromLibrary(file: MediaFile) {
+  if (!post.value) return
+  try {
+    await http.post(`/media/${file.id}/attach`, { postId: post.value.id })
+    if (!post.value.mediaFiles.some(f => f.id === file.id)) post.value.mediaFiles.push(file)
+    showMediaPicker.value = false
+    toast.success('Файл добавлен из медиатеки')
+  } catch (e: any) { toast.error('Ошибка: ' + (e.message || e)) }
+}
 
 // AI Image
 const showAiImage = ref(false)
@@ -391,10 +404,16 @@ onMounted(loadPost)
               <Image :size="18" />
               Медиа ({{ post.mediaFiles.length }})
             </h2>
-            <button @click="showAiImage = true"
-              class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300 text-xs font-medium hover:bg-purple-200 dark:hover:bg-purple-800">
-              <Sparkles :size="14" /> AI Картинка
-            </button>
+            <div class="flex items-center gap-2">
+              <button @click="showMediaPicker = true"
+                class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-xs font-medium hover:bg-gray-200 dark:hover:bg-gray-700">
+                <Images :size="14" /> Из медиатеки
+              </button>
+              <button @click="showAiImage = true"
+                class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300 text-xs font-medium hover:bg-purple-200 dark:hover:bg-purple-800">
+                <Sparkles :size="14" /> AI Картинка
+              </button>
+            </div>
           </div>
 
           <!-- Stories hint -->
@@ -524,6 +543,15 @@ onMounted(loadPost)
         </div>
       </div>
     </div>
+
+    <!-- Media library picker -->
+    <MediaPickerModal
+      v-if="post"
+      :visible="showMediaPicker"
+      :business-id="post.businessId"
+      @close="showMediaPicker = false"
+      @selected="pickFromLibrary"
+    />
 
     <!-- AI Image Modal -->
     <div v-if="showAiImage" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50" @click.self="showAiImage = false">
