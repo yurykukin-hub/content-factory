@@ -138,10 +138,16 @@ export class InstagramPublisher implements Publisher {
     const filePath = join(UPLOAD_DIR, mf.url.replace('/uploads/', ''))
     const buf = await readFile(filePath)
 
+    // Postmypost/S3 не принимают не-ASCII имена файлов (кириллица/«·»/пробелы ломают загрузку)
+    const ext = (mf.url.split('?')[0].split('.').pop() || mf.mimeType.split('/')[1] || 'jpg').toLowerCase()
+    let safeName = (mf.filename || '').replace(/[^\x20-\x7E]/g, '').replace(/[^a-zA-Z0-9._-]/g, '-').replace(/-+/g, '-').replace(/^[-.]+|[-.]+$/g, '').slice(0, 50)
+    if (safeName.replace(/[.\-]/g, '').length < 2) safeName = 'media'
+    if (!safeName.toLowerCase().endsWith('.' + ext)) safeName = safeName.replace(/\.[a-z0-9]+$/i, '') + '.' + ext
+
     // 1. init by file
     const init = await this.api(token, 'POST', '/upload/init', {
       project_id: projectId,
-      name: mf.filename,
+      name: safeName,
       size: buf.length,
     })
     if (!init.ok || !init.data?.id || !init.data?.action) {
@@ -155,7 +161,7 @@ export class InstagramPublisher implements Publisher {
     for (const f of (fields as Array<{ key: string; value: string }>)) {
       form.append(f.key, f.value)
     }
-    form.append('file', new Blob([buf], { type: mf.mimeType }), mf.filename)
+    form.append('file', new Blob([buf], { type: mf.mimeType }), safeName)
     const s3 = await fetch(action, { method: 'POST', body: form })
     if (!s3.ok) {
       console.error('[IG] S3 upload failed:', s3.status, (await s3.text()).slice(0, 200))

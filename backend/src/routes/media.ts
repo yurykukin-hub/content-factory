@@ -272,7 +272,7 @@ media.post('/fit', async (c) => {
       data: {
         businessId,
         postId: postId || null,
-        filename: `${ratio} ${mode === 'crop' ? 'обрезка' : 'фон'} · ${(mf.filename || 'фото').slice(0, 30)}`,
+        filename: `${ratio} · ${mode === 'crop' ? 'обрезка' : 'размытый фон'}`,
         url: `/uploads/${businessId}/${outName}`,
         thumbUrl: `/uploads/${businessId}/${thumbName}`,
         mimeType: 'image/jpeg',
