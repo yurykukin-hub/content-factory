@@ -63,7 +63,7 @@ const createSchema = z.object({
   businessId: z.string(),
   title: z.string().optional(),
   body: z.string().min(1),
-  postType: z.enum(['TEXT', 'PHOTO', 'VIDEO', 'REELS', 'STORIES']).default('TEXT'),
+  postType: z.enum(['TEXT', 'PHOTO', 'VIDEO', 'REELS', 'CLIPS', 'STORIES']).default('TEXT'),
   hashtags: z.array(z.string()).default([]),
 })
 

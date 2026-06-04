@@ -105,6 +105,18 @@ describe('POST /api/posts — Create', () => {
     })
     expect(res.status).toBe(400)
   })
+
+  it('accepts CLIPS postType', async () => {
+    const token = await makeToken('ADMIN')
+    mockDb.post.create.mockResolvedValue({ id: 'p-clips', businessId: 'biz-1', body: 'ok', postType: 'CLIPS' })
+
+    const res = await app.request('/api/posts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: `token=${token}`, 'X-Tab-ID': 'test' },
+      body: JSON.stringify({ businessId: 'biz-1', body: 'ok', postType: 'CLIPS' }),
+    })
+    expect(res.status).toBe(201)
+  })
 })
 
 // ============================================================
