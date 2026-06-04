@@ -52,7 +52,10 @@ export function startPublishScheduler(): ReturnType<typeof setInterval> {
 
       for (const version of dueVersions) {
         try {
-          const publisher = getPublisher(version.platformAccount.platform)
+          const publisher = getPublisher(version.platformAccount.platform, {
+            postType: version.post.postType,
+            config: version.platformAccount.config,
+          })
 
           // Медиа привязано к посту — догружаем и прокидываем (иначе сторис/фото-пост уедет без медиа)
           const postMedia = await db.mediaFile.findMany({

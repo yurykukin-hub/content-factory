@@ -56,8 +56,11 @@ publish.post('/post-versions/:id/publish', async (c) => {
     orderBy: { sortOrder: 'asc' },
   })
 
-  // Получить publisher для платформы и опубликовать
-  const publisher = getPublisher(version.platformAccount.platform)
+  // Получить publisher для платформы и опубликовать (VK: гибрид — сторис прямой, стена через PMP по флагу)
+  const publisher = getPublisher(version.platformAccount.platform, {
+    postType: version.post.postType,
+    config: version.platformAccount.config,
+  })
 
   const isStories = version.post.postType === 'STORIES'
   // Для Stories: overlay текст = post.body (короткий), не version.body (AI-адаптация)

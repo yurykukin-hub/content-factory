@@ -1,7 +1,7 @@
 import type { PlatformAccount } from '@prisma/client'
 import { VkPublisher } from './vk'
 import { TelegramPublisher } from './telegram'
-import { InstagramPublisher } from './instagram'
+import { PostmypostPublisher } from './postmypost'
 
 export interface MediaFileForPublish {
   url: string
@@ -38,17 +38,33 @@ export interface Publisher {
   testConnection(account: PlatformAccount): Promise<boolean>
 }
 
+export interface GetPublisherOpts {
+  /** Тип поста (PostType). Для VK решает: STORIES → прямой VK, остальное → Postmypost (если флаг). */
+  postType?: string
+  /** PlatformAccount.config — читаем флаг `viaPostmypost` для VK. */
+  config?: unknown
+}
+
 /**
  * Фабрика publishers по платформе.
+ *
+ * VK — гибрид (решение сессии): VK-сторис идут через ПРЯМОЙ VK API (нативная кнопка/оверлей),
+ * а стена/фото — через Postmypost (обход застрявшего scope `photos`), если у аккаунта стоит
+ * флаг `config.viaPostmypost`. Обратимо: VK выдаст scope `photos` → флаг выключаем, всё VK
+ * снова идёт напрямую. Без флага поведение VK не меняется (по умолчанию прямой API).
  */
-export function getPublisher(platform: string): Publisher {
+export function getPublisher(platform: string, opts: GetPublisherOpts = {}): Publisher {
+  const cfg = (opts.config ?? {}) as Record<string, unknown>
+  const viaPostmypost = cfg.viaPostmypost === true
   switch (platform) {
     case 'VK':
+      // Сторис VK — только прямой VK API (Postmypost не даёт нативную кнопку/оверлей сторис).
+      if (viaPostmypost && opts.postType !== 'STORIES') return new PostmypostPublisher()
       return new VkPublisher()
     case 'TELEGRAM':
       return new TelegramPublisher()
     case 'INSTAGRAM':
-      return new InstagramPublisher()
+      return new PostmypostPublisher()
     default:
       throw new Error(`Unknown platform: ${platform}`)
   }

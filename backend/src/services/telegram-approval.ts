@@ -354,7 +354,7 @@ async function handleApprove(token: string, task: any, message: any, callbackId:
 
     for (const account of accounts) {
       try {
-        const publisher = getPublisher(account.platform)
+        const publisher = getPublisher(account.platform, { postType: 'PHOTO', config: account.config })
         const result = await publisher.publish({
           text: task.proposedText,
           hashtags: task.proposedTags,
