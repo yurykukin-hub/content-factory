@@ -6,6 +6,7 @@ import { useBusinessesStore } from '@/stores/businesses'
 import TheSidebar from '@/components/layout/TheSidebar.vue'
 import TheHeader from '@/components/layout/TheHeader.vue'
 import ToastContainer from '@/components/ToastContainer.vue'
+import CreateContentModal from '@/components/posts/CreateContentModal.vue'
 
 const auth = useAuthStore()
 const businesses = useBusinessesStore()
@@ -55,5 +56,6 @@ function handleUnauthorized() {
     </div>
   </div>
 
+  <CreateContentModal v-if="auth.user" />
   <ToastContainer />
 </template>

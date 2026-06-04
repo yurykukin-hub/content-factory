@@ -2,6 +2,7 @@
 import { ref, onMounted, watch } from 'vue'
 import { http } from '@/api/client'
 import { useBusinessesStore } from '@/stores/businesses'
+import { useCreateModalStore } from '@/stores/createModal'
 import { useRouter } from 'vue-router'
 import { useToast } from '@/composables/useToast'
 import { statusColor, statusLabel } from '@/composables/useStatus'
@@ -35,12 +36,12 @@ interface Post {
 }
 
 const businesses = useBusinessesStore()
+const createModal = useCreateModalStore()
 const router = useRouter()
 const toast = useToast()
 
 const posts = ref<Post[]>([])
 const loading = ref(true)
-const createLoading = ref(false)
 const statusFilter = ref('')
 const typeFilter = ref('') // '' = все типы
 
@@ -102,22 +103,6 @@ async function loadPosts() {
   }
 }
 
-async function createStories() {
-  if (!businesses.currentBusiness) return
-  createLoading.value = true
-  try {
-    const post = await http.post<Post>('/posts', {
-      businessId: businesses.currentBusiness.id,
-      title: '', body: ' ', postType: 'STORIES',
-    })
-    router.push(`/stories/${post.id}`)
-  } catch (e: any) {
-    toast.error(e.message || 'Произошла ошибка')
-  } finally {
-    createLoading.value = false
-  }
-}
-
 async function quickPublish(versionId: string, postId: string) {
   publishingId.value = postId
   publishDropdownId.value = null
@@ -162,13 +147,11 @@ watch(typeFilter, loadPosts)
     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
       <h1 class="text-xl md:text-2xl font-bold">Контент</h1>
       <button v-if="canEditPosts('posts')"
-        @click="createStories"
-        :disabled="createLoading"
-        class="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium transition-colors disabled:opacity-50 shrink-0"
+        @click="createModal.open()"
+        class="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium transition-colors shrink-0"
       >
-        <Loader2 v-if="createLoading" :size="16" class="animate-spin" />
-        <Plus v-else :size="16" />
-        Создать историю
+        <Plus :size="16" />
+        Создать контент
       </button>
     </div>
 
@@ -216,14 +199,13 @@ watch(typeFilter, loadPosts)
     <!-- Empty state -->
     <div v-else-if="posts.length === 0" class="bg-white dark:bg-gray-900 rounded-xl p-8 border border-gray-200 dark:border-gray-800 text-center">
       <Film :size="48" class="mx-auto text-gray-300 dark:text-gray-600 mb-3" />
-      <p class="text-gray-500 mb-4">Нет контента. Создайте первую историю!</p>
+      <p class="text-gray-500 mb-4">Нет контента. Создайте первый пост!</p>
       <button
-        @click="createStories"
-        :disabled="createLoading"
-        class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium transition-colors disabled:opacity-50"
+        @click="createModal.open()"
+        class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium transition-colors"
       >
         <Plus :size="16" />
-        Создать первую историю
+        Создать контент
       </button>
     </div>
 

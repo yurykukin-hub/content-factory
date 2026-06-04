@@ -3,6 +3,7 @@ import { computed, watch, ref, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useSidebarStore } from '@/stores/sidebar'
 import { useAuthStore } from '@/stores/auth'
+import { useCreateModalStore } from '@/stores/createModal'
 import { useSectionAccess, type Section } from '@/composables/useSectionAccess'
 import { http } from '@/api/client'
 import {
@@ -19,13 +20,15 @@ import {
   Activity,
   Music,
   Sunrise,
+  Plus,
   X,
 } from 'lucide-vue-next'
 
 const route = useRoute()
 const sidebar = useSidebarStore()
 const auth = useAuthStore()
-const { canView } = useSectionAccess()
+const createModal = useCreateModalStore()
+const { canView, canEdit } = useSectionAccess()
 
 // AI Logs error badge
 const aiErrorCount = ref(0)
@@ -125,6 +128,10 @@ watch(() => route.path, () => sidebar.close())
       <span class="text-xl font-bold text-brand-600 dark:text-brand-400">Content Factory</span>
     </div>
     <nav class="flex-1 py-3 px-3 overflow-y-auto">
+      <button v-if="canEdit('posts')" @click="createModal.open()"
+        class="w-full flex items-center gap-3 px-3 py-2.5 mb-3 rounded-lg text-sm font-semibold bg-brand-600 hover:bg-brand-700 text-white transition-colors">
+        <Plus :size="18" /> Создать
+      </button>
       <div v-for="(group, gi) in filteredGroups" :key="gi" :class="gi > 0 ? 'mt-4' : ''">
         <!-- Group title -->
         <p v-if="group.title" class="px-3 mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">
@@ -177,6 +184,10 @@ watch(() => route.path, () => sidebar.close())
           </button>
         </div>
         <nav class="flex-1 py-3 px-3 overflow-y-auto">
+          <button v-if="canEdit('posts')" @click="createModal.open(); sidebar.close()"
+            class="w-full flex items-center gap-3 px-3 py-3 mb-3 rounded-lg text-sm font-semibold bg-brand-600 hover:bg-brand-700 text-white transition-colors">
+            <Plus :size="20" /> Создать
+          </button>
           <div v-for="(group, gi) in filteredGroups" :key="gi" :class="gi > 0 ? 'mt-4' : ''">
             <p v-if="group.title" class="px-3 mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">
               {{ group.title }}
