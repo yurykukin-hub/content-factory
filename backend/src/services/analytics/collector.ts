@@ -98,12 +98,22 @@ export async function collectBusinessMetrics(
       // VK-via-Postmypost: externalPostId хранит PMP publication id → резолвим в VK post id
       // (как у IG), чтобы wall.getById построил верный {ownerId}_{postId}. scope `stats` не нужен.
       const viaPmp = ((acc.config ?? {}) as Record<string, unknown>).viaPostmypost === true
-      const pmpToken = process.env.POSTMYPOST_API_TOKEN || ''
-      if (viaPmp && pmpToken && postRefs.length) {
-        postRefs = await Promise.all(postRefs.map(async (ref) => {
-          const resolved = await resolvePmpExternalId(pmpToken, ref.externalPostId)
-          return resolved ? { ...ref, externalPostId: resolved.externalId } : ref
-        }))
+      if (viaPmp && postRefs.length) {
+        const pmpToken = process.env.POSTMYPOST_API_TOKEN || ''
+        if (!pmpToken) {
+          // Без PMP-токена резолв невозможен — НЕ скармливаем PMP pub id в wall.getById (даст чужой/пустой пост)
+          result.errors.push(`VK ${acc.accountName}: viaPostmypost включён, но POSTMYPOST_API_TOKEN не задан — метрики постов недоступны`)
+          postRefs = []
+        } else {
+          // Нерезолвленные refs ОТБРАСЫВАЕМ (как IG-ветка): wall.getById по PMP pub id привязал бы
+          // снапшот к неверному/чужому посту. Лучше пропустить, чем записать ложную метрику.
+          const out: typeof postRefs = []
+          for (const ref of postRefs) {
+            const resolved = await resolvePmpExternalId(pmpToken, ref.externalPostId)
+            if (resolved) out.push({ ...ref, externalPostId: resolved.externalId })
+          }
+          postRefs = out
+        }
       }
       try {
         if (postRefs.length) allPostMetrics.push(...await fetchVkPostMetrics(readToken, ownerId, postRefs))
