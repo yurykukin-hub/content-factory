@@ -33,9 +33,11 @@
 ## 2. Петля аналитики до конца
 - [x] **Недельный агент включён** (`analytics_agent_enabled=true`, прод) — Mon 06:00 UTC
 - [x] Данные живут: 18 IG-снапшотов, 1 отчёт (пайплайн подтверждён). metrics_enabled on (дефолт)
-- [ ] (gated, Юрий) после ре-авторизации VK — stories.getStats/stats.get; smoke /analytics/collect
+- [x] **VK-смоук пройден** — реальный пост с фото на стену VK через Postmypost: vk.ru/wall-150371202_835
+- [x] **VK ре-авторизация проверена** — токен свежий, НО VK не выдал `stats`+`photos` (маска 73808; нужна модерация VK-аппа). Юрий подаёт.
+- [x] **VK пост-метрики через Postmypost-резолв → wall.getById** (scope stats не нужен) — verified live (пост 835 → views=10), коллектор 9 IG + 0 ошибок. Commit deployed.
+- [ ] (gated, Юрий, после модерации VK-аппа) stories.getStats/stats.get — VK сторис/account-reach
 - [ ] (gated, Юрий) после Метрика-OAuth — визиты+цели по utm_content (site_traffic сейчас 0)
-- [ ] (опц.) Postmypost account-level (/analytics/accounts, param metrics) — account_snapshots сейчас 0
 
 ## 3. Арх-долг Эпика B — ✅ СНЯТ (commit 4a0f822, в проде)
 - [x] Phase 3 — strategy-as-data: модели `Rubric`+`Occasion` + `BrandProfile.contentStrategy`/`seasonHints`; generic `services/ai/strategy.ts`; сидер `seed-nawode-strategy.ts` (идемпотентный); убран литерал `erpType==='nawode'` в digest+plan
