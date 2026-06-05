@@ -3,10 +3,12 @@ import { ref, onMounted, watch } from 'vue'
 import { http } from '@/api/client'
 import { useToast } from '@/composables/useToast'
 import { useBusinessesStore } from '@/stores/businesses'
-import { Film, Send, Clock, Sparkles } from 'lucide-vue-next'
+import { Film, Send, Clock, Sparkles, Settings, Plus } from 'lucide-vue-next'
+import { useCreateModalStore } from '@/stores/createModal'
 
 const toast = useToast()
 const businesses = useBusinessesStore()
+const createModal = useCreateModalStore()
 
 interface DashboardData {
   totalBusinesses: number
@@ -46,7 +48,16 @@ watch(() => businesses.currentBusinessId, loadDashboard)
   <div>
     <h1 class="text-2xl font-bold mb-6">Обзор</h1>
 
-    <div v-if="loading" class="text-gray-500">Загрузка...</div>
+    <div v-if="loading" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div v-for="i in 4" :key="i" class="bg-white dark:bg-gray-900 rounded-xl p-5 border border-gray-200 dark:border-gray-800 animate-pulse">
+        <div class="flex items-center gap-3 mb-3">
+          <div class="w-9 h-9 rounded-lg bg-gray-100 dark:bg-gray-800"></div>
+          <div class="h-3 w-24 rounded bg-gray-100 dark:bg-gray-800"></div>
+        </div>
+        <div class="h-8 w-16 rounded bg-gray-100 dark:bg-gray-800"></div>
+        <div class="h-3 w-20 rounded bg-gray-100 dark:bg-gray-800 mt-2"></div>
+      </div>
+    </div>
 
     <div v-else-if="data" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
       <!-- Total posts -->
@@ -102,10 +113,10 @@ watch(() => businesses.currentBusinessId, loadDashboard)
     <div class="mt-8 bg-white dark:bg-gray-900 rounded-xl p-6 border border-gray-200 dark:border-gray-800">
       <h2 class="text-lg font-semibold mb-4">Быстрые действия</h2>
       <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <router-link to="/posts" class="flex items-center gap-2 p-3 rounded-lg bg-brand-50 dark:bg-brand-950 hover:bg-brand-100 dark:hover:bg-brand-900 text-brand-700 dark:text-brand-300 transition-colors">
-          <Film :size="18" />
-          <span class="text-sm font-medium">Создать историю</span>
-        </router-link>
+        <button @click="createModal.open()" class="flex items-center gap-2 p-3 rounded-lg bg-brand-50 dark:bg-brand-950 hover:bg-brand-100 dark:hover:bg-brand-900 text-brand-700 dark:text-brand-300 transition-colors">
+          <Plus :size="18" />
+          <span class="text-sm font-medium">Создать контент</span>
+        </button>
         <router-link to="/plans" class="flex items-center gap-2 p-3 rounded-lg bg-purple-50 dark:bg-purple-950 hover:bg-purple-100 dark:hover:bg-purple-900 text-purple-700 dark:text-purple-300 transition-colors">
           <Sparkles :size="18" />
           <span class="text-sm font-medium">AI Контент-план</span>
@@ -118,7 +129,3 @@ watch(() => businesses.currentBusinessId, loadDashboard)
     </div>
   </div>
 </template>
-
-<script lang="ts">
-import { Settings } from 'lucide-vue-next'
-</script>

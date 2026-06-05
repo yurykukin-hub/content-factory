@@ -736,8 +736,12 @@ onMounted(loadPost)
 
           <p class="text-[10px] text-gray-400 mt-2">Мастер-текст уйдёт во все выбранные каналы. «Настроить» (⚙) — адаптация и публикация по конкретному каналу. Ссылки на сайт бренда авто-помечаются UTM по каналу.</p>
         </div>
-        <div v-else class="text-xs text-red-500">
-          Нет подключённых каналов. <router-link to="/settings" class="text-brand-500 underline">Настроить →</router-link>
+        <div v-else class="text-center py-6 px-4 rounded-lg border border-dashed border-gray-200 dark:border-gray-700">
+          <Send :size="28" class="mx-auto text-gray-300 dark:text-gray-600 mb-2" />
+          <p class="text-sm text-gray-500 mb-2.5">Нет подключённых каналов для публикации</p>
+          <router-link to="/settings" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-50 dark:bg-brand-950 text-brand-600 dark:text-brand-300 text-xs font-medium hover:bg-brand-100 dark:hover:bg-brand-900 transition-colors">
+            <Settings2 :size="14" /> Подключить каналы
+          </router-link>
         </div>
       </div>
     </div>
