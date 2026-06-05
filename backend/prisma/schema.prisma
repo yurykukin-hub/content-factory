@@ -132,6 +132,11 @@ model Business {
   erpBaseUrl String? @map("erp_base_url")
   erpApiKey  String? @map("erp_api_key")
 
+  // Яндекс.Метрика per-business (масштабируемо: каждый проект — свой счётчик/цели/токен).
+  // Токен (секрет) — НЕ здесь, а в AppConfig `metrika_token_{businessId}` (admin-only, не утекает во фронт).
+  metrikaCounterId String?  @map("metrika_counter_id")              // id счётчика (не секрет)
+  metrikaGoalIds   String[] @default([]) @map("metrika_goal_ids")    // цели-конверсии (booking-intent и т.п.)
+
   brandProfile     BrandProfile?
   platformAccounts PlatformAccount[]
   contentPlans     ContentPlan[]

@@ -60,6 +60,9 @@ const createSchema = z.object({
   erpType: z.string().optional(),
   erpBaseUrl: z.string().url().optional(),
   erpApiKey: z.string().optional(),
+  // Яндекс.Метрика per-business (счётчик/цели — не секрет; токен задаётся отдельно в AppConfig metrika_token_{id})
+  metrikaCounterId: z.string().max(20).optional(),
+  metrikaGoalIds: z.array(z.string().max(20)).max(50).optional(),
 })
 
 // POST /api/businesses

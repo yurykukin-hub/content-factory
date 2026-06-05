@@ -17,15 +17,18 @@ import { ymd } from './types'
 
 const STAT_API = 'https://api-metrika.yandex.net/stat/v1/data'
 
-/** Встроенные дефолты счётчиков (используются, если в metrika_config бизнес не описан). */
-const DEFAULT_COUNTERS: Record<string, { counterId: string; goalIds: string[] }> = {
-  nawode: { counterId: '92916147', goalIds: [] }, // счётчик найден на nawode.ru (Tilda)
-}
-
 export interface MetrikaBizConfig {
   counterId: string
   goalIds: string[]
   bookingGoalId?: string
+}
+
+/** Бизнес с per-business Метрика-полями (читаем из БД, не из глобального JSON). */
+export interface MetrikaBusinessRef {
+  id: string
+  slug: string
+  metrikaCounterId?: string | null
+  metrikaGoalIds?: string[]
 }
 
 async function getConfig(key: string): Promise<string | null> {
@@ -33,13 +36,28 @@ async function getConfig(key: string): Promise<string | null> {
   return row?.value ?? null
 }
 
-/** OAuth-токен Метрики (один на аккаунт Яндекса). null = не настроено → адаптер выключен. */
-export async function getMetrikaToken(): Promise<string | null> {
+/**
+ * OAuth-токен Метрики для бизнеса (масштабируемо под разные Яндекс-аккаунты):
+ * per-business AppConfig `metrika_token_{id}` → глобальный `metrika_oauth_token` → env.
+ * Токен — СЕКРЕТ, живёт ТОЛЬКО в AppConfig (admin-only), НЕ в модели Business (та уходит во фронт).
+ */
+export async function getMetrikaToken(businessId?: string): Promise<string | null> {
+  if (businessId) {
+    const perBiz = await getConfig(`metrika_token_${businessId}`)
+    if (perBiz) return perBiz
+  }
   return (await getConfig('metrika_oauth_token')) || process.env.METRIKA_OAUTH_TOKEN || null
 }
 
-/** Конфиг счётчика/целей для бизнеса (по businessId, затем slug, затем дефолт). */
-export async function getMetrikaConfigForBusiness(business: { id: string; slug: string }): Promise<MetrikaBizConfig | null> {
+/**
+ * Счётчик/цели бизнеса: per-business поля `Business.metrikaCounterId/metrikaGoalIds` (новая
+ * архитектура) → fallback на старый `metrika_config` JSON (backward-compat). null = не настроено.
+ * Добавить бизнес = заполнить его поля в БД (UI/seed), а не править код.
+ */
+export async function getMetrikaConfigForBusiness(business: MetrikaBusinessRef): Promise<MetrikaBizConfig | null> {
+  if (business.metrikaCounterId) {
+    return { counterId: business.metrikaCounterId, goalIds: business.metrikaGoalIds ?? [] }
+  }
   const raw = await getConfig('metrika_config')
   if (raw) {
     try {
@@ -50,19 +68,18 @@ export async function getMetrikaConfigForBusiness(business: { id: string; slug: 
       log.warn('[MetrikaAdapter] bad metrika_config JSON', { error: err?.message })
     }
   }
-  const def = DEFAULT_COUNTERS[business.slug]
-  return def ? { ...def } : null
+  return null
 }
 
 /**
  * Собрать веб-трафик по UTM за период (по дням). Возвращает [] если адаптер не настроен.
  */
 export async function fetchMetrikaTraffic(
-  business: { id: string; slug: string },
+  business: MetrikaBusinessRef,
   dateFrom: Date,
   dateTo: Date,
 ): Promise<CollectedSiteTraffic[]> {
-  const token = await getMetrikaToken()
+  const token = await getMetrikaToken(business.id)
   if (!token) {
     log.info('[MetrikaAdapter] выключен — нет metrika_oauth_token (предусловие: OAuth Метрики)')
     return []
