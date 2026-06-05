@@ -107,3 +107,12 @@
 - Sound Studio MVP: suno.ts, 13 Ss* компонентов, wavesurfer.js. KIE Suno API v2
 - MusicPersona voice clone (V5.5 Generate Persona). 8 music enhance modes
 - Voice Input: useVoiceInput composable, Whisper STT, ~$0.006/мин
+
+## Архив 2026-06-04 (polish-сессия — перекрыто consolidated-записью в MEMORY)
+- [2026-04-05] VK фото-постинг: Community Token error 27 → нужен User Token через OAuth. (Решено обходом через Postmypost — см. MEMORY.)
+- [2026-06-04] VK фото на СТЕНУ диагностика: community→error 27, app-user-token→error 15 (нет scope photos). Обход — Postmypost (реализовано в polish-сессии). Сторис VK работают напрямую (community умеет stories, не wall-photos).
+- [2026-06-04] Рефактор редактора Эпик A Фаза 4: PUT/DELETE /post-versions/:id (per-channel оверрайд, 409 PUBLISHED/SCHEDULED) + превью-компоненты components/posts/preview/* + usePlatformRegistry. effectiveText: черновик→оверрайд→мастер. (Детали в CLAUDE.md.)
+- [2026-06-04] Рефактор редактора Эпик A Фазы 2/3/5 + UTM: одноколоночный композер, usePlatformLimits, createModal+CreateContentModal, Идея→Пост, utils/utm.ts+publish-utm.ts. (Детали в CLAUDE.md.)
+- [2026-06-04] Пресеты сторис A3: StoryTemplate businessId nullable + isSystem + textAlign/bgRadius, 5 системных пресетов (seed-story-presets.ts).
+- [2026-06-04] SMM-аналитика «на будущее» — реализовано в build-сессии (см. ADR + MEMORY Эпик B Phase 4+5).
+- [2026-06-04] Авто-импорт ERP-событий D: NAWODE_EVENTS + getEventsInRange/getBookingsInRange. Перекрыто strategy-as-data (Occasion в БД + services/ai/strategy.ts getOccasionsInRange).

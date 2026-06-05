@@ -77,12 +77,16 @@ content-factory/
 │   │   │   │   ├── suno.ts           # KIE.ai Suno client: createMusicTask, processMusicResult, generatePersona
 │   │   │   │   ├── image-generation.ts # AI image gen (Gemini 2.5 Flash Image)
 │   │   │   │   ├── fal.ts            # FAL.ai SDK (image editing, remove bg)
-│   │   │   │   └── whisper.ts        # OpenAI Whisper STT (voice transcription, AppConfig + .env key)
+│   │   │   │   ├── whisper.ts        # OpenAI Whisper STT (voice transcription, AppConfig + .env key)
+│   │   │   │   ├── strategy.ts       # strategy-as-data: рубрики/поводы/стратегия/сезон из БД (generic)
+│   │   │   │   └── nawode-strategy.ts # НаWоде константы — ТОЛЬКО для сидера seed-nawode-strategy.ts
+│   │   │   ├── datasource/     # DataSourceAdapter (Эпик B Phase 2): NawodeErpAdapter (обёртка nawode-data) + Null + реестр по erpType
 │   │   │   └── publishers/
-│   │   │       ├── base.ts     # Publisher interface
-│   │   │       ├── vk.ts       # VK wall.post + photo/video + Stories
+│   │   │       ├── base.ts     # Publisher interface + getPublisher(platform,{postType,config}) — VK гибрид
+│   │   │       ├── postmypost.ts # Generic Postmypost (IG + VK-стена через config.viaPostmypost; API v4.1, byFile→S3)
+│   │   │       ├── vk.ts       # VK wall.post + photo/video + Stories (прямой VK API; сторис всегда тут)
 │   │   │       ├── telegram.ts # TG sendPhoto/Video/MediaGroup
-│   │   │       └── instagram.ts # Instagram через Postmypost (Stories/Reels/Posts, API v4.1, byFile→S3)
+│   │   │       └── instagram.ts # тонкая обёртка над PostmypostPublisher (backward-compat)
 │   │   └── utils/
 │   │       ├── paths.ts        # getModuleDir (Bun/Node compat)
 │   │       └── logger.ts       # Structured logging (JSON prod, pretty dev)
@@ -160,8 +164,8 @@ content-factory/
 └── scripts/deploy.sh, backup-db.sh
 ```
 
-## Schema (33 модели, 8 enums)
-User, UserBusiness, Business, BrandProfile, PlatformAccount, ContentPlan, ContentPlanItem, Post, PostVersion, PublishLog, MediaFolder, MediaFile, AiUsageLog, WebhookRule, AppConfig, Idea, StoryTemplate, Character, CharacterBusiness, CharacterImage, Scenario, PromptEntry, PromptTemplate, GenerationSession, BalanceTransaction, MusicPersona, PhotoCatalog, AutoPostTask, **SocialPostMetricSnapshot**, **SocialAccountMetricSnapshot**, **SiteTrafficSnapshot**, **AnalyticsReport** (Эпик B — SMM-аналитика)
+## Schema (35 моделей, 8 enums)
+User, UserBusiness, Business, BrandProfile, PlatformAccount, ContentPlan, ContentPlanItem, Post, PostVersion, PublishLog, MediaFolder, MediaFile, AiUsageLog, WebhookRule, AppConfig, Idea, StoryTemplate, Character, CharacterBusiness, CharacterImage, Scenario, PromptEntry, PromptTemplate, GenerationSession, BalanceTransaction, MusicPersona, PhotoCatalog, AutoPostTask, SocialPostMetricSnapshot, SocialAccountMetricSnapshot, SiteTrafficSnapshot, AnalyticsReport, **Rubric**, **Occasion** (strategy-as-data — Эпик B Phase 3)
 
 Enums: UserRole, Platform, AccountType, PostType, PostStatus, ContentPlanStatus, PublishStatus
 
