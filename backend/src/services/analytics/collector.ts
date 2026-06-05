@@ -10,7 +10,7 @@ import { db } from '../../db'
 import { log } from '../../utils/logger'
 import { ensureValidToken } from '../vk-oauth'
 import { fetchVkPostMetrics, fetchVkStoryMetrics, fetchVkAccountMetrics } from './vk-adapter'
-import { fetchPostmypostPostMetrics } from './postmypost-adapter'
+import { fetchPostmypostPostMetrics, resolvePmpExternalId } from './postmypost-adapter'
 import { fetchMetrikaTraffic } from './metrika-adapter'
 import type { CollectedPostMetric, CollectedAccountMetric, CollectedSiteTraffic, PublishedRef } from './types'
 
@@ -94,7 +94,17 @@ export async function collectBusinessMetrics(
       const ownerId = acc.accountType === 'GROUP' ? `-${acc.accountId}` : acc.accountId
       const refs = refsFor(versions, acc.id, 'VK')
       const storyRefs = refs.filter(r => r.publicationType === 'STORY')
-      const postRefs = refs.filter(r => r.publicationType !== 'STORY')
+      let postRefs = refs.filter(r => r.publicationType !== 'STORY')
+      // VK-via-Postmypost: externalPostId хранит PMP publication id → резолвим в VK post id
+      // (как у IG), чтобы wall.getById построил верный {ownerId}_{postId}. scope `stats` не нужен.
+      const viaPmp = ((acc.config ?? {}) as Record<string, unknown>).viaPostmypost === true
+      const pmpToken = process.env.POSTMYPOST_API_TOKEN || ''
+      if (viaPmp && pmpToken && postRefs.length) {
+        postRefs = await Promise.all(postRefs.map(async (ref) => {
+          const resolved = await resolvePmpExternalId(pmpToken, ref.externalPostId)
+          return resolved ? { ...ref, externalPostId: resolved.externalId } : ref
+        }))
+      }
       try {
         if (postRefs.length) allPostMetrics.push(...await fetchVkPostMetrics(readToken, ownerId, postRefs))
         // Сторис: stories.getStats (только пока активны ~24ч, нужен scope `stats`)

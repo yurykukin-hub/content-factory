@@ -37,14 +37,18 @@ function mapType(t: any): string {
   return 'POST'
 }
 
-/** Разрешить IG external_id + реальный URL по числовому publication id. */
-async function resolveIgPost(token: string, pubId: string): Promise<{ externalId: string; url: string | null } | null> {
+/**
+ * Разрешить площадочный external_id + реальный URL по числовому Postmypost publication id.
+ * Generic: для IG отдаёт IG media id, для VK — VK post id (например "835").
+ * Используется и IG-адаптером, и VK-веткой коллектора (VK-via-Postmypost посты).
+ */
+export async function resolvePmpExternalId(token: string, pubId: string): Promise<{ externalId: string; url: string | null } | null> {
   try {
     const res = await pmApi(token, 'GET', `/publications/${pubId}`)
     const post = res.data?.posts?.[0]
     if (post?.external_id) return { externalId: String(post.external_id), url: post.url || null }
   } catch (err: any) {
-    log.warn('[PostmypostAdapter] resolveIgPost failed', { pubId, error: err?.message })
+    log.warn('[PostmypostAdapter] resolvePmpExternalId failed', { pubId, error: err?.message })
   }
   return null
 }
@@ -64,7 +68,7 @@ export async function fetchPostmypostPostMetrics(
   // 1. Карта externalPostId(pm) → IG external_id для CF-постов этого аккаунта
   const igMap = new Map<string, { postId: string; postVersionId: string }>()
   for (const ref of refs) {
-    const resolved = await resolveIgPost(token, ref.externalPostId)
+    const resolved = await resolvePmpExternalId(token, ref.externalPostId)
     if (resolved) igMap.set(resolved.externalId, { postId: ref.postId, postVersionId: ref.postVersionId })
   }
 

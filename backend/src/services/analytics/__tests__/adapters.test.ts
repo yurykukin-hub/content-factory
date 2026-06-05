@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { fetchVkPostMetrics } from '../vk-adapter'
-import { fetchPostmypostPostMetrics } from '../postmypost-adapter'
+import { fetchPostmypostPostMetrics, resolvePmpExternalId } from '../postmypost-adapter'
 import { chunk, ymd, round2 } from '../types'
 
 /** Мок fetch с маршрутизацией по подстроке URL. */
@@ -31,6 +31,17 @@ describe('types helpers', () => {
   it('round2 rounds to 2 decimals', () => {
     expect(round2(2.29885)).toBe(2.3)
     expect(round2(5)).toBe(5)
+  })
+})
+
+describe('resolvePmpExternalId (PMP pub id → площадочный external_id, для VK-via-Postmypost)', () => {
+  it('возвращает VK post id из posts[0].external_id', async () => {
+    stubFetch([{ match: u => u.includes('/publications/30377368'), response: { posts: [{ external_id: '835', url: 'https://vk.ru/wall-150371202_835' }] } }])
+    expect(await resolvePmpExternalId('tok', '30377368')).toEqual({ externalId: '835', url: 'https://vk.ru/wall-150371202_835' })
+  })
+  it('null, если posts пуст / нет external_id', async () => {
+    stubFetch([{ match: u => u.includes('/publications/'), response: { posts: [] } }])
+    expect(await resolvePmpExternalId('tok', '999')).toBeNull()
   })
 })
 
