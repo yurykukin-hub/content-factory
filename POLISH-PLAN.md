@@ -37,7 +37,7 @@
 - [x] **VK ре-авторизация проверена** — токен свежий, НО VK не выдал `stats`+`photos` (маска 73808; нужна модерация VK-аппа). Юрий подаёт.
 - [x] **VK пост-метрики через Postmypost-резолв → wall.getById** (scope stats не нужен) — verified live (пост 835 → views=10), коллектор 9 IG + 0 ошибок. Commit deployed.
 - [ ] (gated, Юрий, после модерации VK-аппа) stories.getStats/stats.get — VK сторис/account-reach
-- [ ] (gated, Юрий) после Метрика-OAuth — визиты+цели по utm_content (site_traffic сейчас 0)
+- [x] **Метрика подключена** — OAuth-токен в проде, визиты по utm собираются (262 виз/30д, site_traffic=5, 0 ошибок, 2×/день). Цели «бронь» (goalIds) — ждут номер цели от Юрия.
 
 ## 3. Арх-долг Эпика B — ✅ СНЯТ (commit 4a0f822, в проде)
 - [x] Phase 3 — strategy-as-data: модели `Rubric`+`Occasion` + `BrandProfile.contentStrategy`/`seasonHints`; generic `services/ai/strategy.ts`; сидер `seed-nawode-strategy.ts` (идемпотентный); убран литерал `erpType==='nawode'` в digest+plan
