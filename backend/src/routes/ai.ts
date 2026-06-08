@@ -12,6 +12,7 @@ import { verifyPostAccess, assertBusinessAccess } from '../middleware/resource-a
 import { canAfford, getMarkupPercent, getChargedRub, chargeUser } from '../services/billing'
 import { getRubricNames, getOccasionsInRange } from '../services/ai/strategy'
 import { getDataSourceAdapter } from '../services/datasource'
+import { log } from '../utils/logger'
 
 const ai = new Hono()
 
@@ -885,34 +886,48 @@ ai.post('/generate-video', async (c) => {
 
   // Async: создать задачу в KIE (2-5 сек) → сохранить taskId → ответить сразу
   // Background poller (video-poller.ts) подхватит и скачает результат
-  const task = await createVideoTask({
-    prompt: data.prompt,
-    businessId: data.businessId,
-    postId: data.postId || null,
-    duration: data.duration,
-    aspectRatio: data.aspectRatio,
-    resolution: data.resolution,
-    generateAudio: data.generateAudio,
-    firstFrameUrl: data.firstFrameUrl || null,
-    lastFrameUrl: data.lastFrameUrl || null,
-    referenceImageUrls: data.referenceImageUrls || undefined,
-    userId: user.userId,
-  })
-
-  // Сохранить kieTaskId в сессию — poller найдёт по нему
-  if (data.sessionId) {
-    await db.generationSession.update({
-      where: { id: data.sessionId },
-      data: {
-        kieTaskId: task.kieTaskId,
-        kieTaskCreatedAt: new Date(),
-        costUsd: task.costUsd,
-      },
+  try {
+    const task = await createVideoTask({
+      prompt: data.prompt,
+      businessId: data.businessId,
+      postId: data.postId || null,
+      duration: data.duration,
+      aspectRatio: data.aspectRatio,
+      resolution: data.resolution,
+      generateAudio: data.generateAudio,
+      firstFrameUrl: data.firstFrameUrl || null,
+      lastFrameUrl: data.lastFrameUrl || null,
+      referenceImageUrls: data.referenceImageUrls || undefined,
+      userId: user.userId,
     })
-  }
 
-  // Ответить мгновенно — не ждать генерации
-  return c.json({ sessionId: data.sessionId, status: 'generating', kieTaskId: task.kieTaskId }, 202)
+    // Сохранить kieTaskId в сессию — poller найдёт по нему
+    if (data.sessionId) {
+      await db.generationSession.update({
+        where: { id: data.sessionId },
+        data: {
+          kieTaskId: task.kieTaskId,
+          kieTaskCreatedAt: new Date(),
+          costUsd: task.costUsd,
+        },
+      })
+    }
+
+    // Ответить мгновенно — не ждать генерации
+    return c.json({ sessionId: data.sessionId, status: 'generating', kieTaskId: task.kieTaskId }, 202)
+  } catch (err: any) {
+    // Откатить статус сессии при ошибке создания задачи KIE (напр. "Credits insufficient").
+    // Иначе сессия вечно висит в "генерится": kieTaskId не сохранён → poller её не видит,
+    // а авто-разлок (>15 мин по updatedAt) не срабатывает из-за автосейва фронта.
+    if (data.sessionId) {
+      await db.generationSession.update({
+        where: { id: data.sessionId },
+        data: { status: 'failed', errorMessage: err.message?.slice(0, 300) },
+      }).catch(() => {})
+    }
+    log.error('[Video] generate error', { error: err.message })
+    return c.json({ error: err.message || 'Ошибка генерации видео' }, 500)
+  }
 })
 
 // POST /api/ai/merge-references — AI распознаёт фотки и вставляет @ImageN теги в промпт

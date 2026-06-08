@@ -20,7 +20,9 @@ import { createHash } from 'crypto'
 const CATALOG_INTERVAL = 10 * 60 * 1000  // 10 minutes
 const BATCH_SIZE = 50
 const GOOGLE_PHOTOS_DIR = process.env.GOOGLE_PHOTOS_DIR || '/app/google-photos'
-const THUMBS_DIR = join(GOOGLE_PHOTOS_DIR, '.thumbs')
+// GOOGLE_PHOTOS_DIR смонтирован read-only (:ro) — писать .thumbs внутрь нельзя (EROFS).
+// Превью кладём в writable uploads volume.
+const THUMBS_DIR = process.env.GOOGLE_PHOTOS_THUMBS_DIR || '/app/uploads/.google-photos-thumbs'
 
 const SUPPORTED_EXTENSIONS = new Set([
   '.jpg', '.jpeg', '.png', '.heic', '.webp', '.gif',
@@ -137,9 +139,14 @@ async function catalogNewFiles() {
     return  // sync directory doesn't exist yet — skip silently
   }
 
-  // Ensure thumbs directory exists
-  if (!existsSync(THUMBS_DIR)) {
-    mkdirSync(THUMBS_DIR, { recursive: true })
+  // Ensure thumbs directory exists (writable uploads volume, НЕ read-only google-photos mount)
+  try {
+    if (!existsSync(THUMBS_DIR)) {
+      mkdirSync(THUMBS_DIR, { recursive: true })
+    }
+  } catch (err: any) {
+    // Превью не критичны — каталогизация метаданных продолжается даже без них
+    log.warn('[Cataloger] thumbs dir unavailable, skipping thumbnails', { dir: THUMBS_DIR, error: err.message })
   }
 
   // Collect all media files
