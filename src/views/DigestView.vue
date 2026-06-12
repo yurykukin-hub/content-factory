@@ -7,7 +7,7 @@ import { useBusinessesStore } from '@/stores/businesses'
 import { useAuthStore } from '@/stores/auth'
 import { platformColor } from '@/composables/usePlatform'
 import { formatDate } from '@/composables/useFormatters'
-import { Sunrise, Sparkles, Loader2, Check, X, Lightbulb, CalendarClock, FileEdit } from 'lucide-vue-next'
+import { Sunrise, Sparkles, Loader2, Check, X, Lightbulb, CalendarClock, FileEdit, Flame, RotateCcw, ChevronDown } from 'lucide-vue-next'
 
 interface DigestTask {
   id: string
@@ -24,6 +24,17 @@ interface DigestTask {
   createdAt: string
 }
 
+interface InspirationPost {
+  id: string
+  accountName: string
+  text: string
+  engagementRate: number | null
+  likes: number
+  reposts: number
+  views: number
+  externalUrl: string
+}
+
 const router = useRouter()
 const toast = useToast()
 const businesses = useBusinessesStore()
@@ -31,8 +42,10 @@ const auth = useAuthStore()
 const isAdmin = computed(() => auth.user?.role === 'ADMIN')
 
 const tasks = ref<DigestTask[]>([])
+const inspiration = ref<InspirationPost[]>([])
 const loading = ref(true)
 const generating = ref(false)
+const showArchive = ref(false)
 const actingId = ref<string | null>(null)
 
 function bizName(id: string): string {
@@ -46,20 +59,26 @@ const POST_TYPE_LABELS: Record<string, string> = {
 async function load() {
   loading.value = true
   try {
-    // proposed + approved: одобренные остаются видны как «черновик создан»
-    tasks.value = await http.get<DigestTask[]>('/auto-posts?source=digest&status=proposed,approved&limit=50')
+    // proposed + approved + rejected: одобренные (черновик) и отклонённые (архив) остаются
+    tasks.value = await http.get<DigestTask[]>('/auto-posts?source=digest&status=proposed,approved,rejected&limit=50')
   } catch (e: any) {
     toast.error('Ошибка загрузки: ' + (e.message || e))
   } finally {
     loading.value = false
   }
+  // Вдохновение у конкурентов — отдельно, ошибка не должна ронять дайджест
+  const bizId = businesses.currentBusiness?.id
+  inspiration.value = bizId
+    ? await http.get<InspirationPost[]>(`/auto-posts/competitor-inspiration?businessId=${bizId}`).catch(() => [])
+    : []
 }
 
-// Предложения сверху (требуют действия), созданные черновики — ниже
-const sortedTasks = computed(() => [
+// Активные: предложения сверху, созданные черновики ниже. Отклонённые — отдельно в архиве.
+const activeTasks = computed(() => [
   ...tasks.value.filter(t => t.status === 'proposed'),
-  ...tasks.value.filter(t => t.status !== 'proposed'),
+  ...tasks.value.filter(t => t.status === 'approved'),
 ])
+const archivedTasks = computed(() => tasks.value.filter(t => t.status === 'rejected'))
 
 async function generate() {
   generating.value = true
@@ -98,8 +117,21 @@ async function reject(task: DigestTask) {
   actingId.value = task.id
   try {
     await http.post(`/auto-posts/${task.id}/reject`, {})
-    tasks.value = tasks.value.filter(t => t.id !== task.id)
-    toast.info('Отклонено')
+    task.status = 'rejected' // уходит в архив ниже, не теряется
+    toast.info('Отклонено — в архиве ниже')
+  } catch (e: any) {
+    toast.error('Ошибка: ' + (e.message || e))
+  } finally {
+    actingId.value = null
+  }
+}
+
+async function restore(task: DigestTask) {
+  actingId.value = task.id
+  try {
+    await http.post(`/auto-posts/${task.id}/restore`, {})
+    task.status = 'proposed'
+    toast.success('Возвращено в предложения')
   } catch (e: any) {
     toast.error('Ошибка: ' + (e.message || e))
   } finally {
@@ -127,21 +159,38 @@ onMounted(load)
       AI-агент анализирует погоду, бронирования и контент-план и предлагает, что постить сегодня. Одобрите — создастся черновик, который можно доработать и опубликовать.
     </p>
 
+    <!-- Вдохновлено у конкурентов -->
+    <div v-if="inspiration.length" class="mb-5 bg-fuchsia-50/60 dark:bg-fuchsia-950/20 border border-fuchsia-200 dark:border-fuchsia-900/40 rounded-xl p-4">
+      <div class="flex items-center gap-2 mb-2 flex-wrap">
+        <Flame :size="16" class="text-fuchsia-500" />
+        <span class="text-sm font-semibold text-fuchsia-700 dark:text-fuchsia-300">Вдохновлено у конкурентов</span>
+        <span class="text-[11px] text-gray-400">залетело за 7 дней · агент учёл это в предложениях</span>
+      </div>
+      <div class="space-y-1.5">
+        <a v-for="p in inspiration" :key="p.id" :href="p.externalUrl" target="_blank" rel="noopener"
+          class="block text-xs text-gray-600 dark:text-gray-400 hover:text-fuchsia-600 dark:hover:text-fuchsia-400 transition-colors">
+          <span class="font-medium">{{ p.accountName }}:</span>
+          «{{ p.text.slice(0, 110) || '(без текста)' }}{{ p.text.length > 110 ? '…' : '' }}»
+          <span class="text-fuchsia-500 whitespace-nowrap">ER {{ p.engagementRate ?? '?' }}% · {{ p.views }}👁</span>
+        </a>
+      </div>
+    </div>
+
     <!-- Loading -->
     <div v-if="loading" class="space-y-3">
       <div v-for="i in 3" :key="i" class="bg-white dark:bg-gray-900 rounded-xl p-5 border border-gray-200 dark:border-gray-800 animate-pulse h-40"></div>
     </div>
 
     <!-- Empty -->
-    <div v-else-if="tasks.length === 0" class="bg-white dark:bg-gray-900 rounded-xl p-8 border border-gray-200 dark:border-gray-800 text-center">
+    <div v-else-if="activeTasks.length === 0" class="bg-white dark:bg-gray-900 rounded-xl p-8 border border-gray-200 dark:border-gray-800 text-center">
       <Sunrise :size="48" class="mx-auto text-gray-300 dark:text-gray-600 mb-3" />
-      <p class="text-gray-500 mb-1">Пока нет предложений</p>
+      <p class="text-gray-500 mb-1">Нет активных предложений</p>
       <p class="text-xs text-gray-400">Агент готовит дайджест каждое утро. Или нажмите «Сгенерировать сейчас».</p>
     </div>
 
     <!-- Suggestions -->
     <div v-else class="space-y-4">
-      <div v-for="task in sortedTasks" :key="task.id"
+      <div v-for="task in activeTasks" :key="task.id"
         :class="['rounded-xl p-5 border transition-colors', task.status === 'approved' ? 'bg-green-50/40 dark:bg-green-950/20 border-green-200 dark:border-green-900/50' : 'bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-800']">
         <!-- Top row: type + platforms + biz + date -->
         <div class="flex items-center gap-2 flex-wrap mb-2">
@@ -194,6 +243,30 @@ onMounted(load)
           <button @click="openDraft(task)"
             class="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800">
             <FileEdit :size="15" /> Открыть черновик
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Архив отклонённых -->
+    <div v-if="!loading && archivedTasks.length" class="mt-5">
+      <button @click="showArchive = !showArchive"
+        class="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">
+        <ChevronDown :size="16" :class="showArchive ? '' : '-rotate-90'" class="transition-transform" />
+        Отклонённые ({{ archivedTasks.length }})
+      </button>
+      <div v-if="showArchive" class="space-y-2 mt-3">
+        <div v-for="task in archivedTasks" :key="task.id"
+          class="flex items-start gap-3 bg-gray-50 dark:bg-gray-800/50 rounded-lg p-3 border border-gray-200 dark:border-gray-800">
+          <div class="flex-1 min-w-0">
+            <div class="text-xs font-medium text-gray-600 dark:text-gray-300">
+              {{ POST_TYPE_LABELS[task.postType || 'TEXT'] || task.postType }}<span v-if="task.title"> · {{ task.title }}</span>
+            </div>
+            <p class="text-xs text-gray-400 mt-0.5">{{ task.proposedText.slice(0, 100) }}{{ task.proposedText.length > 100 ? '…' : '' }}</p>
+          </div>
+          <button @click="restore(task)" :disabled="actingId === task.id"
+            class="shrink-0 flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-gray-500 hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-50">
+            <Loader2 v-if="actingId === task.id" :size="13" class="animate-spin" /><RotateCcw v-else :size="13" /> Вернуть
           </button>
         </div>
       </div>

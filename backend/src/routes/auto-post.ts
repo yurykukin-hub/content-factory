@@ -93,6 +93,35 @@ autoPost.post('/:id/reject', async (c) => {
   return c.json({ ok: true })
 })
 
+// POST /api/auto-posts/:id/restore — вернуть отклонённое предложение обратно
+autoPost.post('/:id/restore', async (c) => {
+  const task = await db.autoPostTask.findUnique({ where: { id: c.req.param('id') } })
+  if (!task) return c.json({ error: 'Task not found' }, 404)
+  await db.autoPostTask.update({
+    where: { id: task.id },
+    data: { status: 'proposed', decidedAt: null },
+  })
+  return c.json({ ok: true })
+})
+
+// GET /api/auto-posts/competitor-inspiration?businessId=X — топ «залетевших» постов конкурентов
+autoPost.get('/competitor-inspiration', async (c) => {
+  const businessId = c.req.query('businessId')
+  if (!businessId) return c.json([])
+  const { getViralCompetitorPosts } = await import('../services/competitor-poller')
+  const posts = await getViralCompetitorPosts(businessId, 7, 5)
+  return c.json(posts.map((p: any) => ({
+    id: p.id,
+    accountName: p.account.displayName,
+    text: p.text,
+    engagementRate: p.engagementRate,
+    likes: p.likes,
+    reposts: p.reposts,
+    views: p.views,
+    externalUrl: p.externalUrl,
+  })))
+})
+
 // POST /api/auto-posts/generate — manual trigger
 autoPost.post('/generate', async (c) => {
   const user = c.get('user') as { role?: string }
