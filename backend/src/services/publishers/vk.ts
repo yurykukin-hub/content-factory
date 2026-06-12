@@ -3,6 +3,7 @@ import type { PlatformAccount } from '@prisma/client'
 import { join } from 'path'
 import { readFile } from 'fs/promises'
 import { getModuleDir } from '../../utils/paths'
+import { log } from '../../utils/logger'
 
 const UPLOAD_DIR = join(getModuleDir(import.meta), '../../../uploads')
 
@@ -160,7 +161,7 @@ export class VkPublisher implements Publisher {
       })
       const serverData = await serverRes.json() as any
       if (serverData.error) {
-        console.error('[VK] getWallUploadServer error:', serverData.error)
+        log.error('[VK] getWallUploadServer error', { error: serverData.error })
         return null
       }
       const uploadUrl = serverData.response.upload_url
@@ -194,14 +195,14 @@ export class VkPublisher implements Publisher {
       })
       const saveData = await saveRes.json() as any
       if (saveData.error) {
-        console.error('[VK] saveWallPhoto error:', saveData.error)
+        log.error('[VK] saveWallPhoto error', { error: saveData.error })
         return null
       }
 
       const photo = saveData.response[0]
       return `photo${photo.owner_id}_${photo.id}`
     } catch (err) {
-      console.error('[VK] Photo upload error:', err)
+      log.error('[VK] Photo upload error', { error: String(err) })
       return null
     }
   }
@@ -231,7 +232,7 @@ export class VkPublisher implements Publisher {
       })
       const saveData = await saveRes.json() as any
       if (saveData.error) {
-        console.error('[VK] video.save error:', saveData.error)
+        log.error('[VK] video.save error', { error: saveData.error })
         return null
       }
 
@@ -250,7 +251,7 @@ export class VkPublisher implements Publisher {
 
       return `video${videoOwnerId}_${videoId}`
     } catch (err) {
-      console.error('[VK] Video upload error:', err)
+      log.error('[VK] Video upload error', { error: String(err) })
       return null
     }
   }
@@ -323,14 +324,14 @@ export class VkPublisher implements Publisher {
           if (w / h > 0.6) {
             // Фото слишком широкое — кропнуть/ресайзить в 9:16
             const cropPosition = storiesOptions?.photoPosition || 'center'
-            console.log(`[VK Stories] Resizing ${w}x${h} → 1080x1920 (9:16, ${cropPosition})`)
+            log.info(`[VK Stories] Resizing ${w}x${h} → 1080x1920 (9:16, ${cropPosition})`)
             fileBuffer = await sharpLib(fileBuffer)
               .resize(1080, 1920, { fit: 'cover', position: cropPosition as any })
               .jpeg({ quality: 90 })
               .toBuffer()
           }
         } catch (err) {
-          console.error('[VK Stories] Resize error:', err)
+          log.error('[VK Stories] Resize error', { error: String(err) })
         }
       }
 
@@ -341,19 +342,19 @@ export class VkPublisher implements Publisher {
           fileBuffer = Buffer.from(await overlayTextOnImage(fileBuffer, text, {
             position: storiesOptions?.textPosition || 'bottom',
           }))
-          console.log('[VK Stories] Text overlay applied (server-side)')
+          log.info('[VK Stories] Text overlay applied (server-side)')
         } catch (err) {
-          console.error('[VK Stories] Text overlay error:', err)
+          log.error('[VK Stories] Text overlay error', { error: String(err) })
         }
       } else if (storiesOptions?.skipOverlay) {
-        console.log('[VK Stories] Using pre-rendered image (client canvas)')
+        log.info('[VK Stories] Using pre-rendered image (client canvas)')
       }
 
       const formData = new FormData()
       const fieldName = isVideo ? 'video_file' : 'photo'
       formData.append(fieldName, new Blob([fileBuffer], { type: mf.mimeType }), mf.filename)
 
-      console.log(`[VK Stories] Uploading ${fileBuffer.length} bytes to VK...`)
+      log.info(`[VK Stories] Uploading ${fileBuffer.length} bytes to VK...`)
       const uploadRes = await fetch(uploadUrl, { method: 'POST', body: formData })
       const uploadText = await uploadRes.text()
       let uploadData: any
@@ -362,15 +363,15 @@ export class VkPublisher implements Publisher {
       } catch {
         return { success: false, error: `VK Stories: upload вернул не-JSON (HTTP ${uploadRes.status}): ${uploadText.slice(0, 220)}`, rawResponse: uploadText }
       }
-      console.log('[VK Stories] Upload response keys:', Object.keys(uploadData))
+      log.info('[VK Stories] Upload response keys', { keys: Object.keys(uploadData) })
 
       // Извлечь upload_result из ответа (VK возвращает {response: {upload_result: "..."}} )
       const uploadResult = uploadData?.response?.upload_result || uploadData?.upload_result
       if (!uploadResult) {
-        console.error('[VK Stories] No upload_result! Full response:', JSON.stringify(uploadData).slice(0, 300))
+        log.error('[VK Stories] No upload_result!', { response: JSON.stringify(uploadData).slice(0, 300) })
         return { success: false, error: 'VK Stories: upload не вернул upload_result. Попробуйте позже.', rawResponse: uploadData }
       }
-      console.log(`[VK Stories] Got upload_result (${uploadResult.length} chars)`)
+      log.info(`[VK Stories] Got upload_result (${uploadResult.length} chars)`)
 
       // 3. Save story
       const saveParams = new URLSearchParams({

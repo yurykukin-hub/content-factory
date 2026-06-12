@@ -1,5 +1,6 @@
 import { db } from '../db'
 import crypto from 'crypto'
+import { log } from '../utils/logger'
 
 const VK_OAUTH_URL = 'https://id.vk.com/authorize'
 const VK_TOKEN_URL = 'https://id.vk.com/oauth2/auth'
@@ -116,7 +117,7 @@ export async function exchangeCode(code: string, deviceId: string): Promise<{ su
   // Очистить verifier
   await deleteConfig('vk_pkce_verifier')
 
-  console.log(`[VK OAuth] Token obtained, expires at ${expiresAt.toISOString()}`)
+  log.info(`[VK OAuth] Token obtained, expires at ${expiresAt.toISOString()}`)
   return { success: true }
 }
 
@@ -163,7 +164,7 @@ export async function refreshToken(): Promise<{ success: boolean; expiresAt?: st
     await setConfig('vk_token_expires_at', expiresAt.toISOString())
     await deleteConfig('vk_last_error')
 
-    console.log(`[VK OAuth] Token refreshed, expires at ${expiresAt.toISOString()}`)
+    log.info(`[VK OAuth] Token refreshed, expires at ${expiresAt.toISOString()}`)
     return { success: true, expiresAt: expiresAt.toISOString() }
   } catch (err) {
     const error = `Refresh failed: ${String(err)}`
@@ -186,7 +187,7 @@ export async function ensureValidToken(): Promise<string | null> {
     const minutesLeft = (expiresAt.getTime() - Date.now()) / 60000
 
     if (minutesLeft < 5) {
-      console.log(`[VK OAuth] Token expires in ${minutesLeft.toFixed(1)} min, refreshing...`)
+      log.info(`[VK OAuth] Token expires in ${minutesLeft.toFixed(1)} min, refreshing...`)
       const result = await refreshToken()
       if (result.success) {
         return await getConfig('vk_user_token')
@@ -233,5 +234,5 @@ export async function disconnect(): Promise<void> {
   for (const key of keys) {
     await deleteConfig(key)
   }
-  console.log('[VK OAuth] Disconnected')
+  log.info('[VK OAuth] Disconnected')
 }

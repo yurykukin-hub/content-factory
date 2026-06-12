@@ -1,4 +1,5 @@
 import { db } from '../db'
+import { log } from '../utils/logger'
 import { getPublisher } from './publishers/base'
 import { checkAndRunAutoPost } from './auto-poster'
 import { checkAndRunDailyDigest } from './daily-digest'
@@ -15,29 +16,29 @@ const CHECK_INTERVAL = 60_000 // каждую минуту
  * Also triggers daily auto-poster check.
  */
 export function startPublishScheduler(): ReturnType<typeof setInterval> {
-  console.log('[Scheduler] Started — checking every 60s for scheduled posts + daily auto-poster')
+  log.info('[Scheduler] Started — checking every 60s for scheduled posts + daily auto-poster')
 
   return setInterval(async () => {
     try {
       // Daily auto-poster check (runs at configured time, skips if already ran today)
       await checkAndRunAutoPost().catch(e =>
-        console.error('[Scheduler] AutoPoster error:', e.message)
+        log.error('[Scheduler] AutoPoster error', { error: e.message })
       )
       // Daily morning digest check (НаWоде content agent)
       await checkAndRunDailyDigest().catch(e =>
-        console.error('[Scheduler] DailyDigest error:', e.message)
+        log.error('[Scheduler] DailyDigest error', { error: e.message })
       )
       // SMM metrics collection (VK/IG/Метрика) — в окна metrics_times_utc
       await checkAndRunMetricsCollection().catch(e =>
-        console.error('[Scheduler] MetricsCollection error:', e.message)
+        log.error('[Scheduler] MetricsCollection error', { error: e.message })
       )
       // Weekly SMM analyst report (петля обратной связи)
       await checkAndRunWeeklyAnalysis().catch(e =>
-        console.error('[Scheduler] WeeklyAnalysis error:', e.message)
+        log.error('[Scheduler] WeeklyAnalysis error', { error: e.message })
       )
       // Competitor monitoring (VK wall.get) — раз в день до дайджеста, opt-in
       await checkAndRunCompetitorCollection().catch(e =>
-        console.error('[Scheduler] CompetitorCollection error:', e.message)
+        log.error('[Scheduler] CompetitorCollection error', { error: e.message })
       )
       const now = new Date()
       const dueVersions = await db.postVersion.findMany({
@@ -53,7 +54,7 @@ export function startPublishScheduler(): ReturnType<typeof setInterval> {
 
       if (dueVersions.length === 0) return
 
-      console.log(`[Scheduler] Found ${dueVersions.length} posts to publish`)
+      log.info(`[Scheduler] Found ${dueVersions.length} posts to publish`)
 
       for (const version of dueVersions) {
         try {
@@ -98,7 +99,7 @@ export function startPublishScheduler(): ReturnType<typeof setInterval> {
             storiesOptions: schedStories,
           })
 
-          console.log(`[Scheduler] Published ${version.id} to ${version.platformAccount.platform}: ${result.success}`)
+          log.info(`[Scheduler] Published ${version.id} to ${version.platformAccount.platform}: ${result.success}`)
 
           // Записать лог
           await db.publishLog.create({
@@ -129,7 +130,7 @@ export function startPublishScheduler(): ReturnType<typeof setInterval> {
             })
           }
         } catch (err) {
-          console.error(`[Scheduler] Failed to publish ${version.id}:`, err)
+          log.error(`[Scheduler] Failed to publish ${version.id}`, { error: String(err) })
           await db.postVersion.update({
             where: { id: version.id },
             data: { status: 'FAILED' },
@@ -144,7 +145,7 @@ export function startPublishScheduler(): ReturnType<typeof setInterval> {
         }
       }
     } catch (err) {
-      console.error('[Scheduler] Error:', err)
+      log.error('[Scheduler] Error', { error: String(err) })
     }
   }, CHECK_INTERVAL)
 }
