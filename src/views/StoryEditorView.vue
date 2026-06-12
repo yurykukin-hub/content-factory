@@ -447,9 +447,11 @@ async function exportCanvas(): Promise<Blob> {
   canvas.height = exportHeight
   const ctx = canvas.getContext('2d')!
 
+  await document.fonts.ready // дождаться шрифтов → корректный перенос строк
   drawScene(ctx, exportWidth, exportHeight, fontSizeExport.value, true)
 
-  return new Promise(resolve => canvas.toBlob(b => resolve(b!), 'image/jpeg', 0.92))
+  return new Promise((resolve, reject) =>
+    canvas.toBlob(b => b ? resolve(b) : reject(new Error('не удалось сформировать изображение')), 'image/jpeg', 0.92))
 }
 
 // --- Overlay layer (для видео-сторис): ТОЛЬКО текст на прозрачном фоне ---
@@ -482,8 +484,10 @@ async function exportOverlayPng(): Promise<Blob> {
   canvas.width = exportWidth
   canvas.height = exportHeight
   const ctx = canvas.getContext('2d')!
+  await document.fonts.ready // дождаться шрифтов → корректный перенос строк
   drawOverlayLayer(ctx, exportWidth, exportHeight, fontSizeExport.value)
-  return new Promise(resolve => canvas.toBlob(b => resolve(b!), 'image/png')) // PNG = сохраняем alpha
+  return new Promise((resolve, reject) =>
+    canvas.toBlob(b => b ? resolve(b) : reject(new Error('не удалось сформировать слой текста')), 'image/png')) // PNG = сохраняем alpha
 }
 
 // --- Drag & drop ---
@@ -590,6 +594,9 @@ function loadImage(url: string, isOriginal = true) {
       originalPhotoUrl.value = url
     }
     nextTick(render)
+  }
+  img.onerror = () => {
+    toast.error('Не удалось загрузить изображение')
   }
   img.src = url
 }

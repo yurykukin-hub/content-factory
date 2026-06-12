@@ -181,7 +181,11 @@ app.get('/uploads/*', async (c) => {
 
   const file = Bun.file(filePath)
   if (await file.exists()) {
-    return new Response(file)
+    // CORS: разрешаем canvas (crossOrigin='anonymous') читать пиксели без tainted-canvas.
+    // Файлы публичные, поэтому wildcard безопасен. Чинит экспорт сторис/дизайн-слоя.
+    return new Response(file, {
+      headers: { 'Access-Control-Allow-Origin': '*' },
+    })
   }
   return c.json({ error: 'File not found' }, 404)
 })

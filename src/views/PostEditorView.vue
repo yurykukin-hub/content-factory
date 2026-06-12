@@ -216,15 +216,25 @@ async function suggestImageTemplates() {
   finally { suggestingImageTemplates.value = false }
 }
 
-async function savePost() {
-  if (!post.value) return
+async function savePost(silent = false): Promise<boolean> {
+  if (!post.value) return false
   saving.value = true
   try {
     await http.put(`/posts/${post.value.id}`, { title: post.value.title, body: post.value.body, postType: post.value.postType })
     originalBody.value = post.value.body
-    toast.success('Сохранено')
-  } catch (e: any) { toast.error('Ошибка сохранения: ' + (e.message || e)) }
+    if (!silent) toast.success('Сохранено')
+    return true
+  } catch (e: any) { toast.error('Ошибка сохранения: ' + (e.message || e)); return false }
   finally { saving.value = false }
+}
+
+// Автосейв мастер-текста (debounce) — защита от потери набранного
+let masterTimer: ReturnType<typeof setTimeout> | null = null
+function onMasterInput() {
+  if (masterTimer) clearTimeout(masterTimer)
+  masterTimer = setTimeout(() => {
+    if (hasUnsavedChanges.value) savePost(true)
+  }, 1500)
 }
 
 // Смена типа. Сторис — отдельная поверхность (канвас): сохраняем тип и уходим в визуальный редактор.
@@ -472,7 +482,12 @@ function onSaveDraft() {
 
 onBeforeRouteLeave(async () => {
   if (expandedChannelId.value) await flushOverride(expandedChannelId.value)
-  if (hasUnsavedChanges.value) return confirm('Есть несохранённые изменения. Уйти?')
+  if (masterTimer) { clearTimeout(masterTimer); masterTimer = null }
+  // Автосохраняем при уходе; спрашиваем только если сохранение упало
+  if (hasUnsavedChanges.value) {
+    const ok = await savePost(true)
+    if (!ok) return confirm('Не удалось сохранить изменения. Уйти без сохранения?')
+  }
 })
 
 onMounted(loadPost)
@@ -515,7 +530,7 @@ onMounted(loadPost)
         <!-- Заголовок -->
         <div class="mb-3">
           <label class="block text-sm font-medium mb-1">Заголовок</label>
-          <input v-model="post.title" placeholder="Заголовок (необязательно)"
+          <input v-model="post.title" @input="onMasterInput" placeholder="Заголовок (необязательно)"
             class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 focus:ring-2 focus:ring-brand-500 text-sm" />
         </div>
 
@@ -528,7 +543,7 @@ onMounted(loadPost)
             </span>
             <span v-if="hasUnsavedChanges" class="text-amber-500 text-[11px] ml-auto">Не сохранено</span>
           </div>
-          <textarea v-model="post.body" rows="8" placeholder="Текст вашего поста..."
+          <textarea v-model="post.body" @input="onMasterInput" rows="8" placeholder="Текст вашего поста..."
             class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 focus:ring-2 focus:ring-brand-500 text-sm leading-relaxed" />
         </div>
 
@@ -550,7 +565,7 @@ onMounted(loadPost)
             class="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-50">
             <Loader2 v-if="aiActionLoading === 'rephrase'" :size="12" class="animate-spin" /><RefreshCw v-else :size="12" /> Перефразировать
           </button>
-          <button @click="savePost" :disabled="saving"
+          <button @click="savePost()" :disabled="saving"
             class="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-medium border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50 ml-auto">
             <Loader2 v-if="saving" :size="12" class="animate-spin" /><Save v-else :size="12" /> Сохранить
           </button>
