@@ -27,7 +27,12 @@ async function vkCall(method: string, params: Record<string, string>): Promise<a
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({ ...params, v: VK_V }),
   })
-  return res.json() as any
+  try {
+    return (await res.json()) as any
+  } catch {
+    // VK при rate-limit/5xx может вернуть HTML — не роняем, отдаём error-форму
+    return { error: { error_msg: `non-JSON response (HTTP ${res.status})` } }
+  }
 }
 
 async function getConfig(key: string): Promise<string | null> {
@@ -49,7 +54,8 @@ export async function checkAndRunCompetitorCollection(): Promise<void> {
   if (now.getUTCHours() !== h || now.getUTCMinutes() !== m) return
 
   const last = await getConfig('competitor_last_run')
-  if (last && new Date(last).toDateString() === now.toDateString()) return
+  // Дедуп по UTC-дню (консистентно с UTC-окном запуска выше)
+  if (last && new Date(last).toISOString().slice(0, 10) === now.toISOString().slice(0, 10)) return
   await setConfig('competitor_last_run', now.toISOString())
 
   log.info('[Competitor] scheduled run starting')
@@ -93,7 +99,11 @@ export async function runCompetitorCollection(): Promise<{ accounts: number; pos
         const views = item.views?.count ?? 0
         const comments = item.comments?.count ?? 0
         const er = views > 0 ? round2(((likes + reposts + comments) / views) * 100) : null
-        const ownerId = item.owner_id ?? item.from_id ?? ''
+        const ownerId = item.owner_id ?? item.from_id ?? (isOwnerId ? acc.handle : null)
+        if (ownerId == null) {
+          log.warn('[Competitor] no owner_id, skip post', { handle: acc.handle, postId: item.id })
+          continue
+        }
         await db.competitorPost.upsert({
           where: { accountId_externalId: { accountId: acc.id, externalId: String(item.id) } },
           create: {
@@ -133,7 +143,9 @@ async function markViralPosts(accountId: string): Promise<number> {
   if (posts.length < 4) return 0 // мало данных для устойчивой медианы
 
   const rates = posts.map(p => p.engagementRate ?? 0).sort((a, b) => a - b)
-  const median = rates[Math.floor(rates.length / 2)] || 0
+  // Истинная медиана: при чётной длине — среднее двух центральных (иначе порог смещается вверх)
+  const mid = Math.floor(rates.length / 2)
+  const median = rates.length % 2 === 0 ? (rates[mid - 1] + rates[mid]) / 2 : rates[mid]
   if (median <= 0) return 0
   const threshold = median * VIRAL_THRESHOLD
   const viralIds = posts.filter(p => (p.engagementRate ?? 0) >= threshold).map(p => p.id)

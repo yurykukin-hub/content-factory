@@ -65,7 +65,9 @@ async function main() {
 
   // Включить модуль + время сбора по умолчанию (06:30 МСК = до утреннего дайджеста 07:00 МСК)
   await setConfig('competitor_monitor_enabled', 'true')
-  await setConfig('competitor_monitor_time_utc', '03:30')
+  // Время ставим только если ещё не задано — не затирать ручную настройку при ре-сидинге
+  const timeExists = await db.appConfig.findUnique({ where: { key: 'competitor_monitor_time_utc' } })
+  if (!timeExists) await setConfig('competitor_monitor_time_utc', '03:30')
   console.log('[seed-competitors] модуль включён (competitor_monitor_enabled=true, time=03:30 UTC)')
   console.log('[seed-competitors] готово')
 }
