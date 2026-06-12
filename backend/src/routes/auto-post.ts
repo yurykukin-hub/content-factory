@@ -17,7 +17,11 @@ autoPost.get('/', async (c) => {
   const limit = Math.min(parseInt(c.req.query('limit') || '50'), 100)
 
   const where: any = {}
-  if (status) where.status = status
+  if (status) {
+    // Поддержка нескольких статусов через запятую: ?status=proposed,approved
+    const statuses = status.split(',').map(s => s.trim()).filter(Boolean)
+    where.status = statuses.length > 1 ? { in: statuses } : statuses[0]
+  }
   if (businessId) where.businessId = businessId
   if (source) where.source = source
 

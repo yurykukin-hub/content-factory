@@ -6,7 +6,8 @@ import { useToast } from '@/composables/useToast'
 import { useBusinessesStore } from '@/stores/businesses'
 import { useAuthStore } from '@/stores/auth'
 import { platformColor } from '@/composables/usePlatform'
-import { Sunrise, Sparkles, Loader2, Check, X, Lightbulb, CalendarClock, RefreshCw } from 'lucide-vue-next'
+import { formatDate } from '@/composables/useFormatters'
+import { Sunrise, Sparkles, Loader2, Check, X, Lightbulb, CalendarClock, FileEdit } from 'lucide-vue-next'
 
 interface DigestTask {
   id: string
@@ -19,6 +20,7 @@ interface DigestTask {
   visualIdea: string | null
   aiReasoning: string | null
   platforms: string[]
+  postId: string | null
   createdAt: string
 }
 
@@ -44,13 +46,20 @@ const POST_TYPE_LABELS: Record<string, string> = {
 async function load() {
   loading.value = true
   try {
-    tasks.value = await http.get<DigestTask[]>('/auto-posts?source=digest&status=proposed&limit=50')
+    // proposed + approved: одобренные остаются видны как «черновик создан»
+    tasks.value = await http.get<DigestTask[]>('/auto-posts?source=digest&status=proposed,approved&limit=50')
   } catch (e: any) {
     toast.error('Ошибка загрузки: ' + (e.message || e))
   } finally {
     loading.value = false
   }
 }
+
+// Предложения сверху (требуют действия), созданные черновики — ниже
+const sortedTasks = computed(() => [
+  ...tasks.value.filter(t => t.status === 'proposed'),
+  ...tasks.value.filter(t => t.status !== 'proposed'),
+])
 
 async function generate() {
   generating.value = true
@@ -69,15 +78,20 @@ async function approve(task: DigestTask) {
   actingId.value = task.id
   try {
     const res = await http.post<{ postId: string; postType: string }>(`/auto-posts/${task.id}/approve`, {})
-    toast.success('Черновик создан — открываю редактор')
-    tasks.value = tasks.value.filter(t => t.id !== task.id)
-    if (res.postType === 'STORIES') router.push(`/stories/${res.postId}`)
-    else router.push(`/posts/${res.postId}`)
+    // Оставляем карточку видимой как «черновик создан» — не выкидываем из дайджеста
+    task.status = 'approved'
+    task.postId = res.postId
+    toast.success('Черновик создан')
   } catch (e: any) {
     toast.error('Ошибка: ' + (e.message || e))
   } finally {
     actingId.value = null
   }
+}
+
+function openDraft(task: DigestTask) {
+  if (!task.postId) return
+  router.push(task.postType === 'STORIES' ? `/stories/${task.postId}` : `/posts/${task.postId}`)
 }
 
 async function reject(task: DigestTask) {
@@ -127,15 +141,16 @@ onMounted(load)
 
     <!-- Suggestions -->
     <div v-else class="space-y-4">
-      <div v-for="task in tasks" :key="task.id"
-        class="bg-white dark:bg-gray-900 rounded-xl p-5 border border-gray-200 dark:border-gray-800">
-        <!-- Top row: type + platforms + biz -->
+      <div v-for="task in sortedTasks" :key="task.id"
+        :class="['rounded-xl p-5 border transition-colors', task.status === 'approved' ? 'bg-green-50/40 dark:bg-green-950/20 border-green-200 dark:border-green-900/50' : 'bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-800']">
+        <!-- Top row: type + platforms + biz + date -->
         <div class="flex items-center gap-2 flex-wrap mb-2">
           <span class="px-2 py-0.5 rounded-full text-xs font-semibold bg-brand-100 dark:bg-brand-950 text-brand-700 dark:text-brand-300">
             {{ POST_TYPE_LABELS[task.postType || 'TEXT'] || task.postType }}
           </span>
           <span v-for="p in task.platforms" :key="p" :class="['px-1.5 py-0.5 rounded text-[11px] font-medium', platformColor(p)]">{{ p }}</span>
           <span v-if="bizName(task.businessId)" class="text-xs text-gray-400">· {{ bizName(task.businessId) }}</span>
+          <span class="text-xs text-gray-400 ml-auto flex items-center gap-1"><CalendarClock :size="12" /> {{ formatDate(task.createdAt) }}</span>
         </div>
 
         <!-- Title -->
@@ -159,8 +174,8 @@ onMounted(load)
           <CalendarClock :size="14" class="shrink-0 mt-0.5" /><span>{{ task.aiReasoning }}</span>
         </p>
 
-        <!-- Actions -->
-        <div class="flex gap-2 pt-1">
+        <!-- Actions: предложение -->
+        <div v-if="task.status === 'proposed'" class="flex gap-2 pt-1">
           <button @click="approve(task)" :disabled="actingId === task.id"
             class="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-green-600 hover:bg-green-700 text-white text-sm font-medium disabled:opacity-50">
             <Loader2 v-if="actingId === task.id" :size="15" class="animate-spin" /><Check v-else :size="15" />
@@ -169,6 +184,16 @@ onMounted(load)
           <button @click="reject(task)" :disabled="actingId === task.id"
             class="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 text-sm font-medium text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50">
             <X :size="15" /> Отклонить
+          </button>
+        </div>
+        <!-- Actions: черновик уже создан -->
+        <div v-else class="flex items-center gap-2 pt-1 flex-wrap">
+          <span class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 text-sm font-medium">
+            <Check :size="15" /> Черновик создан
+          </span>
+          <button @click="openDraft(task)"
+            class="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800">
+            <FileEdit :size="15" /> Открыть черновик
           </button>
         </div>
       </div>
