@@ -489,16 +489,67 @@ ai.post('/adapt', async (c) => {
   return c.json({ versions }, 201)
 })
 
-// POST /api/ai/hashtags — генерация хештегов
+// POST /api/ai/hashtags — генерация хештегов под текст
+const hashtagsSchema = z.object({
+  businessId: z.string(),
+  text: z.string().min(1),
+  platform: z.string().optional(), // VK | TELEGRAM | INSTAGRAM
+})
 ai.post('/hashtags', async (c) => {
-  // TODO: реализовать генерацию хештегов
-  return c.json({ error: 'TODO: AI hashtags' }, 501)
+  const data = hashtagsSchema.parse(await c.req.json())
+  const user = c.get('user') as AuthUser
+  try {
+    await assertBusinessAccess(user, data.businessId)
+  } catch (e: any) {
+    if (e.message === 'FORBIDDEN') return c.json({ error: 'Нет доступа' }, 403)
+    throw e
+  }
+
+  const brandContext = await buildBrandContext(data.businessId)
+  const result = await aiComplete({
+    systemPrompt: buildHashtagPrompt(data.platform ?? 'VK', brandContext),
+    userPrompt: data.text,
+    model: config.models.haiku,
+    maxTokens: 200,
+    businessId: data.businessId,
+    action: 'generate_hashtags',
+    userId: user.userId,
+  })
+  const hashtags = result.content
+    .split('\n')
+    .map(h => h.trim().replace(/^#/, ''))
+    .filter(Boolean)
+  return c.json({ hashtags })
 })
 
-// POST /api/ai/rewrite — перефразирование текста
+// POST /api/ai/rewrite — перефразирование/правка текста по инструкции
+const rewriteSchema = z.object({
+  businessId: z.string(),
+  text: z.string().min(1),
+  instruction: z.string().optional(), // "сделай короче", "добавь призыв", иначе — просто перефразируй
+})
 ai.post('/rewrite', async (c) => {
-  // TODO: реализовать перефразирование
-  return c.json({ error: 'TODO: AI rewrite' }, 501)
+  const data = rewriteSchema.parse(await c.req.json())
+  const user = c.get('user') as AuthUser
+  try {
+    await assertBusinessAccess(user, data.businessId)
+  } catch (e: any) {
+    if (e.message === 'FORBIDDEN') return c.json({ error: 'Нет доступа' }, 403)
+    throw e
+  }
+
+  const brandContext = await buildBrandContext(data.businessId)
+  const instruction = data.instruction?.trim() || 'Перефразируй, сохранив смысл'
+  const result = await aiComplete({
+    systemPrompt: `Ты — редактор SMM-текстов.\n${brandContext}\n\nПерепиши присланный текст по инструкции, сохраняя тон бренда и язык оригинала. Верни ТОЛЬКО готовый текст, без пояснений и кавычек.`,
+    userPrompt: `Инструкция: ${instruction}\n\nТекст:\n${data.text}`,
+    model: config.models.haiku,
+    maxTokens: 800,
+    businessId: data.businessId,
+    action: 'rewrite_text',
+    userId: user.userId,
+  })
+  return c.json({ text: result.content.trim() })
 })
 
 // GET /api/ai/edit-models — список доступных моделей редактирования
