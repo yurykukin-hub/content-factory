@@ -12,7 +12,6 @@ import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/composables/useToast'
 import { useRates } from '@/composables/useRates'
 
-import SsModeTabs from '@/components/sound/SsModeTabs.vue'
 import SsLyricsEditor from '@/components/sound/SsLyricsEditor.vue'
 import SsStylePanel from '@/components/sound/SsStylePanel.vue'
 import SsSettingsPanel from '@/components/sound/SsSettingsPanel.vue'
@@ -51,7 +50,7 @@ const sessions = ref<MusicSession[]>([])
 const currentSessionId = ref<string | null>(null)
 
 // --- Music generation state ---
-const musicMode = ref<'simple' | 'custom'>('custom') // forced to custom, restore SsModeTabs to enable switching
+const musicMode = ref<'simple' | 'custom'>('custom') // forced to custom (Simple-режим скрыт)
 const prompt = ref('')
 const lyrics = ref('')
 const musicStyle = ref('')
@@ -614,8 +613,6 @@ onDeactivated(() => {
 
         <!-- Controls (fills remaining space) -->
         <div class="flex-1 min-h-0 flex flex-col border-t border-gray-200 dark:border-gray-800">
-          <!-- Mode tabs: hidden, forced to custom (uncomment SsModeTabs to restore) -->
-          <!-- <SsModeTabs v-model="musicMode" class="shrink-0" /> -->
 
           <!-- Prompt Tabs: Agent / Editor -->
           <div class="px-2 py-1 lg:px-4 lg:pb-2 shrink-0">
@@ -645,7 +642,7 @@ onDeactivated(() => {
               </label>
               <textarea v-model="prompt" :disabled="generating"
                 :placeholder="musicMode === 'simple'
-                  ? 'A dreamy indie rock song about summer nights with reverb guitars and soft female vocals, 100 bpm'
+                  ? 'Мечтательный инди-рок про летние вечера: рев-гитары, мягкий женский вокал, 100 bpm'
                   : 'Тема или краткое описание для генерации текста'"
                 :rows="musicMode === 'simple' ? undefined : 2"
                 :class="[

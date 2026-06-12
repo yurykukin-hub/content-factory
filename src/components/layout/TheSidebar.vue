@@ -21,6 +21,7 @@ import {
   Activity,
   Music,
   Sunrise,
+  Newspaper,
   Plus,
   X,
 } from 'lucide-vue-next'
@@ -85,7 +86,7 @@ const navGroups: NavGroup[] = [
     title: 'Контент',
     items: [
       { name: 'digest', label: 'Дайджест', icon: Sunrise, path: '/digest', section: 'posts' },
-      { name: 'posts', label: 'Контент', icon: Film, path: '/posts', section: 'posts' },
+      { name: 'posts', label: 'Контент', icon: Newspaper, path: '/posts', section: 'posts' },
       { name: 'ideas', label: 'Идеи', icon: Lightbulb, path: '/ideas', section: 'ideas' },
       { name: 'scenarios', label: 'Сценарии', icon: Clapperboard, path: '/scenarios', section: 'scenarios' },
       { name: 'plans', label: 'Контент-планы', icon: ClipboardList, path: '/plans', section: 'plans' },
@@ -115,8 +116,14 @@ const filteredGroups = computed(() =>
     .filter(g => g.items.length > 0)
 )
 
-function isActive(name: string): boolean {
-  return route.name === name
+function isActive(item: NavItem): boolean {
+  const path = route.path
+  if (item.path === '/') return path === '/'
+  // Точное совпадение или вложенный путь (/posts → /posts/:id, /businesses → /businesses/:id)
+  if (path === item.path || path.startsWith(item.path + '/')) return true
+  // Редактор сторис (/stories/:id) относится к разделу «Контент»
+  if (item.name === 'posts' && path.startsWith('/stories/')) return true
+  return false
 }
 
 // Закрывать sidebar при навигации (mobile)
@@ -146,7 +153,7 @@ watch(() => route.path, () => sidebar.close())
           :to="item.path"
           :class="[
             'flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
-            isActive(item.name)
+            isActive(item)
               ? 'bg-brand-50 text-brand-700 dark:bg-brand-950 dark:text-brand-300'
               : 'text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800',
           ]"
@@ -200,7 +207,7 @@ watch(() => route.path, () => sidebar.close())
               :to="item.path"
               :class="[
                 'flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium transition-colors',
-                isActive(item.name)
+                isActive(item)
                   ? 'bg-brand-50 text-brand-700 dark:bg-brand-950 dark:text-brand-300'
                   : 'text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800',
               ]"

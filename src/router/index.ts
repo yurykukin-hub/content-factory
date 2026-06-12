@@ -46,12 +46,6 @@ const routes: RouteRecordRaw[] = [
     meta: { section: 'posts' },
   },
   {
-    path: '/calendar',
-    name: 'calendar',
-    component: () => import('@/views/CalendarView.vue'),
-    meta: { section: 'plans' },
-  },
-  {
     path: '/plans',
     name: 'plans',
     component: () => import('@/views/ContentPlansView.vue'),
