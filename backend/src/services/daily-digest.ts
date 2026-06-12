@@ -16,6 +16,7 @@ import { emitEvent } from '../eventBus'
 import { buildBrandContext } from './ai/prompt-builder'
 import { getDataSourceAdapter } from './datasource'
 import { getStrategyBlock, getSeasonHint } from './ai/strategy'
+import { getViralCompetitorPosts } from './competitor-poller'
 
 // --- AppConfig helpers ---
 async function getConfig(key: string): Promise<string | null> {
@@ -103,6 +104,14 @@ async function generateDigestForBusiness(biz: any, force: boolean): Promise<numb
     .map(p => `- [${p.postType}] ${(p.body || '').replace(/\s+/g, ' ').slice(0, 80)}`)
     .join('\n') || 'нет недавних постов'
 
+  // Залетевшие посты конкурентов (если модуль «Конкуренты» включён) — вдохновение, НЕ копирование
+  const viralPosts = await getViralCompetitorPosts(biz.id, 7, 5).catch(() => [])
+  const competitorBlock = viralPosts.length
+    ? viralPosts.map((p: any) =>
+        `- ${p.account.displayName}: «${(p.text || '').replace(/\s+/g, ' ').slice(0, 140)}» [ER ${p.engagementRate ?? '?'}%, ${p.likes}❤ ${p.reposts}🔁 ${p.views}👁]`
+      ).join('\n')
+    : ''
+
   const now = new Date()
   const dayNames = ['воскресенье', 'понедельник', 'вторник', 'среда', 'четверг', 'пятница', 'суббота']
   const dateStr = now.toLocaleDateString('ru-RU', { day: '2-digit', month: 'long', year: 'numeric' })
@@ -132,7 +141,7 @@ ${dataBlock}
 
 НЕДАВНИЕ ПОСТЫ (НЕ повторяйся по теме):
 ${recentSummary}
-
+${competitorBlock ? `\nЗАЛЕТЕВШИЕ ПОСТЫ КОНКУРЕНТОВ (за 7 дней — черпай идеи/форматы/темы, НЕ копируй дословно, адаптируй под НаWоде):\n${competitorBlock}\n` : ''}
 ДОСТУПНЫЕ КАНАЛЫ: ${platforms.join(', ') || 'VK'}
 
 ЗАКОНОДАТЕЛЬСТВО РФ (строго): нейтральный тон; НЕ упоминай и не зови в Instagram в текстах для VK/публичных РФ-каналов (Meta признана экстремистской в РФ); без запрещённого контента. Ссылку nawode.ru уместно добавлять в продающие/сезонные посты.

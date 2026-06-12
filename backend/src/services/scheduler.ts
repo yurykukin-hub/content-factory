@@ -4,6 +4,7 @@ import { checkAndRunAutoPost } from './auto-poster'
 import { checkAndRunDailyDigest } from './daily-digest'
 import { checkAndRunMetricsCollection } from './metrics-poller'
 import { checkAndRunWeeklyAnalysis } from './analytics/analyst-agent'
+import { checkAndRunCompetitorCollection } from './competitor-poller'
 import { applyUtmForPublish } from './publish-utm'
 
 const CHECK_INTERVAL = 60_000 // каждую минуту
@@ -33,6 +34,10 @@ export function startPublishScheduler(): ReturnType<typeof setInterval> {
       // Weekly SMM analyst report (петля обратной связи)
       await checkAndRunWeeklyAnalysis().catch(e =>
         console.error('[Scheduler] WeeklyAnalysis error:', e.message)
+      )
+      // Competitor monitoring (VK wall.get) — раз в день до дайджеста, opt-in
+      await checkAndRunCompetitorCollection().catch(e =>
+        console.error('[Scheduler] CompetitorCollection error:', e.message)
       )
       const now = new Date()
       const dueVersions = await db.postVersion.findMany({

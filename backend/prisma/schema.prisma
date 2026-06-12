@@ -158,6 +158,7 @@ model Business {
   analyticsReports     AnalyticsReport[]
   rubrics              Rubric[]
   occasions            Occasion[]
+  competitorAccounts   CompetitorAccount[]
 
   @@map("businesses")
 }
@@ -918,4 +919,52 @@ model AnalyticsReport {
   @@index([businessId])
   @@index([status])
   @@map("analytics_reports")
+}
+
+/// Аккаунт конкурента/смежника для мониторинга (модуль «Конкуренты», MVP — VK).
+/// Читаем публичную стену через wall.get тем же VK-токеном (scope не нужен).
+model CompetitorAccount {
+  id            String    @id @default(cuid())
+  businessId    String    @map("business_id")
+  platform      Platform  @default(VK)
+  handle        String                                    // VK: domain ("supway") или "-12345678" (owner_id)
+  displayName   String    @map("display_name")            // "SUP Way SPB"
+  category      String    @default("competitor")          // competitor | adjacent | inspiration | self
+  isActive      Boolean   @default(true) @map("is_active")
+  notes         String?
+  lastFetchedAt DateTime? @map("last_fetched_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  business Business         @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  posts    CompetitorPost[]
+
+  @@unique([businessId, platform, handle])
+  @@index([businessId])
+  @@map("competitor_accounts")
+}
+
+/// Снимок поста конкурента с метриками + флаг «залетел» (виральность по ER).
+model CompetitorPost {
+  id             String   @id @default(cuid())
+  accountId      String   @map("account_id")
+  externalId     String   @map("external_id")            // VK post id
+  externalUrl    String   @map("external_url")
+  publishedAt    DateTime @map("published_at")
+  text           String   @default("")
+  mediaType      String?  @map("media_type")             // photo | video | link | null
+  likes          Int      @default(0)
+  reposts        Int      @default(0)
+  views          Int      @default(0)
+  comments       Int      @default(0)
+  engagementRate Float?   @map("engagement_rate")         // (likes+reposts+comments)/views*100
+  isViral        Boolean  @default(false) @map("is_viral")
+  capturedAt     DateTime @default(now()) @map("captured_at")
+  raw            Json?
+
+  account CompetitorAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@unique([accountId, externalId])
+  @@index([accountId, publishedAt])
+  @@index([isViral])
+  @@map("competitor_posts")
 }

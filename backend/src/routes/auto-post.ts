@@ -63,6 +63,19 @@ autoPost.post('/generate-digest', async (c) => {
   }
 })
 
+// POST /api/auto-posts/collect-competitors — ручной сбор постов конкурентов из VK (admin)
+autoPost.post('/collect-competitors', async (c) => {
+  const user = c.get('user') as { role?: string }
+  if (user?.role !== 'ADMIN') return c.json({ error: 'Admin only' }, 403)
+  const { runCompetitorCollection } = await import('../services/competitor-poller')
+  try {
+    const res = await runCompetitorCollection()
+    return c.json({ ok: true, ...res })
+  } catch (err: any) {
+    return c.json({ ok: false, error: err.message }, 500)
+  }
+})
+
 // POST /api/auto-posts/:id/reject — reject task
 autoPost.post('/:id/reject', async (c) => {
   const task = await db.autoPostTask.findUnique({ where: { id: c.req.param('id') } })
