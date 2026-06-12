@@ -10,6 +10,7 @@ import type { AuthUser } from '../middleware/auth'
 import { verifyMediaAccess, assertBusinessAccess } from '../middleware/resource-access'
 import { extractVideoThumbnail } from '../utils/video-thumbnail'
 import { overlayImageOnVideo, overlayAudioOnVideo } from '../services/video-overlay'
+import { bakeDesignLayer } from '../services/design-layer'
 
 const media = new Hono()
 
@@ -211,6 +212,109 @@ media.post('/overlay-video', async (c) => {
     return c.json({ error: 'Ошибка наложения текста на видео: ' + String(e?.message || e).slice(0, 200) }, 500)
   } finally {
     await unlink(overlayTmpPath).catch(() => {}) // временный PNG всегда удаляем
+  }
+})
+
+// POST /api/media/bake-design-layer — единый «запечённый» дизайн-слой (фото ИЛИ видео).
+// Прозрачный PNG (текст-дизайн с canvas) запекается: фото→sharp, видео→ffmpeg(+опц.музыка).
+media.post('/bake-design-layer', async (c) => {
+  const body = await c.req.parseBody()
+  const overlay = body['overlay']
+  const targetMediaFileId = body['targetMediaFileId'] as string
+  const businessId = body['businessId'] as string
+  const audioMediaFileId = body['audioMediaFileId'] as string | undefined // видео + музыка из медиатеки
+  const musicSessionId = body['musicSessionId'] as string | undefined     // видео + музыка из Sound Studio
+  const tagsRaw = (body['tags'] as string | undefined) || 'design'
+
+  if (!overlay || typeof overlay === 'string') return c.json({ error: 'overlay PNG не найден' }, 400)
+  if (!targetMediaFileId) return c.json({ error: 'targetMediaFileId обязателен' }, 400)
+  if (!businessId) return c.json({ error: 'businessId обязателен' }, 400)
+
+  const user = c.get('user') as AuthUser
+  try {
+    await assertBusinessAccess(user, businessId)
+  } catch (e: any) {
+    if (e.message === 'FORBIDDEN') return c.json({ error: 'Нет доступа' }, 403)
+    throw e
+  }
+
+  const targetMf = await db.mediaFile.findUnique({ where: { id: targetMediaFileId } })
+  if (!targetMf || targetMf.businessId !== businessId) return c.json({ error: 'Медиа не найдено' }, 404)
+  const isVideo = targetMf.mimeType.startsWith('video/')
+  const isImage = targetMf.mimeType.startsWith('image/')
+  if (!isVideo && !isImage) return c.json({ error: 'Поддерживаются только фото и видео' }, 400)
+
+  const overlayBlob = overlay as File
+  if (overlayBlob.type && overlayBlob.type !== 'image/png') return c.json({ error: 'overlay должен быть PNG' }, 400)
+  if (overlayBlob.size > 8 * 1024 * 1024) return c.json({ error: 'overlay слишком большой' }, 400)
+
+  const targetPath = join(UPLOAD_DIR, targetMf.url.replace('/uploads/', ''))
+  if (!existsSync(targetPath)) return c.json({ error: 'Файл медиа отсутствует на диске' }, 404)
+
+  // Музыку вшиваем только в видео
+  let audioPath: string | null = null
+  if (isVideo) {
+    if (audioMediaFileId) {
+      const af = await db.mediaFile.findUnique({ where: { id: audioMediaFileId } })
+      if (af && af.businessId === businessId) {
+        const p = join(UPLOAD_DIR, af.url.replace('/uploads/', ''))
+        if (existsSync(p)) audioPath = p
+      }
+    } else if (musicSessionId) {
+      const sess = await db.generationSession.findUnique({ where: { id: musicSessionId } })
+      if (sess && sess.businessId === businessId && sess.audioUrl) {
+        const p = join(UPLOAD_DIR, sess.audioUrl.replace('/uploads/', ''))
+        if (existsSync(p)) audioPath = p
+      }
+    }
+  }
+
+  const bizDir = join(UPLOAD_DIR, businessId)
+  await mkdir(bizDir, { recursive: true })
+
+  const fileId = nanoid(12)
+  const overlayTmpPath = join(bizDir, `overlay_${fileId}.png`)
+  const ext = isVideo ? 'mp4' : 'jpg'
+  const outFilename = `design_${fileId}.${ext}`
+  const outPath = join(bizDir, outFilename)
+  const tags = tagsRaw.split(',').map(t => t.trim()).filter(Boolean)
+
+  try {
+    await Bun.write(overlayTmpPath, Buffer.from(await overlayBlob.arrayBuffer()))
+    await bakeDesignLayer({ targetPath, overlayPath: overlayTmpPath, outPath, isVideo, audioPath })
+
+    // Превью
+    let thumbUrl: string | null = null
+    if (isVideo) {
+      const thumbFile = await extractVideoThumbnail(outPath, bizDir, `design_${fileId}`)
+      thumbUrl = thumbFile ? `/uploads/${businessId}/${thumbFile}` : targetMf.thumbUrl
+    } else {
+      const thumbName = `design_${fileId}_thumb.webp`
+      await sharp(outPath).resize(THUMB_SIZE, THUMB_SIZE, { fit: 'cover' }).webp({ quality: 70 }).toFile(join(bizDir, thumbName))
+      thumbUrl = `/uploads/${businessId}/${thumbName}`
+    }
+
+    const { size } = await stat(outPath)
+    const mediaFile = await db.mediaFile.create({
+      data: {
+        businessId,
+        filename: `Design: ${(targetMf.filename || (isVideo ? 'video' : 'photo')).slice(0, 40)}`,
+        url: `/uploads/${businessId}/${outFilename}`,
+        thumbUrl,
+        mimeType: isVideo ? 'video/mp4' : 'image/jpeg',
+        sizeBytes: size,
+        durationSec: isVideo ? (targetMf.durationSec ?? null) : null,
+        tags,
+        sortOrder: 0,
+      },
+    })
+    return c.json(mediaFile, 201)
+  } catch (e: any) {
+    await unlink(outPath).catch(() => {})
+    console.error('[bake-design-layer] failed:', e)
+    return c.json({ error: 'Ошибка запекания дизайн-слоя: ' + String(e?.message || e).slice(0, 200) }, 500)
+  } finally {
+    await unlink(overlayTmpPath).catch(() => {})
   }
 })
 
