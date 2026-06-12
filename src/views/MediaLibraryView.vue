@@ -11,6 +11,7 @@ import {
   Pencil, Grid2X2, LayoutGrid, Check, ArrowRightLeft,
 } from 'lucide-vue-next'
 import ImageEditModal from '@/components/ai/ImageEditModal.vue'
+import DesignLayerEditor from '@/components/shared/DesignLayerEditor.vue'
 import { useSectionAccess } from '@/composables/useSectionAccess'
 
 const { canEdit: canEditSection } = useSectionAccess()
@@ -57,6 +58,7 @@ const hasMore = ref(false)
 const uploading = ref(false)
 const removingBgId = ref<string | null>(null)
 const editingFile = ref<MediaFile | null>(null)
+const designFile = ref<MediaFile | null>(null)
 const previewFile = ref<MediaFile | null>(null)
 const describingPreviewId = ref<string | null>(null)
 
@@ -272,6 +274,11 @@ async function removeBg(file: MediaFile) {
 function onEdited(newFile: any) {
   files.value.unshift(newFile)
   editingFile.value = null
+}
+
+function onBaked(newFile: any) {
+  files.value.unshift(newFile)
+  designFile.value = null
 }
 
 function startEditTags(file: MediaFile) {
@@ -747,6 +754,10 @@ watch([typeFilter, tagFilter, showUnattached], loadFiles)
             </div>
             <!-- Actions -->
             <div class="flex flex-wrap gap-2 mb-3">
+              <button v-if="isImage(previewFile.mimeType, previewFile.filename) || isVideo(previewFile.mimeType, previewFile.filename)" @click="designFile = previewFile; previewFile = null"
+                class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-fuchsia-100 dark:bg-fuchsia-900/50 text-fuchsia-600 dark:text-fuchsia-400 hover:bg-fuchsia-200 dark:hover:bg-fuchsia-800 transition-colors">
+                <Sparkles :size="12" /> Дизайн-слой
+              </button>
               <button v-if="isImage(previewFile.mimeType, previewFile.filename)" @click="editingFile = previewFile; previewFile = null"
                 class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-purple-100 dark:bg-purple-900/50 text-purple-600 dark:text-purple-400 hover:bg-purple-200 dark:hover:bg-purple-800 transition-colors">
                 <Wand2 :size="12" /> AI-редактор
@@ -785,6 +796,15 @@ watch([typeFilter, tagFilter, showUnattached], loadFiles)
       :business-id="editingFile.businessId"
       @close="editingFile = null"
       @edited="onEdited"
+    />
+
+    <!-- Design Layer Editor (Фаза 1: запекание текст-дизайна на фото/видео) -->
+    <DesignLayerEditor
+      v-if="designFile"
+      :media-file="designFile"
+      :business-id="designFile.businessId"
+      @close="designFile = null"
+      @baked="onBaked"
     />
 
     <!-- Create/Rename Folder Dialog -->
