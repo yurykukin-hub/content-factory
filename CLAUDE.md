@@ -49,9 +49,10 @@ content-factory/
 │   │   │   ├── platforms.ts    # platformsByBiz + platformsById
 │   │   │   ├── posts.ts        # CRUD + approve + versions (access checks)
 │   │   │   ├── content-plans.ts # CRUD + create-post/ai-generate + batch
-│   │   │   ├── ai.ts           # generate-post/image/video/scenario, adapt, enhance-prompt, describe-image, suggest-templates, agent-chat, transcribe (Whisper)
+│   │   │   ├── ai.ts           # generate-post/image/video/scenario, adapt, hashtags, rewrite, enhance-prompt, describe-image, suggest-templates, agent-chat, transcribe (Whisper)
 │   │   │   ├── publish.ts      # publish + schedule (access checks)
-│   │   │   ├── media.ts        # upload/delete/attach + library + tags + overlay-video (ffmpeg текст на видео-сторис)
+│   │   │   ├── media.ts        # upload/delete/attach + library + tags + overlay-video + bake-design-layer (единый дизайн-слой: фото→sharp, видео→ffmpeg)
+│   │   │   ├── auto-post.ts     # дайджест/авто-пост: list (multi-status), approve→draft, reject, restore, generate-digest, collect-competitors, competitor-inspiration
 │   │   │   ├── settings.ts     # AppConfig CRUD (ADMIN-only, .env fallback)
 │   │   │   ├── vk-oauth.ts     # VK OAuth 2.1 PKCE
 │   │   │   ├── ideas.ts        # CRUD идей (per-user, ownership check)
@@ -65,11 +66,13 @@ content-factory/
 │   │   │   ├── analytics.ts    # SMM-аналитика: collect, overview (дашборд), report (агент), reports CRUD
 │   │   │   └── sse.ts          # Server-Sent Events
 │   │   ├── services/
-│   │   │   ├── scheduler.ts    # Отложенная публикация + триггеры: digest, metrics-collection, weekly-analysis
+│   │   │   ├── scheduler.ts    # Отложенная публикация + триггеры: digest, metrics-collection, weekly-analysis, competitor-collection
 │   │   │   ├── video-poller.ts # Background poller: video + music + photo KIE tasks → download → SSE (10 сек)
 │   │   │   ├── metrics-poller.ts # SMM-метрики: сбор VK/IG/Метрика 2×/день (time-gated, scheduler)
 │   │   │   ├── analytics/       # SMM-аналитика (Эпик B): types, vk-adapter, postmypost-adapter, metrika-adapter, collector, analyst-agent, analyst-telegram
 │   │   │   ├── video-overlay.ts # ffmpeg: статичный текст-PNG поверх видео (scale2ref+overlay) для видео-сторис
+│   │   │   ├── design-layer.ts  # единый bake дизайн-слоя: фото→sharp.composite (EXIF-aware), видео→ffmpeg(+муз)
+│   │   │   ├── competitor-poller.ts # мониторинг конкурентов: VK wall.get по пабликам, ER, виральность (медиана×2), getViralCompetitorPosts
 │   │   │   ├── vk-oauth.ts     # VK OAuth service (PKCE, auto-refresh)
 │   │   │   ├── ai/
 │   │   │   │   ├── openrouter.ts      # OpenRouter + cost calculation + logAndCharge DRY helper
@@ -164,8 +167,8 @@ content-factory/
 └── scripts/deploy.sh, backup-db.sh
 ```
 
-## Schema (35 моделей, 8 enums)
-User, UserBusiness, Business, BrandProfile, PlatformAccount, ContentPlan, ContentPlanItem, Post, PostVersion, PublishLog, MediaFolder, MediaFile, AiUsageLog, WebhookRule, AppConfig, Idea, StoryTemplate, Character, CharacterBusiness, CharacterImage, Scenario, PromptEntry, PromptTemplate, GenerationSession, BalanceTransaction, MusicPersona, PhotoCatalog, AutoPostTask, SocialPostMetricSnapshot, SocialAccountMetricSnapshot, SiteTrafficSnapshot, AnalyticsReport, **Rubric**, **Occasion** (strategy-as-data — Эпик B Phase 3)
+## Schema (37 моделей, 8 enums)
+User, UserBusiness, Business, BrandProfile, PlatformAccount, ContentPlan, ContentPlanItem, Post, PostVersion, PublishLog, MediaFolder, MediaFile, AiUsageLog, WebhookRule, AppConfig, Idea, StoryTemplate, Character, CharacterBusiness, CharacterImage, Scenario, PromptEntry, PromptTemplate, GenerationSession, BalanceTransaction, MusicPersona, PhotoCatalog, AutoPostTask, SocialPostMetricSnapshot, SocialAccountMetricSnapshot, SiteTrafficSnapshot, AnalyticsReport, Rubric, Occasion (strategy-as-data — Эпик B Phase 3), **CompetitorAccount**, **CompetitorPost** (мониторинг конкурентов VK — 2026-06)
 
 Enums: UserRole, Platform, AccountType, PostType, PostStatus, ContentPlanStatus, PublishStatus
 
@@ -230,6 +233,8 @@ cp backend/.env.example backend/.env
 17. **Интеллект контент-плана** (Эпик D) → `generate-plan` для НаWоде подставляет 10 рубрик (`services/ai/nawode-strategy.ts`, общий с дайджестом); `buildPostPrompt` учитывает недавние посты (анти-повтор); `POST /plan-items/:id/regenerate {direction}` переписывает ячейку плана по направлению (Haiku). Форматы: `PostType.CLIPS` (VK-клипы = верт.видео, нет публичного API; IG CLIPS/REELS→type 4); выбор типа + валидация в PostEditorView
 18. **Сбор SMM-статистики** (Эпик B Phase 4) → поллер 2×/день (`metrics-poller.ts`, scheduler, `metrics_times_utc`). По опубликованным PostVersion (`externalPostId`): VK `wall.getById` (посты, нужен USER-токен — community даёт error 27) + `stories.getStats` (сторис, scope `stats`, окно 24ч) + `stats.get` (охват); IG Postmypost `/analytics/publications` (+ `/publications/{id}`→`external_id` джойн); Метрика Stat API (визиты+цели по `utm_content=postId`, gated на OAuth). Снимки в snapshot-таблицы (append/upsert). `POST /analytics/collect` — ручной запуск
 19. **Агент-аналитик SMM** (Эпик B Phase 5) → недельный Sonnet (`analytics/analyst-agent.ts`, config `analytics_agent_enabled` default off): контент+метрики+конверсии(UTM) → «что зашло/не зашло (форматы/площадки/время → охват И брони) + рекомендации» → `AnalyticsReport(status=proposed)` → human-in-the-loop (approve/dismiss) → Telegram (graceful). Дашборд `/analytics` (AnalyticsView): KPI, разбивка по площадкам, таблица постов, карточки отчётов
+20. **Мониторинг конкурентов** (2026-06, прод) → `competitor-poller.ts` раз в день (`competitor_monitor_enabled`/`_time_utc` 03:30 UTC, до дайджеста) читает VK `wall.get` по пабликам тем же app-токеном (scope не нужен), считает ER, помечает «залетевшие» (ER ≥ медиана×2, истинная медиана). Модели `CompetitorAccount`/`CompetitorPost`. Сид `seed-competitors.ts` (8 SUP-пабликов ЛО/СПб/Карелия). Дайджест получает блок «залетело у конкурентов» в промпт + UI-блок «Вдохновлено у конкурентов» (DigestView). Ручной запуск `POST /auto-posts/collect-competitors`. IG/TG-мониторинг НЕ делаем (серая зона)
+21. **Единый дизайн-слой** (Фаза 1, прод) → `design-layer.ts` + `POST /media/bake-design-layer`: прозрачный PNG (текст-дизайн с canvas) запекается в ЛЮБОЕ медиа — фото `sharp.composite` (EXIF-aware, ресайз слоя под display-размеры), видео `overlayImageOnVideo`(+опц. музыка). Фронт: `composables/useDesignLayerCanvas.ts` (drawTextLayer/exportTextLayerPng, относит. шрифт под любой аспект) + `components/shared/DesignLayerEditor.vue` (модалка, фон=медиа фиксирован, кладём текст). Точка входа: Медиатека → «Дизайн-слой». Рабочий `/overlay-video` (сторис) не тронут. TODO: интеграция в композер постов + бренд-кит шаблоны
 
 API keys: OpenRouter — из БД (AppConfig) или .env. FAL — из .env (FAL_API_KEY). KIE — из .env (KIE_API_KEY). **OpenAI** — AppConfig `openai_api_key` или .env `OPENAI_API_KEY` (Whisper STT). **Postmypost** — `PlatformAccount.accessToken` (IG) + `config.postmypostProjectId`; для **VK-via-PMP** токен в `.env.prod POSTMYPOST_API_TOKEN`+`POSTMYPOST_PROJECT_ID` (НЕ в config — утечка во фронт). **Метрика (per-business, масштабируемо):** счётчик/цели на `Business.metrikaCounterId`/`metrikaGoalIds` (БД, не секрет); токен per-business `AppConfig metrika_token_{businessId}` (секрет, admin-only) → глобальный `metrika_oauth_token` fallback → legacy `metrika_config` JSON fallback. **Онбординг бизнеса:** заполнить `Business.metrikaCounterId`+`metrikaGoalIds` (UI/SQL) + (если другой Яндекс-аккаунт) `metrika_token_{id}`, не код. Цели/счётчик читаются Management API (`metrika:read`). **VK-метрики** — app-level user-токен (`vk_user_token`, авто-рефреш `ensureValidToken`); scope `stats` нужен для охватов/сторис-стат (ре-авторизация)
 
