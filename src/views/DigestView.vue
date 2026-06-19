@@ -7,7 +7,8 @@ import { useBusinessesStore } from '@/stores/businesses'
 import { useAuthStore } from '@/stores/auth'
 import { platformColor } from '@/composables/usePlatform'
 import { formatDate } from '@/composables/useFormatters'
-import { Sunrise, Sparkles, Loader2, Check, X, Lightbulb, CalendarClock, FileEdit, Flame, RotateCcw, ChevronDown } from 'lucide-vue-next'
+import { Sunrise, Sparkles, Loader2, Check, X, Lightbulb, CalendarClock, FileEdit, Flame, RotateCcw, ChevronDown, ImagePlus, RefreshCw } from 'lucide-vue-next'
+import MediaPickerModal from '@/components/MediaPickerModal.vue'
 
 interface DigestTask {
   id: string
@@ -22,6 +23,8 @@ interface DigestTask {
   platforms: string[]
   postId: string | null
   createdAt: string
+  mediaFileId: string | null
+  media: { id: string; url: string; thumbUrl: string | null; altText: string | null } | null
 }
 
 interface InspirationPost {
@@ -139,6 +142,30 @@ async function restore(task: DigestTask) {
   }
 }
 
+// Замена/добавление подобранного фото (Ф1.2)
+const pickerTask = ref<DigestTask | null>(null)
+
+function openPicker(task: DigestTask) {
+  pickerTask.value = task
+}
+
+async function onPhotoSelected(file: { id: string; url: string; thumbUrl?: string | null; altText?: string | null }) {
+  const task = pickerTask.value
+  pickerTask.value = null
+  if (!task) return
+  actingId.value = task.id
+  try {
+    await http.patch(`/auto-posts/${task.id}`, { mediaFileId: file.id })
+    task.mediaFileId = file.id
+    task.media = { id: file.id, url: file.url, thumbUrl: file.thumbUrl ?? null, altText: file.altText ?? null }
+    toast.success('Фото обновлено')
+  } catch (e: any) {
+    toast.error('Ошибка: ' + (e.message || e))
+  } finally {
+    actingId.value = null
+  }
+}
+
 onMounted(load)
 </script>
 
@@ -213,6 +240,22 @@ onMounted(load)
           <span v-for="t in task.proposedTags" :key="t" class="text-xs text-blue-500">#{{ t }}</span>
         </div>
 
+        <!-- Подобранное фото (Ф1.2): превью + замена; для PHOTO/STORIES без фото — подобрать -->
+        <div v-if="task.media || task.postType === 'PHOTO' || task.postType === 'STORIES'" class="mb-3">
+          <div v-if="task.media" class="relative inline-block">
+            <img :src="task.media.thumbUrl || task.media.url" :alt="task.media.altText || ''"
+              class="rounded-lg max-h-52 border border-gray-200 dark:border-gray-700 object-cover" />
+            <button v-if="task.status === 'proposed'" @click="openPicker(task)" :disabled="actingId === task.id"
+              class="absolute top-2 right-2 flex items-center gap-1 px-2 py-1 rounded-md bg-black/60 hover:bg-black/80 text-white text-[11px] font-medium transition-colors">
+              <RefreshCw :size="12" /> Заменить
+            </button>
+          </div>
+          <button v-else-if="task.status === 'proposed'" @click="openPicker(task)"
+            class="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-dashed border-gray-300 dark:border-gray-700 text-sm text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+            <ImagePlus :size="15" /> Подобрать фото из галереи
+          </button>
+        </div>
+
         <!-- Visual idea -->
         <div v-if="task.visualIdea" class="flex items-start gap-1.5 text-xs text-gray-500 mb-2 bg-gray-50 dark:bg-gray-800 rounded-lg p-2">
           <Lightbulb :size="14" class="shrink-0 mt-0.5 text-amber-500" /><span>Визуал: {{ task.visualIdea }}</span>
@@ -271,5 +314,14 @@ onMounted(load)
         </div>
       </div>
     </div>
+
+    <!-- Выбор фото из галереи для предложения (Ф1.2) -->
+    <MediaPickerModal
+      v-if="pickerTask"
+      :visible="true"
+      :business-id="pickerTask.businessId"
+      @selected="onPhotoSelected"
+      @close="pickerTask = null"
+    />
   </div>
 </template>

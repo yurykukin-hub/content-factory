@@ -31,7 +31,19 @@ autoPost.get('/', async (c) => {
     take: limit,
   })
 
-  return c.json(tasks)
+  // Подтянуть превью выбранных фото (Ф1.2) — AutoPostTask.mediaFileId без relation, джойним вручную
+  const mediaIds = [...new Set(tasks.map(t => t.mediaFileId).filter(Boolean))] as string[]
+  const mediaMap = new Map<string, { id: string; url: string; thumbUrl: string | null; altText: string | null }>()
+  if (mediaIds.length) {
+    const files = await db.mediaFile.findMany({
+      where: { id: { in: mediaIds } },
+      select: { id: true, url: true, thumbUrl: true, altText: true },
+    })
+    files.forEach(f => mediaMap.set(f.id, f))
+  }
+  const enriched = tasks.map(t => ({ ...t, media: t.mediaFileId ? mediaMap.get(t.mediaFileId) ?? null : null }))
+
+  return c.json(enriched)
 })
 
 // POST /api/auto-posts/:id/approve — approve task
