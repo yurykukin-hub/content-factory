@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { http, TAB_ID } from '@/api/client'
 import { useBusinessesStore } from '@/stores/businesses'
 import { useToast } from '@/composables/useToast'
@@ -8,11 +8,12 @@ import {
   Image, Video, Upload, Search, Tag, X, Loader2, Trash2,
   Grid3X3, Link, ExternalLink, Wand2, Eraser,
   FolderPlus, Folder, FolderOpen, ChevronRight, Home, Sparkles,
-  Pencil, Grid2X2, LayoutGrid, Check, ArrowRightLeft,
+  Pencil, Grid2X2, LayoutGrid, Check, ArrowRightLeft, RotateCcw, RotateCw,
 } from 'lucide-vue-next'
 import ImageEditModal from '@/components/ai/ImageEditModal.vue'
 import DesignLayerEditor from '@/components/shared/DesignLayerEditor.vue'
 import { useSectionAccess } from '@/composables/useSectionAccess'
+import { uploadConcurrent } from '@/composables/useConcurrentUpload'
 
 const { canEdit: canEditSection } = useSectionAccess()
 
@@ -61,6 +62,14 @@ const editingFile = ref<MediaFile | null>(null)
 const designFile = ref<MediaFile | null>(null)
 const previewFile = ref<MediaFile | null>(null)
 const describingPreviewId = ref<string | null>(null)
+const rotatingId = ref<string | null>(null)
+
+// Прогресс массовой загрузки + список упавших файлов (чтобы Света видела, что переслать)
+const uploadProgress = ref<{ done: number; total: number } | null>(null)
+const failedUploads = ref<string[]>([])
+
+// Серверная разбивка counts (фото/видео/без поста) — снимает 3× O(n) .filter() на больших списках
+const serverCounts = ref<{ images: number; videos: number; unattached: number } | null>(null)
 
 async function describePreviewFile() {
   if (!previewFile.value) return
@@ -74,6 +83,49 @@ async function describePreviewFile() {
     // Also update in the files list
     const f = files.value.find(f => f.id === previewFile.value?.id)
     if (f) f.altText = res.description
+    toast.success('Описание сгенерировано')
+  } catch (e: any) { toast.error(e.message || 'Ошибка AI') }
+  finally { describingPreviewId.value = null }
+}
+
+// Поворот изображения на сервере (перезапись оригинала + thumbnail). angle: 90 | 180 | 270.
+async function rotateImage(angle: number) {
+  if (!previewFile.value || rotatingId.value) return
+  const target = previewFile.value
+  rotatingId.value = target.id
+  try {
+    const updated = await http.post<MediaFile>(`/media/${target.id}/rotate`, { angle })
+    // Cache-busting: серверный URL не меняется → добавляем ?v=<ts>, чтобы браузер пере-зафетчил повёрнутую версию
+    const bust = `?v=${Date.now()}`
+    const freshUrl = (u: string) => u.split('?')[0] + bust
+    const newUrl = freshUrl(target.url)
+    const newThumb = target.thumbUrl ? freshUrl(target.thumbUrl) : null
+    target.url = newUrl
+    target.thumbUrl = newThumb
+    if (typeof updated.sizeBytes === 'number') target.sizeBytes = updated.sizeBytes
+    // Синхронизируем тот же файл в сетке
+    const f = files.value.find(x => x.id === target.id)
+    if (f) {
+      f.url = newUrl
+      f.thumbUrl = newThumb
+      if (typeof updated.sizeBytes === 'number') f.sizeBytes = updated.sizeBytes
+    }
+    toast.success('Повёрнуто')
+  } catch (e: any) {
+    toast.error(e.message || 'Ошибка поворота')
+  } finally {
+    rotatingId.value = null
+  }
+}
+
+// Повторить описание для фото со статусом describe_failed (поллер не ретраит автоматически)
+async function retryDescribe(file: MediaFile) {
+  if (describingPreviewId.value) return
+  describingPreviewId.value = file.id
+  try {
+    const res = await http.post<{ description: string }>('/ai/describe-image', { imageUrl: file.url, type: 'auto' })
+    file.altText = res.description
+    file.aiModel = null
     toast.success('Описание сгенерировано')
   } catch (e: any) { toast.error(e.message || 'Ошибка AI') }
   finally { describingPreviewId.value = null }
@@ -150,12 +202,13 @@ async function loadFiles() {
   loading.value = true
   try {
     const qs = buildMediaParams().toString()
-    const res = await http.get<{ files: MediaFile[]; hasMore: boolean; totalCount?: number }>(
+    const res = await http.get<{ files: MediaFile[]; hasMore: boolean; totalCount?: number; counts?: { images: number; videos: number; unattached: number } }>(
       `/media/library/${businesses.currentBusiness.id}?${qs}`
     )
     files.value = res.files
     hasMore.value = res.hasMore
     if (res.totalCount !== undefined) totalCount.value = res.totalCount
+    if (res.counts) serverCounts.value = res.counts
   } catch (e: any) {
     toast.error('Ошибка загрузки медиа')
   } finally {
@@ -225,23 +278,59 @@ function navigateToFolder(folderId: string | null) {
 async function uploadFile(e: Event) {
   const input = e.target as HTMLInputElement
   if (!input.files?.length || !businesses.currentBusiness) return
+  const bizId = businesses.currentBusiness.id
+  const folderId = currentFolderId.value
+  const fileArr = Array.from(input.files)
+  input.value = '' // сразу сбрасываем — иначе повторный выбор тех же файлов не сработает
   uploading.value = true
-  try {
-    for (const file of Array.from(input.files)) {
+  failedUploads.value = []
+  uploadProgress.value = { done: 0, total: fileArr.length }
+
+  const results = await uploadConcurrent(
+    fileArr,
+    async (file): Promise<MediaFile> => {
       const formData = new FormData()
       formData.append('file', file)
-      formData.append('businessId', businesses.currentBusiness.id)
-      if (currentFolderId.value) formData.append('folderId', currentFolderId.value)
-      await fetch('/api/media/upload', { method: 'POST', body: formData, credentials: 'include', headers: { 'X-Tab-ID': TAB_ID } })
-    }
-    toast.success(`${input.files.length} файл(ов) загружено`)
-    await loadFiles()
-  } catch (e: any) {
-    toast.error('Ошибка загрузки')
-  } finally {
-    uploading.value = false
-    input.value = ''
-  }
+      formData.append('businessId', bizId)
+      if (folderId) formData.append('folderId', folderId)
+      const res = await fetch('/api/media/upload', {
+        method: 'POST', body: formData, credentials: 'include', headers: { 'X-Tab-ID': TAB_ID },
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error((err as any).error || `HTTP ${res.status}`)
+      }
+      return (await res.json()) as MediaFile
+    },
+    {
+      concurrency: 3,
+      onProgress: (done, total) => { uploadProgress.value = { done, total } },
+      onResult: (r) => {
+        if (r.ok && r.data) {
+          // Оптимистичная вставка: файл сразу виден в начале сетки (бэк сортирует createdAt desc).
+          // Только если мы в той же папке и без активного поиска/фильтра.
+          if (!isSearching.value && (folderId || null) === (currentFolderId.value || null)) {
+            files.value.unshift(r.data)
+          }
+        } else {
+          failedUploads.value.push(r.file.name)
+        }
+      },
+    },
+  )
+
+  uploading.value = false
+  uploadProgress.value = null
+
+  const okCount = results.filter(r => r.ok).length
+  const failCount = results.length - okCount
+  if (failCount === 0) toast.success(`${okCount} файл(ов) загружено`)
+  else if (okCount > 0) toast.error(`Загружено ${okCount}, не удалось ${failCount}`)
+  else toast.error('Не удалось загрузить файлы')
+
+  // Синхронизация: подтянуть теги/папки + актуальные counts и серверную сортировку
+  await Promise.all([loadTags(), loadFolders()])
+  await loadFiles()
 }
 
 async function deleteFile(id: string) {
@@ -424,18 +513,65 @@ const totalCount = ref(0)
 const stats = computed(() => ({
   total: totalCount.value || files.value.length,
   loaded: files.value.length,
-  images: files.value.filter(f => isImage(f.mimeType, f.filename)).length,
-  videos: files.value.filter(f => isVideo(f.mimeType, f.filename)).length,
-  unattached: files.value.filter(f => !f.postId).length,
+  // Серверные counts (стабильны, без O(n) на каждый ре-рендер); фолбэк — локальный подсчёт
+  images: serverCounts.value?.images ?? files.value.filter(f => isImage(f.mimeType, f.filename)).length,
+  videos: serverCounts.value?.videos ?? files.value.filter(f => isVideo(f.mimeType, f.filename)).length,
+  unattached: serverCounts.value?.unattached ?? files.value.filter(f => !f.postId).length,
 }))
 
-onMounted(loadAll)
+// content-visibility: браузер пропускает рендер офф-скрин карточек. Высота-плейсхолдер под размер карточки.
+const cardContainStyle = computed(() => {
+  const h = cardSize.value === 'S' ? 140 : cardSize.value === 'M' ? 280 : 380
+  return { contentVisibility: 'auto', containIntrinsicSize: `auto ${h}px` } as Record<string, string>
+})
+
+// --- SSE: живое обновление AI-описаний (фоновый image-describer пишет altText) ---
+let sseSource: EventSource | null = null
+let sseReconnectTimer: ReturnType<typeof setTimeout> | null = null
+
+function connectSSE() {
+  sseSource = new EventSource(`/api/sse?tabId=${TAB_ID}`)
+  sseSource.onmessage = (e) => {
+    if (e.data === 'ping' || e.data === 'connected') return
+    try {
+      const event = JSON.parse(e.data)
+      if (event.type === 'media_described') {
+        // Только для текущего бизнеса
+        if (businesses.currentBusiness && event.businessId !== businesses.currentBusiness.id) return
+        const newModel = event.status === 'failed' ? 'describe_failed' : null
+        const f = files.value.find(x => x.id === event.mediaId)
+        if (f) { f.altText = event.altText; f.aiModel = newModel }
+        if (previewFile.value?.id === event.mediaId) {
+          previewFile.value.altText = event.altText
+          previewFile.value.aiModel = newModel
+        }
+      }
+    } catch {}
+  }
+  sseSource.onerror = () => {
+    sseSource?.close()
+    sseReconnectTimer = setTimeout(connectSSE, 5000)
+  }
+}
+
+onMounted(() => { loadAll(); connectSSE() })
+onUnmounted(() => {
+  sseSource?.close()
+  if (sseReconnectTimer) clearTimeout(sseReconnectTimer)
+  if (filterDebounce) clearTimeout(filterDebounce)
+})
 watch(() => businesses.currentBusiness?.id, () => {
   currentFolderId.value = null
   breadcrumbs.value = []
+  serverCounts.value = null
   loadAll()
 })
-watch([typeFilter, tagFilter, showUnattached], loadFiles)
+// Debounce фильтров (~250мс): быстрые клики по табам/тегам не плодят дублирующие запросы
+let filterDebounce: ReturnType<typeof setTimeout> | null = null
+watch([typeFilter, tagFilter, showUnattached], () => {
+  if (filterDebounce) clearTimeout(filterDebounce)
+  filterDebounce = setTimeout(loadFiles, 250)
+})
 </script>
 
 <template>
@@ -490,13 +626,25 @@ watch([typeFilter, tagFilter, showUnattached], loadFiles)
         </button>
 
         <!-- Upload -->
-        <label v-if="canEditSection('media')" :class="['flex items-center gap-2 px-4 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium cursor-pointer transition-colors', uploading && 'opacity-50']">
+        <label v-if="canEditSection('media')" :class="['flex items-center gap-2 px-4 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium cursor-pointer transition-colors', uploading && 'opacity-50 cursor-wait']">
           <Loader2 v-if="uploading" :size="16" class="animate-spin" />
           <Upload v-else :size="16" />
-          <span class="hidden sm:inline">Загрузить</span>
+          <span class="hidden sm:inline">{{ uploadProgress ? `${uploadProgress.done} / ${uploadProgress.total}` : 'Загрузить' }}</span>
           <input type="file" accept="image/*,video/*" multiple class="hidden" @change="uploadFile" :disabled="uploading" />
         </label>
       </div>
+    </div>
+
+    <!-- Failed uploads notice -->
+    <div v-if="failedUploads.length"
+      class="mb-3 p-2.5 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-xs text-red-700 dark:text-red-300 flex items-start gap-2">
+      <X :size="14" class="shrink-0 mt-0.5" />
+      <div class="flex-1">
+        Не удалось загрузить {{ failedUploads.length }} файл(ов): {{ failedUploads.join(', ') }}
+      </div>
+      <button @click="failedUploads = []" class="shrink-0 text-red-400 hover:text-red-600" title="Скрыть">
+        <X :size="14" />
+      </button>
     </div>
 
     <!-- Breadcrumbs -->
@@ -610,6 +758,7 @@ watch([typeFilter, tagFilter, showUnattached], loadFiles)
       <!-- Files grid -->
       <div v-if="files.length > 0" :class="gridClass">
         <div v-for="file in files" :key="file.id"
+          :style="cardContainStyle"
           :class="[
             'group relative bg-white dark:bg-gray-900 rounded-xl border overflow-hidden transition-colors',
             selectMode && selectedFiles.has(file.id)
@@ -678,13 +827,22 @@ watch([typeFilter, tagFilter, showUnattached], loadFiles)
             <div class="text-xs font-medium truncate text-gray-700 dark:text-gray-300">{{ file.filename }}</div>
             <div class="text-[10px] text-gray-400 mt-0.5">{{ formatSize(file.sizeBytes) }} · {{ formatDate(file.createdAt) }}</div>
 
-            <!-- AI metadata -->
-            <div v-if="file.aiModel" class="flex items-center gap-1.5 mt-1">
+            <!-- AI status: описывается / не удалось / имя модели генерации -->
+            <div v-if="file.aiModel === 'describe_pending'" class="flex items-center gap-1 mt-1 text-[9px] text-purple-500 dark:text-purple-400">
+              <Loader2 :size="10" class="animate-spin" /> AI описывает…
+            </div>
+            <div v-else-if="file.aiModel === 'describe_failed'" class="flex items-center gap-1.5 mt-1">
+              <span class="text-[9px] text-amber-500">Описание не удалось</span>
+              <button @click.stop="retryDescribe(file)" :disabled="describingPreviewId === file.id"
+                class="text-[9px] text-brand-600 hover:underline disabled:opacity-50">Повторить</button>
+            </div>
+            <div v-else-if="file.aiModel" class="flex items-center gap-1.5 mt-1">
               <span class="px-1.5 py-0.5 bg-purple-100 dark:bg-purple-900/50 text-purple-600 dark:text-purple-400 rounded text-[9px] font-medium">AI</span>
               <span class="text-[9px] text-gray-400 truncate" :title="file.altText || ''">{{ file.aiModel }}</span>
               <span v-if="file.aiCostUsd" class="text-[9px] text-gray-400">${{ file.aiCostUsd.toFixed(2) }}</span>
             </div>
-            <p v-if="file.altText && file.aiModel" class="text-[9px] text-gray-400 mt-0.5 line-clamp-2 italic" :title="file.altText">{{ file.altText }}</p>
+            <!-- Описание (для любого описанного фото, в т.ч. с aiModel=null после авто-описания) -->
+            <p v-if="file.altText" class="text-[9px] text-gray-400 mt-0.5 line-clamp-2 italic" :title="file.altText">{{ file.altText }}</p>
 
             <!-- Tags -->
             <div class="mt-1.5">
@@ -749,11 +907,23 @@ watch([typeFilter, tagFilter, showUnattached], loadFiles)
             <!-- Meta -->
             <div class="flex items-center gap-2 text-[10px] text-gray-400 mb-3">
               <span>{{ displayType(previewFile.mimeType, previewFile.filename) }}</span>
-              <span v-if="previewFile.aiModel" class="px-1.5 py-0.5 bg-purple-100 dark:bg-purple-900/50 text-purple-600 dark:text-purple-400 rounded font-medium">{{ previewFile.aiModel }}</span>
+              <span v-if="previewFile.aiModel === 'describe_pending'" class="px-1.5 py-0.5 bg-purple-100 dark:bg-purple-900/50 text-purple-600 dark:text-purple-400 rounded font-medium">AI описывает…</span>
+              <span v-else-if="previewFile.aiModel === 'describe_failed'" class="px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/50 text-amber-600 dark:text-amber-400 rounded font-medium">описание не удалось</span>
+              <span v-else-if="previewFile.aiModel" class="px-1.5 py-0.5 bg-purple-100 dark:bg-purple-900/50 text-purple-600 dark:text-purple-400 rounded font-medium">{{ previewFile.aiModel }}</span>
               <span>{{ formatDate(previewFile.createdAt) }}</span>
             </div>
             <!-- Actions -->
             <div class="flex flex-wrap gap-2 mb-3">
+              <button v-if="isImage(previewFile.mimeType, previewFile.filename)" @click="rotateImage(270)" :disabled="rotatingId === previewFile.id"
+                class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-50 transition-colors" title="Повернуть влево">
+                <Loader2 v-if="rotatingId === previewFile.id" :size="12" class="animate-spin" />
+                <RotateCcw v-else :size="12" /> Влево
+              </button>
+              <button v-if="isImage(previewFile.mimeType, previewFile.filename)" @click="rotateImage(90)" :disabled="rotatingId === previewFile.id"
+                class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-50 transition-colors" title="Повернуть вправо">
+                <Loader2 v-if="rotatingId === previewFile.id" :size="12" class="animate-spin" />
+                <RotateCw v-else :size="12" /> Вправо
+              </button>
               <button v-if="isImage(previewFile.mimeType, previewFile.filename) || isVideo(previewFile.mimeType, previewFile.filename)" @click="designFile = previewFile; previewFile = null"
                 class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-fuchsia-100 dark:bg-fuchsia-900/50 text-fuchsia-600 dark:text-fuchsia-400 hover:bg-fuchsia-200 dark:hover:bg-fuchsia-800 transition-colors">
                 <Sparkles :size="12" /> Дизайн-слой

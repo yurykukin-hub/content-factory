@@ -16,6 +16,7 @@ import { config } from '../config'
 import { aiVision } from './ai/openrouter'
 import { buildGalleryVisionPrompt } from './ai/prompt-builder'
 import { log } from '../utils/logger'
+import { emitEvent } from '../eventBus'
 
 const POLL_INTERVAL = 15_000 // 15 сек
 const BATCH_SIZE = 4         // фото за тик (бережём rate limit + равномерная нагрузка)
@@ -44,6 +45,8 @@ export async function describeMediaFile(file: { id: string; url: string; busines
   const text = (result.content || '').trim()
   if (!text) return false
   await db.mediaFile.update({ where: { id: file.id }, data: { altText: text, aiModel: null } })
+  // SSE: галерея во всех вкладках обновит описание без перезагрузки (tabId='' → всем)
+  emitEvent({ type: 'media_described', tabId: '', mediaId: file.id, businessId: file.businessId, altText: text, status: 'done' })
   return true
 }
 
@@ -61,10 +64,12 @@ async function pollPendingDescriptions() {
         const ok = await describeMediaFile(f)
         if (!ok) {
           await db.mediaFile.update({ where: { id: f.id }, data: { aiModel: 'describe_failed' } })
+          emitEvent({ type: 'media_described', tabId: '', mediaId: f.id, businessId: f.businessId, altText: null, status: 'failed' })
           log.warn('[ImageDescriber] empty description', { id: f.id })
         }
       } catch (err: any) {
         await db.mediaFile.update({ where: { id: f.id }, data: { aiModel: 'describe_failed' } }).catch(() => {})
+        emitEvent({ type: 'media_described', tabId: '', mediaId: f.id, businessId: f.businessId, altText: null, status: 'failed' })
         log.warn('[ImageDescriber] failed', { id: f.id, error: err.message })
       }
     })

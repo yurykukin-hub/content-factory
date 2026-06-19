@@ -6,6 +6,7 @@ import { join, extname } from 'path'
 import { mkdir, unlink, stat } from 'fs/promises'
 import { existsSync } from 'fs'
 import { getModuleDir } from '../utils/paths'
+import { log } from '../utils/logger'
 import type { AuthUser } from '../middleware/auth'
 import { verifyMediaAccess, assertBusinessAccess } from '../middleware/resource-access'
 import { extractVideoThumbnail } from '../utils/video-thumbnail'
@@ -72,6 +73,7 @@ media.post('/upload', async (c) => {
     try {
       const thumbPath = join(bizDir, thumbFilename)
       await sharp(buffer)
+        .rotate() // нормализуем EXIF-ориентацию (фото с телефона не «на боку» в превью)
         .resize(THUMB_SIZE, THUMB_SIZE, { fit: 'cover' })
         .webp({ quality: 80 })
         .toFile(thumbPath)
@@ -89,20 +91,28 @@ media.post('/upload', async (c) => {
 
   // Create DB record. Для фото ставим флаг авто-описания (Ф0.2) — фоновый image-describer
   // опишет (altText) для семантического поиска по галерее.
-  const mediaFile = await db.mediaFile.create({
-    data: {
-      businessId,
-      postId,
-      folderId,
-      filename: blob.name || filename,
-      url: `/uploads/${businessId}/${filename}`,
-      thumbUrl,
-      mimeType,
-      sizeBytes: blob.size,
-      sortOrder: 0,
-      aiModel: mimeType.startsWith('image/') ? 'describe_pending' : null,
-    },
-  })
+  // Атомарность: если запись в БД упала после Bun.write — удаляем файлы с диска, чтобы не плодить сирот.
+  let mediaFile
+  try {
+    mediaFile = await db.mediaFile.create({
+      data: {
+        businessId,
+        postId,
+        folderId,
+        filename: blob.name || filename,
+        url: `/uploads/${businessId}/${filename}`,
+        thumbUrl,
+        mimeType,
+        sizeBytes: blob.size,
+        sortOrder: 0,
+        aiModel: mimeType.startsWith('image/') ? 'describe_pending' : null,
+      },
+    })
+  } catch (e) {
+    await unlink(filePath).catch(() => {})
+    if (thumbUrl) await unlink(join(UPLOAD_DIR, thumbUrl.replace('/uploads/', ''))).catch(() => {})
+    throw e
+  }
 
   return c.json(mediaFile, 201)
 })
@@ -457,6 +467,55 @@ media.post('/fit', async (c) => {
   }
 })
 
+// POST /api/media/:id/rotate — повернуть изображение на 90/180/270° (правка на месте).
+// Перезаписывает оригинал + регенерирует thumbnail. Связи (postId, attachments) сохраняются.
+media.post('/:id/rotate', async (c) => {
+  const { id } = c.req.param()
+  const user = c.get('user') as AuthUser
+  try {
+    await verifyMediaAccess(user, id)
+  } catch (e: any) {
+    if (e.message === 'NOT_FOUND') return c.json({ error: 'Не найдено' }, 404)
+    if (e.message === 'FORBIDDEN') return c.json({ error: 'Нет доступа' }, 403)
+    throw e
+  }
+
+  const { angle } = await c.req.json<{ angle: number }>().catch(() => ({ angle: NaN }))
+  if (angle !== 90 && angle !== 180 && angle !== 270) {
+    return c.json({ error: 'angle должен быть 90, 180 или 270' }, 400)
+  }
+
+  const file = await db.mediaFile.findUnique({ where: { id } })
+  if (!file) return c.json({ error: 'Файл не найден' }, 404)
+  if (!file.mimeType.startsWith('image/')) return c.json({ error: 'Поворот доступен только для изображений' }, 400)
+
+  const srcPath = join(UPLOAD_DIR, file.url.replace('/uploads/', ''))
+  if (!existsSync(srcPath)) return c.json({ error: 'Файл отсутствует на диске' }, 404)
+
+  try {
+    // Порядок важен: сначала .rotate() (EXIF-ориентацию → в пиксели), затем .rotate(angle) (наш доворот).
+    // Иначе при наличии EXIF получится двойной поворот.
+    const fmt = file.mimeType.includes('png') ? 'png' : file.mimeType.includes('webp') ? 'webp' : 'jpeg'
+    let pipeline = sharp(srcPath).rotate().rotate(angle)
+    pipeline = fmt === 'png' ? pipeline.png() : fmt === 'webp' ? pipeline.webp({ quality: 90 }) : pipeline.jpeg({ quality: 92 })
+    const outBuf = await pipeline.toBuffer() // читаем целиком в память ДО записи в тот же файл
+    await Bun.write(srcPath, outBuf)
+
+    // Регенерируем thumbnail из уже повёрнутого буфера (то же имя — перезапись)
+    if (file.thumbUrl) {
+      const thumbPath = join(UPLOAD_DIR, file.thumbUrl.replace('/uploads/', ''))
+      await sharp(outBuf).resize(THUMB_SIZE, THUMB_SIZE, { fit: 'cover' }).webp({ quality: 80 }).toFile(thumbPath)
+        .catch((e) => log.warn('rotate: thumb regen failed', { path: thumbPath, error: String(e?.message || e) }))
+    }
+
+    const updated = await db.mediaFile.update({ where: { id }, data: { sizeBytes: outBuf.length } })
+    // URL не меняется → фронт добавит ?v=<ts> для cache-busting (см. Cache-Control на /uploads/*)
+    return c.json({ ...updated, cacheBust: true })
+  } catch (e: any) {
+    return c.json({ error: 'Ошибка поворота: ' + String(e?.message || e).slice(0, 200) }, 500)
+  }
+})
+
 // GET /api/media/library/:bizId — медиа-библиотека бизнеса (cursor pagination)
 media.get('/library/:bizId', async (c) => {
   const { bizId } = c.req.param()
@@ -506,10 +565,24 @@ media.get('/library/:bizId', async (c) => {
   const hasMore = files.length > limit
   if (hasMore) files.pop()
 
-  // Total count only on first page (no cursor) to avoid extra query on "load more"
-  const totalCount = cursor ? undefined : await db.mediaFile.count({ where })
+  // Counts only on first page (no cursor) to avoid extra queries on "load more".
+  // Разбивка (фото/видео/без поста) считается по базовому набору без type/postId-фильтров,
+  // чтобы цифры были стабильны при переключении таба типа. Снимает 3× O(n) .filter() на фронте.
+  let totalCount: number | undefined
+  let counts: { images: number; videos: number; unattached: number } | undefined
+  if (!cursor) {
+    const { mimeType: _mt, postId: _pid, ...base } = where
+    const [total, images, videos, unattached] = await Promise.all([
+      db.mediaFile.count({ where }),
+      db.mediaFile.count({ where: { ...base, mimeType: { startsWith: 'image/' } } }),
+      db.mediaFile.count({ where: { ...base, mimeType: { startsWith: 'video/' } } }),
+      db.mediaFile.count({ where: { ...base, postId: null } }),
+    ])
+    totalCount = total
+    counts = { images, videos, unattached }
+  }
 
-  return c.json({ files, hasMore, ...(totalCount !== undefined ? { totalCount } : {}) })
+  return c.json({ files, hasMore, ...(totalCount !== undefined ? { totalCount } : {}), ...(counts ? { counts } : {}) })
 })
 
 // GET /api/media/tags/:bizId — все уникальные теги бизнеса
@@ -573,16 +646,13 @@ media.delete('/:id', async (c) => {
   const file = await db.mediaFile.findUnique({ where: { id } })
   if (!file) return c.json({ error: 'Файл не найден' }, 404)
 
-  // Delete physical files
-  try {
-    const filePath = join(UPLOAD_DIR, file.url.replace('/uploads/', ''))
-    await unlink(filePath).catch(() => {})
-    if (file.thumbUrl) {
-      const thumbPath = join(UPLOAD_DIR, file.thumbUrl.replace('/uploads/', ''))
-      await unlink(thumbPath).catch(() => {})
-    }
-  } catch (e) {
-    console.error('File delete error:', e)
+  // Delete physical files. DB — источник правды, файл best-effort: даже если unlink упал,
+  // запись удаляем. Но логируем путь сироты (warn), чтобы можно было вычистить диск VPS.
+  const filePath = join(UPLOAD_DIR, file.url.replace('/uploads/', ''))
+  await unlink(filePath).catch((e) => log.warn('media delete: orphan file left on disk', { path: filePath, error: String(e?.message || e) }))
+  if (file.thumbUrl) {
+    const thumbPath = join(UPLOAD_DIR, file.thumbUrl.replace('/uploads/', ''))
+    await unlink(thumbPath).catch((e) => log.warn('media delete: orphan thumb left on disk', { path: thumbPath, error: String(e?.message || e) }))
   }
 
   // Delete DB record

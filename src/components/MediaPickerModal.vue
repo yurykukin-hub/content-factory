@@ -34,25 +34,48 @@ const folders = ref<MediaFolder[]>([])
 const currentFolderId = ref<string | null>(null)
 const breadcrumbs = ref<{ id: string; name: string }[]>([])
 const loading = ref(false)
+const loadingMore = ref(false)
+const hasMore = ref(false)
 const search = ref('')
 const selectedId = ref<string | null>(null)
 const selectedIds = ref<string[]>([])
 
 const isSearching = computed(() => !!search.value.trim())
 
+function mediaParams(cursor?: string) {
+  const params = new URLSearchParams({ type: 'image', limit: '60' })
+  // При поиске — ищем по всем папкам; иначе показываем содержимое текущей папки
+  if (search.value.trim()) params.set('search', search.value.trim())
+  else params.set('folderId', currentFolderId.value || 'root')
+  if (cursor) params.set('cursor', cursor)
+  return params
+}
+
 async function loadMedia() {
   loading.value = true
   try {
-    const params = new URLSearchParams({ type: 'image' })
-    // При поиске — ищем по всем папкам; иначе показываем содержимое текущей папки
-    if (search.value.trim()) params.set('search', search.value.trim())
-    else params.set('folderId', currentFolderId.value || 'root')
-    const res = await http.get<{ files: MediaFile[] }>(`/media/library/${props.businessId}?${params}`)
+    const res = await http.get<{ files: MediaFile[]; hasMore: boolean }>(`/media/library/${props.businessId}?${mediaParams()}`)
     files.value = res.files
+    hasMore.value = res.hasMore
   } catch {
     files.value = []
+    hasMore.value = false
   } finally {
     loading.value = false
+  }
+}
+
+async function loadMoreMedia() {
+  if (loadingMore.value || !hasMore.value) return
+  const last = files.value[files.value.length - 1]
+  if (!last) return
+  loadingMore.value = true
+  try {
+    const res = await http.get<{ files: MediaFile[]; hasMore: boolean }>(`/media/library/${props.businessId}?${mediaParams(last.id)}`)
+    files.value.push(...res.files)
+    hasMore.value = res.hasMore
+  } catch { /* keep current list */ } finally {
+    loadingMore.value = false
   }
 }
 
@@ -233,6 +256,15 @@ function onSearch() {
               <p class="text-[9px] text-white truncate">{{ f.filename }}</p>
               <p class="text-[8px] text-white/70">{{ formatSize(f.sizeBytes) }}</p>
             </div>
+          </button>
+        </div>
+
+        <!-- Load more -->
+        <div v-if="hasMore && !loading" class="flex justify-center mt-3">
+          <button @click="loadMoreMedia" :disabled="loadingMore"
+            class="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-50 transition-colors">
+            <Loader2 v-if="loadingMore" :size="14" class="animate-spin" />
+            {{ loadingMore ? 'Загрузка...' : 'Показать ещё' }}
           </button>
         </div>
       </div>

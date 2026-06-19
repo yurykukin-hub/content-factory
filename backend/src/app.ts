@@ -183,8 +183,13 @@ app.get('/uploads/*', async (c) => {
   if (await file.exists()) {
     // CORS: разрешаем canvas (crossOrigin='anonymous') читать пиксели без tainted-canvas.
     // Файлы публичные, поэтому wildcard безопасен. Чинит экспорт сторис/дизайн-слоя.
+    // Cache-Control: умеренный кэш (5 мин). При повороте файла фронт добавляет ?v=<ts> —
+    // меняет URL и пробивает кэш, поэтому max-age не показывает старую версию.
     return new Response(file, {
-      headers: { 'Access-Control-Allow-Origin': '*' },
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Cache-Control': 'public, max-age=300',
+      },
     })
   }
   return c.json({ error: 'File not found' }, 404)

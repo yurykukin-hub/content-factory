@@ -94,9 +94,9 @@ auth, users, businesses, platforms, posts, content-plans, ai, publish, media, se
 - SSE: eventBus -> ReadableStream. session_updated для студий
 - AI prompts: system prompt = base + brandContext. Русский UI + auto-translate
 - Billing: AppConfig markup + usd_rub_rate. Auto-charge $transaction. ADMIN exempt
-- Media library API: `{ files, hasMore, totalCount }` — НЕ массив
+- Media library API: `{ files, hasMore, totalCount, counts }` — НЕ массив (counts только на 1-й странице)
 - Publishers: getPublisher(platform, {postType, config}) — VK гибрид (PMP по флагу viaPostmypost / direct), IG→PMP, TG
-- Testing: Vitest, 179 tests, 17 files. Mock Prisma via vi.hoisted()
+- Testing: Vitest, 185 tests, 18 files. Mock Prisma via vi.hoisted()
 
 ## СММ-петля НаWоде — оживление + дизайн-слой (2026-06-19, Фазы 0–2c.1, прод, ~18 деплоев)
 **Диагноз:** машинерия крутилась, но постинг встал (последний 11.06 — 8 дней тишины). Корень — человеческое звено: предложения без визуала (0/34 задач с фото) + нет пуша. Чинили это, не код-машинерию.
@@ -106,4 +106,13 @@ auth, users, businesses, platforms, posts, content-plans, ai, publish, media, se
 - **Ф1.6/1.7 качество:** только PHOTO/STORIES (TEXT/видео убраны + нормализация формата на сервере). Подбор строже: ранжирование кандидатов по числу совпавших keywords, исключение `ai-generated` (42 генерёных фото помечены тегом — отличаем по GenerationSession), предпочтение «людей на сапах». Сторис: вертикальный `StoriesPreview` 9:16 (был как лента), чёткое фото (url не thumb 200px), короткий оверлей без ленточной адаптации/хэштегов. Дедуп фото (последовательно + usedMediaIds). Ветер словами (`windLabel`, не м/с — люди не парсят). approved свёрнуты в /digest.
 - **Ф2a дизайн-слой (satori, НЕ Playwright — лёгкий, без Chromium, работает в Bun+Alpine):** `html-render.ts` (satori-узлы→SVG→`@resvg/resvg-js`→PNG; шрифты Montserrat/Cormorant из print-kit в `src/assets/fonts`; **satori-html НЕ работает в Bun → строим узлы через `el()` напрямую**). `design-templates.ts` `buildStoryDesign` (фото-фон + погодный виджет + заголовок + CTA + реальное лого; эмодзи стрипаются — satori их не рисует). `story-design.ts` `renderAndSaveStoryDesign`/`savePngAsMedia`. `POST /media/render-design` + кнопка «Оформить дизайн» в /digest + **авто-генерация в дайджесте** (STORIES→дизайн с реальной погодой из `getDailySummary`). `StoriesPreview` `baked`-режим. VK `link_text` нормализован к CTA-константам (`vk.ts`).
 - **Ф2c.1 карусель-рендер:** `buildCarouselSlide` (4:5, cover/content/cta), `renderAndSaveCarousel`→серия PNG, `POST /media/render-carousel`. ТОЛЬКО рендер (UI создания/публикация серией/свайп-фото ещё нет).
-- **Отложено/осталось:** Ф2b нано-банана дорисовка (отложил Юрий); Ф2c.2 свайп-фото, Ф2c.3 UI создания карусели + агент-слайды + публикация серией, Ф2c.4 VK `clickable_stickers` (авто хештег/упоминание); докрутка промптов ролей на горячую; авто-Telegram-пинг (Ф3, код готов, нужен токен+chat_id). **API-факт:** подписи к сторис в API НЕТ (ни IG, ни VK) — только вшитый оверлей + VK CTA-кнопка/стикеры. План: `~/.claude/plans/breezy-imagining-orbit.md`. 179 тестов.
+- **Отложено/осталось:** Ф2b нано-банана дорисовка (отложил Юрий); Ф2c.2 свайп-фото, Ф2c.3 UI создания карусели + агент-слайды + публикация серией, Ф2c.4 VK `clickable_stickers` (авто хештег/упоминание); докрутка промптов ролей на горячую; авто-Telegram-пинг (Ф3, код готов, нужен токен+chat_id). **API-факт:** подписи к сторис в API НЕТ (ни IG, ни VK) — только вшитый оверлей + VK CTA-кнопка/стикеры. План: `~/.claude/plans/breezy-imagining-orbit.md`. 185 тестов.
+
+## Медиатека UX-фиксы (2026-06-19, жалоба Светы «галерея падает при загрузке»)
+- **«Падает» = две причины:** последовательная загрузка (`for…await`) без обработки ошибок + список без виртуализации (фриз на сотнях файлов). Чинили обе.
+- **Надёжная загрузка:** `composables/useConcurrentUpload.ts` (worker-pool, лимит 3 — sharp/ffmpeg синхронны, бережём VPS от OOM). Прогресс «N/M», per-file ошибки (падение одного ≠ срыв пачки) + панель упавших имён, оптимистичная вставка. Backend upload: атомарный cleanup файла+thumb при ошибке `create`.
+- **Производительность:** серверные `counts` в `/library` (убрали 3× O(n) `.filter()`); debounce фильтров 250мс; CSS `content-visibility:auto` на карточки (без virtual-scroll — для 5-10 юзеров хватает).
+- **Поворот:** `POST /media/:id/rotate {angle}` — sharp `.rotate()`(EXIF) **затем** `.rotate(angle)`, перезапись оригинала+thumb, фронт cache-bust `?v=`. `/uploads/*` теперь с `Cache-Control: max-age=300`. Кнопки ↺/↻ в preview.
+- **EXIF-баг:** thumbnail при загрузке теперь с `.rotate()` (фото с телефона не «на боку»).
+- **Live-описание:** `image-describer` эмитит SSE `media_described` → MediaLibraryView обновляет altText/индикацию без F5 (спиннер «описывает»/«не удалось»+повтор). MediaPicker получил cursor-пагинацию («Показать ещё»).
+- Доступ: рассинхрон БД↔диск при delete теперь логируется (`log.warn` сирот). План: `~/.claude/plans/stateless-splashing-starlight.md`.

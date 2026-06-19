@@ -52,7 +52,7 @@ content-factory/
 │   │   │   ├── content-plans.ts # CRUD + create-post/ai-generate + batch
 │   │   │   ├── ai.ts           # generate-post/image/video/scenario, adapt, hashtags, rewrite, enhance-prompt, describe-image, suggest-templates, agent-chat, transcribe (Whisper)
 │   │   │   ├── publish.ts      # publish + schedule (access checks)
-│   │   │   ├── media.ts        # upload/delete/attach + library + tags + overlay-video + bake-design-layer (единый дизайн-слой: фото→sharp, видео→ffmpeg)
+│   │   │   ├── media.ts        # upload/delete/attach + library(+counts) + tags + rotate + overlay-video + bake-design-layer (единый дизайн-слой: фото→sharp, видео→ffmpeg)
 │   │   │   ├── auto-post.ts     # дайджест/авто-пост: list (multi-status), approve→draft, reject, restore, generate-digest, collect-competitors, competitor-inspiration
 │   │   │   ├── settings.ts     # AppConfig CRUD (ADMIN-only, .env fallback)
 │   │   │   ├── vk-oauth.ts     # VK OAuth 2.1 PKCE
@@ -315,12 +315,16 @@ API keys: OpenRouter — из БД (AppConfig) или .env. FAL — из .env (F
 
 ## Media Library
 - **Upload MIME detection**: extensionToMime() fallback when blob.type is empty/octet-stream (MOV, AVI, MKV etc.)
-- **Cursor pagination**: GET /media/library/:bizId returns `{ files, hasMore, totalCount }` (NOT a plain array). Limit 40/page, cursor-based
+- **Cursor pagination**: GET /media/library/:bizId returns `{ files, hasMore, totalCount, counts }` (NOT a plain array). Limit 40/page, cursor-based. `counts:{images,videos,unattached}` только на первой странице (без cursor) — снимает 3× O(n) `.filter()` на фронте (фолбэк на локальный подсчёт)
 - **Grid**: video files show WebP thumbnail (ffmpeg first frame), images use `loading="lazy"`. Placeholder icon only if thumbUrl is null
 - **Video thumbnails**: ffmpeg in Dockerfile, `extractVideoThumbnail()` (1s frame → sharp WebP 400×400). Auto on upload + KIE generation. `fix-video-thumbs.ts` for migration
 - **Frontend helpers**: `isImage(mime, filename?)` / `isVideo(mime, filename?)` — fallback to file extension for octet-stream files
 - **Consumers**: MediaLibraryView, MediaPickerModal, VsRefModal, VideoStudioView — all must use `res.files` from response
 - **Migration script**: `bun src/fix-mime-types.ts` — one-time fix for existing octet-stream files
+- **Надёжная массовая загрузка** (2026-06-19): `composables/useConcurrentUpload.ts` (worker-pool, лимит 3 — бережём VPS от OOM на sharp/ffmpeg). Прогресс «N / M» в кнопке, per-file ошибки (падение одного не рвёт пачку) + панель упавших имён, оптимистичная вставка. Backend upload — атомарный cleanup файла+thumb при ошибке `create`
+- **Поворот изображений** (2026-06-19): `POST /media/:id/rotate {angle:90|180|270}` — sharp `.rotate()` (EXIF→пиксели) **затем** `.rotate(angle)` (порядок важен — иначе двойной поворот), перезапись оригинала + регенерация thumb, `sizeBytes` обновляется. URL не меняется → фронт добавляет `?v=<ts>` (cache-bust; `/uploads/*` отдаётся с `Cache-Control: public, max-age=300`). Кнопки ↺/↻ в preview-модалке MediaLibraryView
+- **EXIF-фикс thumbnail** (2026-06-19): thumbnail при загрузке генерируется с `.rotate()` — портретные фото с телефона больше не «на боку» в сетке/превью
+- **Live AI-описание** (2026-06-19): фоновый `image-describer` эмитит SSE `media_described` (eventBus) → MediaLibraryView (SSE-консьюмер по образцу студий) обновляет altText/индикацию без перезагрузки. Карточка: спиннер «AI описывает…» (`describe_pending`) / «не удалось»+кнопка повтора (`describe_failed`) / описание (altText показывается даже при `aiModel=null`)
 
 ## Security Hardening (16.04.2026)
 - **Path traversal**: `/uploads/*` — `path.resolve()` + `startsWith(uploadsRoot)` check
