@@ -244,7 +244,7 @@ async function generateDigestForBusiness(biz: any, force: boolean): Promise<numb
 
 /** Поиск реальных фото в галерее по ключевым словам (по altText из Ф0). */
 async function searchGalleryPhotos(businessId: string, keywords: string[], limit = 12): Promise<{ id: string; altText: string }[]> {
-  const kw = (keywords || []).map(k => String(k).trim()).filter(Boolean)
+  const kw = (keywords || []).map(k => String(k).trim().toLowerCase()).filter(Boolean)
   if (!kw.length) return []
   const rows = await db.mediaFile.findMany({
     where: {
@@ -254,10 +254,18 @@ async function searchGalleryPhotos(businessId: string, keywords: string[], limit
       OR: kw.map(k => ({ altText: { contains: k, mode: 'insensitive' as const } })),
     },
     select: { id: true, altText: true },
-    orderBy: { createdAt: 'desc' },
-    take: limit,
+    take: 50, // больше кандидатов — ранжируем ниже по релевантности
   })
-  return rows.map(r => ({ id: r.id, altText: r.altText || '' }))
+  // Ранжируем по числу совпавших ключевых слов: фото с бОльшим пересечением релевантнее
+  // (иначе keyword «рассвет» притягивал сап-йогу под тему «замок»).
+  return rows
+    .map(r => {
+      const alt = (r.altText || '').toLowerCase()
+      return { id: r.id, altText: r.altText || '', score: kw.filter(k => alt.includes(k)).length }
+    })
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+    .map(({ id, altText }) => ({ id, altText }))
 }
 
 /** Арт-директор: выбирает лучшее фото из галереи под пост (null, если ничего не подходит). */
@@ -329,7 +337,8 @@ async function runAgentTeam(businessId: string, ctx: DigestContext): Promise<Sug
 
   // РОЛИ 2+3 — копирайтер и арт-директор по каждой идее (параллельно)
   const results = await Promise.allSettled(ideas.slice(0, 4).map(async (idea: any): Promise<Suggestion> => {
-    const format = String(idea.format || 'TEXT').toUpperCase()
+    // Ф1.6: только PHOTO/STORIES (каждый пост с фото). Любой другой формат → PHOTO.
+    const format = String(idea.format || 'PHOTO').toUpperCase() === 'STORIES' ? 'STORIES' : 'PHOTO'
     // Каналы предложения: channels[] ∩ доступные; fallback — первый доступный (back-compat со старым полем channel)
     const requested: string[] = Array.isArray(idea.channels) ? idea.channels : (idea.channel ? [idea.channel] : [])
     let channels = requested.filter((c: string) => ctx.platforms.includes(c))

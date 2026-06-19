@@ -94,10 +94,10 @@ describe('runDailyDigest (Epic C — generate suggestions)', () => {
     mockDb.autoPostTask.count.mockResolvedValue(0)
     mockDb.post.findMany.mockResolvedValue([])
     mockDb.autoPostTask.create.mockResolvedValue({ id: 'task-1', businessId: 'biz-1' })
-    // Команда агентов: стратег → копирайтер → адаптация(VK). TEXT-формат => арт-директор не вызывается.
+    // Команда агентов: стратег → копирайтер → адаптация(VK). STORIES без photoKeywords => арт-директор не находит фото (нет aiComplete).
     vi.mocked(aiComplete)
       .mockResolvedValueOnce({
-        content: JSON.stringify({ ideas: [{ rubric: 'R', theme: 'Тема дня', format: 'TEXT', channels: ['VK'], keyMessage: 'K', photoKeywords: [], reasoning: 'погода' }] }),
+        content: JSON.stringify({ ideas: [{ rubric: 'R', theme: 'Тема дня', format: 'STORIES', channels: ['VK'], keyMessage: 'K', photoKeywords: [], reasoning: 'погода' }] }),
         tokensIn: 1, tokensOut: 1, cachedTokens: 0, costUsd: 0, model: 'sonnet',
       } as any)
       .mockResolvedValueOnce({
@@ -112,7 +112,7 @@ describe('runDailyDigest (Epic C — generate suggestions)', () => {
 
     expect(res.created).toBe(1)
     expect(mockDb.autoPostTask.create).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ source: 'digest', status: 'proposed', postType: 'TEXT' }) })
+      expect.objectContaining({ data: expect.objectContaining({ source: 'digest', status: 'proposed', postType: 'STORIES' }) })
     )
   })
 

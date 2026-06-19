@@ -52,6 +52,7 @@ const inspiration = ref<InspirationPost[]>([])
 const loading = ref(true)
 const generating = ref(false)
 const showArchive = ref(false)
+const showApproved = ref(false)
 const actingId = ref<string | null>(null)
 
 function bizName(id: string): string {
@@ -79,11 +80,9 @@ async function load() {
     : []
 }
 
-// Активные: предложения сверху, созданные черновики ниже. Отклонённые — отдельно в архиве.
-const activeTasks = computed(() => [
-  ...tasks.value.filter(t => t.status === 'proposed'),
-  ...tasks.value.filter(t => t.status === 'approved'),
-])
+// Развёрнуты только активные предложения (proposed). Одобренные и отклонённые — свёрнутые секции ниже.
+const activeTasks = computed(() => tasks.value.filter(t => t.status === 'proposed'))
+const approvedTasks = computed(() => tasks.value.filter(t => t.status === 'approved'))
 const archivedTasks = computed(() => tasks.value.filter(t => t.status === 'rejected'))
 
 async function generate() {
@@ -323,6 +322,30 @@ onMounted(load)
           <button @click="openDraft(task)"
             class="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 text-sm font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800">
             <FileEdit :size="15" /> Открыть черновик
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Одобренные черновики (свёрнуто, чтобы не растягивать полотно) -->
+    <div v-if="!loading && approvedTasks.length" class="mt-5">
+      <button @click="showApproved = !showApproved"
+        class="flex items-center gap-1.5 text-sm text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300">
+        <ChevronDown :size="16" :class="showApproved ? '' : '-rotate-90'" class="transition-transform" />
+        <Check :size="14" /> Одобренные черновики ({{ approvedTasks.length }})
+      </button>
+      <div v-if="showApproved" class="space-y-2 mt-3">
+        <div v-for="task in approvedTasks" :key="task.id"
+          class="flex items-start gap-3 bg-green-50/40 dark:bg-green-950/20 rounded-lg p-3 border border-green-200 dark:border-green-900/40">
+          <div class="flex-1 min-w-0">
+            <div class="text-xs font-medium text-gray-600 dark:text-gray-300">
+              {{ POST_TYPE_LABELS[task.postType || 'TEXT'] || task.postType }}<span v-if="task.title"> · {{ task.title }}</span>
+            </div>
+            <p class="text-xs text-gray-400 mt-0.5">{{ task.proposedText.slice(0, 100) }}{{ task.proposedText.length > 100 ? '…' : '' }}</p>
+          </div>
+          <button @click="openDraft(task)"
+            class="shrink-0 flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-gray-600 dark:text-gray-300 hover:bg-green-100 dark:hover:bg-green-900/40">
+            <FileEdit :size="13" /> Открыть
           </button>
         </div>
       </div>
