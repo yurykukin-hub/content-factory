@@ -13,13 +13,14 @@ const { mockDb } = vi.hoisted(() => {
     findUnique: vi.fn().mockResolvedValue(null),
     create: vi.fn().mockResolvedValue({ id: 'mock-id' }),
     update: vi.fn().mockResolvedValue({ id: 'mock-id' }),
+    updateMany: vi.fn().mockResolvedValue({ count: 0 }),
     count: vi.fn().mockResolvedValue(0),
     upsert: vi.fn().mockResolvedValue({ id: 'mock-id' }),
   })
   return {
     mockDb: {
       business: m(), brandProfile: m(), post: m(), autoPostTask: m(), appConfig: m(),
-      platformAccount: m(), generationSession: m(),
+      platformAccount: m(), generationSession: m(), mediaFile: m(),
     },
   }
 })
@@ -38,7 +39,12 @@ vi.mock('../ai/strategy', () => ({
   getRubricNames: vi.fn().mockResolvedValue([]),
   getOccasionsInRange: vi.fn().mockResolvedValue([]),
 }))
-vi.mock('../ai/prompt-builder', () => ({ buildBrandContext: vi.fn().mockResolvedValue('## Бренд: НаWоде') }))
+vi.mock('../ai/prompt-builder', () => ({
+  buildBrandContext: vi.fn().mockResolvedValue('## Бренд: НаWоде'),
+  buildDigestStrategistPrompt: vi.fn().mockReturnValue('STRATEGIST_PROMPT'),
+  buildDigestCopywriterPrompt: vi.fn().mockReturnValue('COPYWRITER_PROMPT'),
+  buildDigestArtDirectorPrompt: vi.fn().mockReturnValue('ARTDIRECTOR_PROMPT'),
+}))
 vi.mock('../ai/openrouter', () => ({ aiComplete: vi.fn() }))
 vi.mock('../telegram-approval', () => ({ sendApprovalToTelegram: vi.fn() }))
 
@@ -87,20 +93,46 @@ describe('runDailyDigest (Epic C — generate suggestions)', () => {
     mockDb.autoPostTask.count.mockResolvedValue(0)
     mockDb.post.findMany.mockResolvedValue([])
     mockDb.autoPostTask.create.mockResolvedValue({ id: 'task-1', businessId: 'biz-1' })
-    vi.mocked(aiComplete).mockResolvedValue({
-      content: JSON.stringify({
-        suggestions: [
-          { postType: 'STORIES', platforms: ['VK'], title: 'T', text: 'B', hashtags: ['a'], reasoning: 'погода', visualIdea: 'фото' },
-        ],
-      }),
-      tokensIn: 1, tokensOut: 1, cachedTokens: 0, costUsd: 0, model: 'sonnet',
-    } as any)
+    // Команда агентов: стратег (→ идеи) → копирайтер (→ текст). TEXT-формат => арт-директор не вызывается.
+    vi.mocked(aiComplete)
+      .mockResolvedValueOnce({
+        content: JSON.stringify({ ideas: [{ rubric: 'R', theme: 'Тема дня', format: 'TEXT', channel: 'VK', keyMessage: 'K', photoKeywords: [], reasoning: 'погода' }] }),
+        tokensIn: 1, tokensOut: 1, cachedTokens: 0, costUsd: 0, model: 'sonnet',
+      } as any)
+      .mockResolvedValueOnce({
+        content: JSON.stringify({ text: 'Готовый текст поста', hashtags: ['нawode'] }),
+        tokensIn: 1, tokensOut: 1, cachedTokens: 0, costUsd: 0, model: 'sonnet',
+      } as any)
 
     const res = await runDailyDigest({ businessId: 'biz-1', force: true })
 
     expect(res.created).toBe(1)
     expect(mockDb.autoPostTask.create).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ source: 'digest', status: 'proposed', postType: 'STORIES' }) })
+      expect.objectContaining({ data: expect.objectContaining({ source: 'digest', status: 'proposed', postType: 'TEXT' }) })
+    )
+  })
+
+  it('art-director attaches a gallery photo for PHOTO format', async () => {
+    mockDb.business.findMany.mockResolvedValue([
+      { id: 'biz-1', slug: 'nawode', name: 'НаWоде', platformAccounts: [{ platform: 'VK' }] },
+    ])
+    mockDb.post.findMany.mockResolvedValue([])
+    mockDb.autoPostTask.create.mockResolvedValue({ id: 'task-1', businessId: 'biz-1' })
+    // Галерея вернёт 2 кандидата → арт-директор выберет один
+    mockDb.mediaFile.findMany.mockResolvedValue([
+      { id: 'mf-1', altText: 'закат на воде' },
+      { id: 'mf-2', altText: 'замок с воды' },
+    ])
+    vi.mocked(aiComplete)
+      .mockResolvedValueOnce({ content: JSON.stringify({ ideas: [{ rubric: 'R', theme: 'Закат', format: 'PHOTO', channel: 'VK', keyMessage: 'K', photoKeywords: ['закат'], reasoning: 'погода' }] }), tokensIn: 1, tokensOut: 1, cachedTokens: 0, costUsd: 0, model: 'sonnet' } as any)
+      .mockResolvedValueOnce({ content: JSON.stringify({ text: 'Текст про закат', hashtags: ['закат'] }), tokensIn: 1, tokensOut: 1, cachedTokens: 0, costUsd: 0, model: 'sonnet' } as any)
+      .mockResolvedValueOnce({ content: JSON.stringify({ mediaFileId: 'mf-2', reasoning: 'замок ярче' }), tokensIn: 1, tokensOut: 1, cachedTokens: 0, costUsd: 0, model: 'haiku' } as any)
+
+    const res = await runDailyDigest({ businessId: 'biz-1', force: true })
+
+    expect(res.created).toBe(1)
+    expect(mockDb.autoPostTask.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ postType: 'PHOTO', mediaFileId: 'mf-2' }) })
     )
   })
 

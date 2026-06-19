@@ -104,6 +104,27 @@ autoPost.post('/:id/restore', async (c) => {
   return c.json({ ok: true })
 })
 
+// PATCH /api/auto-posts/:id — заменить выбранное фото предложения (Ф1.2)
+autoPost.patch('/:id', async (c) => {
+  const task = await db.autoPostTask.findUnique({ where: { id: c.req.param('id') } })
+  if (!task) return c.json({ error: 'Task not found' }, 404)
+
+  const parsed = z.object({ mediaFileId: z.string().nullable() }).safeParse(await c.req.json().catch(() => ({})))
+  if (!parsed.success) return c.json({ error: 'Invalid body' }, 400)
+
+  // Фото должно принадлежать тому же бизнесу
+  if (parsed.data.mediaFileId) {
+    const mf = await db.mediaFile.findUnique({ where: { id: parsed.data.mediaFileId }, select: { businessId: true } })
+    if (!mf || mf.businessId !== task.businessId) return c.json({ error: 'Media not found in this business' }, 400)
+  }
+
+  const updated = await db.autoPostTask.update({
+    where: { id: task.id },
+    data: { mediaFileId: parsed.data.mediaFileId },
+  })
+  return c.json(updated)
+})
+
 // GET /api/auto-posts/competitor-inspiration?businessId=X — топ «залетевших» постов конкурентов
 autoPost.get('/competitor-inspiration', async (c) => {
   const businessId = c.req.query('businessId')

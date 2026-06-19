@@ -74,6 +74,123 @@ export function buildGalleryVisionPrompt(): { system: string; user: string } {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// Команда агентов утреннего дайджеста (Ф1): стратег → копирайтер → арт-директор.
+// Каждая роль — отдельный фокусированный промпт (вместо одного «сделай всё» Sonnet).
+// ─────────────────────────────────────────────────────────────────────────
+
+const RF_LAW_RULE = 'ЗАКОНОДАТЕЛЬСТВО РФ (строго): нейтральный тон; НЕ упоминай и не зови в Instagram в текстах для VK/публичных РФ-каналов (Meta признана экстремистской в РФ); без запрещённого контента.'
+
+export interface DigestStrategistContext {
+  dayName: string
+  dateStr: string
+  brandContext: string
+  strategyText: string
+  seasonHint: string
+  rubrics: string[]
+  dataBlock: string
+  recentSummary: string
+  competitorBlock: string
+  platforms: string[]
+  count: number
+}
+
+/** РОЛЬ 1 — Стратег: выбирает темы дня (формат/канал/рубрика/ключевые слова для поиска фото). */
+export function buildDigestStrategistPrompt(ctx: DigestStrategistContext): string {
+  return `Ты — главный контент-стратег SMM-агентства. Сегодня ${ctx.dayName}, ${ctx.dateStr}.
+
+${ctx.brandContext}
+
+${ctx.strategyText}
+
+СЕЗОН: ${ctx.seasonHint}
+${ctx.rubrics.length ? `\nРУБРИКИ (выбирай rubric строго из этого списка):\n${ctx.rubrics.map(r => `- ${r}`).join('\n')}` : ''}
+
+ДАННЫЕ НА СЕГОДНЯ И БЛИЖАЙШИЕ ДНИ:
+${ctx.dataBlock}
+
+НЕДАВНИЕ ПОСТЫ (НЕ повторяйся по теме):
+${ctx.recentSummary}
+${ctx.competitorBlock ? `\nЗАЛЕТЕВШИЕ ПОСТЫ КОНКУРЕНТОВ (черпай идеи/форматы, НЕ копируй):\n${ctx.competitorBlock}\n` : ''}
+ДОСТУПНЫЕ КАНАЛЫ: ${ctx.platforms.join(', ') || 'VK'}
+
+${RF_LAW_RULE}
+
+ЗАДАЧА: на основе погоды, броней, рубрик и сезона предложи ${ctx.count} идеи контента ИМЕННО на сегодня. Разнообразь форматы (хотя бы одна STORIES с погодой/приглашением). Видео НЕ предлагай (только PHOTO, TEXT, STORIES).
+
+Для КАЖДОЙ идеи верни:
+- rubric: рубрика из списка выше
+- theme: конкретная тема/угол подачи (1 фраза)
+- format: PHOTO | TEXT | STORIES
+- channel: один из доступных каналов
+- keyMessage: главная мысль поста (1-2 фразы — это бриф копирайтеру)
+- photoKeywords: массив из 2-4 РУССКИХ ключевых слов для поиска фото в галерее по СМЫСЛУ (объекты/локация/настроение: ["закат","вода"], ["замок","набережная"], ["дети","семья"]). Для PHOTO и STORIES обязательно; для TEXT можно [].
+- reasoning: почему именно это сегодня (погода/бронь/рубрика, 1 фраза)
+
+Ответь СТРОГО JSON без markdown:
+{"ideas":[{"rubric":"...","theme":"...","format":"PHOTO","channel":"VK","keyMessage":"...","photoKeywords":["...","..."],"reasoning":"..."}]}`
+}
+
+export interface DigestCopywriterBrief {
+  rubric: string
+  theme: string
+  format: string
+  channel: string
+  keyMessage: string
+}
+
+/** РОЛЬ 2 — Копирайтер: пишет готовый к публикации текст по брифу стратега. */
+export function buildDigestCopywriterPrompt(brief: DigestCopywriterBrief, brandContext: string, recentSummary: string): string {
+  const platformRule = PLATFORM_RULES[brief.channel] || PLATFORM_RULES.VK
+  const formatHint = brief.format === 'STORIES'
+    ? 'Это STORIES — коротко и цепко (1-3 коротких фразы), как подпись на картинке, с приглашением/призывом.'
+    : 'Это пост в ленту — живой, по тону бренда, 400-1200 символов, с лёгким призывом в конце.'
+  return `Ты — сильный копирайтер SMM. Пишешь ГОТОВЫЙ к публикации текст поста (не план, не варианты — финальный текст).
+
+${brandContext}
+
+ПРАВИЛА КАНАЛА (${brief.channel}):
+${platformRule}
+
+НЕДАВНИЕ ПОСТЫ (избегай повторов формулировок и тем):
+${recentSummary}
+
+${RF_LAW_RULE}
+Ссылку nawode.ru уместно добавлять в продающие/сезонные посты.
+
+БРИФ ОТ СТРАТЕГА:
+- Рубрика: ${brief.rubric}
+- Тема: ${brief.theme}
+- Формат: ${brief.format}
+- Главная мысль: ${brief.keyMessage}
+
+${formatHint}
+
+Ответь СТРОГО JSON без markdown:
+{"text":"готовый текст поста","hashtags":["хэштег_без_решётки","..."]}`
+}
+
+export interface ArtDirectorCandidate { id: string; altText: string }
+
+/** РОЛЬ 3 — Арт-директор: выбирает лучшее реальное фото из галереи под пост. */
+export function buildDigestArtDirectorPrompt(brief: { theme: string; format: string; text: string }, candidates: ArtDirectorCandidate[]): string {
+  const list = candidates.map((c, i) => `${i + 1}. id=${c.id} — ${(c.altText || '').slice(0, 240)}`).join('\n')
+  return `Ты — арт-директор. Подбираешь ОДНО реальное фото из галереи под готовый пост.
+
+ПОСТ:
+- Тема: ${brief.theme}
+- Формат: ${brief.format}
+- Текст: ${brief.text.slice(0, 600)}
+
+ФОТО-КАНДИДАТЫ ИЗ ГАЛЕРЕИ (id + описание того, что на фото):
+${list}
+
+ЗАДАЧА: выбери id ОДНОГО фото, которое лучше всего подходит этому посту по смыслу и настроению. Если НИ ОДНО не подходит — верни null (лучше без фото, чем нерелевантное).
+
+Ответь СТРОГО JSON без markdown:
+{"mediaFileId":"id_или_null","reasoning":"почему это фото (1 фраза)"}`
+}
+
 /**
  * System prompt для генерации контент-плана.
  */
