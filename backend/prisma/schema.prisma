@@ -782,8 +782,9 @@ model AutoPostTask {
   status        String    @default("pending")              // pending|proposed|approved|rejected|editing|published
   postType      String?   @map("post_type")               // предлагаемый формат: STORIES|TEXT|PHOTO|REELS
   title         String?                                     // предлагаемый заголовок
-  proposedText  String    @map("proposed_text")            // AI-сгенерированный текст
+  proposedText  String    @map("proposed_text")            // AI-сгенерированный мастер-текст
   proposedTags  String[]  @default([]) @map("proposed_tags")
+  adaptations   Json?     @map("adaptations")              // per-platform версии [{platform,text,hashtags}] (Ф1.5)
   visualIdea    String?   @map("visual_idea")             // идея визуала (фото/видео)
   aiReasoning   String?   @map("ai_reasoning")             // почему именно это (погода/бронь/рубрика)
   platforms     String[]  @default([])                      // ["VK", "TELEGRAM"]

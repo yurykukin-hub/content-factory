@@ -18,7 +18,7 @@ import {
   buildDigestStrategistPrompt,
   buildDigestCopywriterPrompt,
   buildDigestArtDirectorPrompt,
-  type DigestStrategistContext,
+  buildAdaptPrompt,
 } from './ai/prompt-builder'
 import { getDataSourceAdapter } from './datasource'
 import { getStrategyBlock, getSeasonHint, getRubricNames } from './ai/strategy'
@@ -43,6 +43,14 @@ interface Suggestion {
   rubric?: string
   reasoning?: string
   mediaFileId?: string | null // выбранное арт-директором фото из галереи (Ф1)
+  adaptations?: PlatformAdaptation[] // per-platform версии текста (Ф1.5)
+}
+
+/** Адаптация мастер-текста под конкретную платформу (Ф1.5). */
+interface PlatformAdaptation {
+  platform: string
+  text: string
+  hashtags: string[]
 }
 
 /** Собранный контекст дня — общий вход для команды агентов и fallback single-shot. */
@@ -204,6 +212,7 @@ async function generateDigestForBusiness(biz: any, force: boolean): Promise<numb
         title: s.title || null,
         proposedText: s.text || '',
         proposedTags: s.hashtags || [],
+        adaptations: (s.adaptations && s.adaptations.length ? s.adaptations : undefined) as any,
         visualIdea: s.visualIdea || null,
         mediaFileId: s.mediaFileId || null,
         aiReasoning: s.reasoning || (s.rubric ? `Рубрика: ${s.rubric}` : null),
@@ -274,7 +283,35 @@ async function pickPhotoForPost(
   return candidates.some(c => c.id === picked) ? picked : null // защита от выдуманного id
 }
 
-/** Цепочка ролей: стратег (1 вызов) → по каждой идее копирайтер + арт-директор (параллельно). */
+/** Адаптация мастер-текста под каждый канал (Ф1.5). Единый движок PLATFORM_RULES (buildAdaptPrompt), Haiku. */
+async function adaptForPlatforms(
+  masterText: string,
+  masterTags: string[],
+  platforms: string[],
+  brandContext: string,
+  businessId: string,
+): Promise<PlatformAdaptation[]> {
+  if (!platforms.length) return []
+  const { aiComplete } = await import('./ai/openrouter')
+  const results = await Promise.allSettled(platforms.map(async (platform): Promise<PlatformAdaptation> => {
+    const res = await aiComplete({
+      model: 'anthropic/claude-3.5-haiku',
+      systemPrompt: buildAdaptPrompt(platform, brandContext),
+      userPrompt: masterText,
+      maxTokens: 1000,
+      businessId,
+      action: 'daily_digest',
+    })
+    const text = (res.content || '').trim() || masterText
+    // TG: хэштеги не работают для discovery; VK/IG — мастер-теги (per-platform хэштеги — докрутка позже)
+    return { platform, text, hashtags: platform === 'TELEGRAM' ? [] : masterTags }
+  }))
+  return results
+    .filter((r): r is PromiseFulfilledResult<PlatformAdaptation> => r.status === 'fulfilled')
+    .map(r => r.value)
+}
+
+/** Цепочка ролей: стратег (1 вызов) → по каждой идее копирайтер + адаптация + арт-директор (параллельно). */
 async function runAgentTeam(businessId: string, ctx: DigestContext): Promise<Suggestion[]> {
   const { aiComplete } = await import('./ai/openrouter')
 
@@ -293,13 +330,17 @@ async function runAgentTeam(businessId: string, ctx: DigestContext): Promise<Sug
   // РОЛИ 2+3 — копирайтер и арт-директор по каждой идее (параллельно)
   const results = await Promise.allSettled(ideas.slice(0, 4).map(async (idea: any): Promise<Suggestion> => {
     const format = String(idea.format || 'TEXT').toUpperCase()
-    const channel = ctx.platforms.includes(idea.channel) ? idea.channel : (ctx.platforms[0] || 'VK')
+    // Каналы предложения: channels[] ∩ доступные; fallback — первый доступный (back-compat со старым полем channel)
+    const requested: string[] = Array.isArray(idea.channels) ? idea.channels : (idea.channel ? [idea.channel] : [])
+    let channels = requested.filter((c: string) => ctx.platforms.includes(c))
+    if (!channels.length) channels = ctx.platforms.slice(0, 1)
+    const primary = channels[0] || 'VK'
 
-    // РОЛЬ 2 — Копирайтер
+    // РОЛЬ 2 — Копирайтер: мастер-текст (ориентир — первый канал)
     const copyRes = await aiComplete({
       model: 'anthropic/claude-sonnet-4',
       systemPrompt: buildDigestCopywriterPrompt(
-        { rubric: idea.rubric, theme: idea.theme, format, channel, keyMessage: idea.keyMessage },
+        { rubric: idea.rubric, theme: idea.theme, format, channel: primary, keyMessage: idea.keyMessage },
         ctx.brandContext, ctx.recentSummary,
       ),
       userPrompt: 'Напиши готовый текст поста. Ответь JSON.',
@@ -309,6 +350,9 @@ async function runAgentTeam(businessId: string, ctx: DigestContext): Promise<Sug
     })
     const copy = parseJsonLoose<{ text: string; hashtags: string[] }>(copyRes.content || '')
     if (!copy?.text) throw new Error('copywriter returned no text')
+
+    // Адаптация мастер-текста под каждый канал (Ф1.5) — честный per-platform превью
+    const adaptations = await adaptForPlatforms(copy.text, copy.hashtags || [], channels, ctx.brandContext, businessId)
 
     // РОЛЬ 3 — Арт-директор (только для форматов с фото)
     let mediaFileId: string | null = null
@@ -320,10 +364,11 @@ async function runAgentTeam(businessId: string, ctx: DigestContext): Promise<Sug
 
     return {
       postType: format,
-      platforms: [channel],
+      platforms: channels,
       title: idea.theme ? String(idea.theme).slice(0, 80) : undefined,
       text: copy.text,
       hashtags: copy.hashtags || [],
+      adaptations,
       visualIdea: idea.keyMessage || null,
       rubric: idea.rubric,
       reasoning: idea.reasoning,
@@ -402,6 +447,23 @@ export async function approveDigestTask(task: any): Promise<{ postId: string; po
     await db.mediaFile
       .update({ where: { id: task.mediaFileId }, data: { postId: post.id } })
       .catch((e: any) => log.warn('[Digest] attach photo failed', { taskId: task.id, mediaFileId: task.mediaFileId, error: e.message }))
+  }
+
+  // Создать per-platform версии из адаптаций (Ф1.5) — черновик откроется с готовыми текстами под каждый канал
+  const adaptations = Array.isArray(task.adaptations) ? (task.adaptations as any[]) : []
+  for (const a of adaptations) {
+    if (!a?.platform) continue
+    const pa = await db.platformAccount.findFirst({
+      where: { businessId: task.businessId, platform: a.platform, isActive: true },
+    })
+    if (!pa) continue
+    await db.postVersion
+      .upsert({
+        where: { postId_platformAccountId: { postId: post.id, platformAccountId: pa.id } },
+        create: { postId: post.id, platformAccountId: pa.id, body: a.text || post.body, hashtags: a.hashtags || [] },
+        update: { body: a.text || post.body, hashtags: a.hashtags || [] },
+      })
+      .catch((e: any) => log.warn('[Digest] postVersion create failed', { platform: a.platform, error: e.message }))
   }
 
   await db.autoPostTask.update({

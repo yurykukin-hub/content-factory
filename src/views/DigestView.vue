@@ -5,10 +5,11 @@ import { useRouter } from 'vue-router'
 import { useToast } from '@/composables/useToast'
 import { useBusinessesStore } from '@/stores/businesses'
 import { useAuthStore } from '@/stores/auth'
-import { platformColor } from '@/composables/usePlatform'
+import { platformColor, platformBgColor } from '@/composables/usePlatform'
 import { formatDate } from '@/composables/useFormatters'
-import { Sunrise, Sparkles, Loader2, Check, X, Lightbulb, CalendarClock, FileEdit, Flame, RotateCcw, ChevronDown, ImagePlus, RefreshCw } from 'lucide-vue-next'
+import { Sunrise, Sparkles, Loader2, Check, X, Lightbulb, CalendarClock, FileEdit, Flame, RotateCcw, ChevronDown, ImagePlus, RefreshCw, Maximize2 } from 'lucide-vue-next'
 import MediaPickerModal from '@/components/MediaPickerModal.vue'
+import PostPreview from '@/components/posts/preview/PostPreview.vue'
 
 interface DigestTask {
   id: string
@@ -25,6 +26,8 @@ interface DigestTask {
   createdAt: string
   mediaFileId: string | null
   media: { id: string; url: string; thumbUrl: string | null; altText: string | null } | null
+  adaptations?: { platform: string; text: string; hashtags: string[] }[] | null
+  previews?: { platform: string; accountName: string; text: string; hashtags: string[] }[]
 }
 
 interface InspirationPost {
@@ -166,6 +169,23 @@ async function onPhotoSelected(file: { id: string; url: string; thumbUrl?: strin
   }
 }
 
+// Превью «как в соцсети» — активная платформа per task (Ф1.5b)
+const activePlatform = ref<Record<string, string>>({})
+function previewPlatform(task: DigestTask): string {
+  return activePlatform.value[task.id] || task.previews?.[0]?.platform || task.platforms?.[0] || 'VK'
+}
+function setPreviewPlatform(taskId: string, platform: string) {
+  activePlatform.value = { ...activePlatform.value, [taskId]: platform }
+}
+function previewMedia(task: DigestTask) {
+  return task.media ? [{ url: task.media.url, thumbUrl: task.media.thumbUrl, mimeType: 'image/jpeg' }] : []
+}
+
+// Лайтбокс фото (Ф1.5c)
+const lightboxUrl = ref<string | null>(null)
+function openLightbox(url: string) { lightboxUrl.value = url }
+function closeLightbox() { lightboxUrl.value = null }
+
 onMounted(load)
 </script>
 
@@ -232,24 +252,41 @@ onMounted(load)
         <!-- Title -->
         <h3 v-if="task.title" class="font-semibold text-base mb-1">{{ task.title }}</h3>
 
-        <!-- Text -->
-        <p class="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-line mb-3">{{ task.proposedText }}</p>
-
-        <!-- Hashtags -->
-        <div v-if="task.proposedTags?.length" class="flex flex-wrap gap-1 mb-3">
-          <span v-for="t in task.proposedTags" :key="t" class="text-xs text-blue-500">#{{ t }}</span>
-        </div>
-
-        <!-- Подобранное фото (Ф1.2): превью + замена; для PHOTO/STORIES без фото — подобрать -->
-        <div v-if="task.media || task.postType === 'PHOTO' || task.postType === 'STORIES'" class="mb-3">
-          <div v-if="task.media" class="relative inline-block">
-            <img :src="task.media.thumbUrl || task.media.url" :alt="task.media.altText || ''"
-              class="rounded-lg max-h-52 border border-gray-200 dark:border-gray-700 object-cover" />
-            <button v-if="task.status === 'proposed'" @click="openPicker(task)" :disabled="actingId === task.id"
-              class="absolute top-2 right-2 flex items-center gap-1 px-2 py-1 rounded-md bg-black/60 hover:bg-black/80 text-white text-[11px] font-medium transition-colors">
-              <RefreshCw :size="12" /> Заменить
+        <!-- Превью «как в соцсети» (Ф1.5b): табы платформ + PostPreview с адаптированным текстом -->
+        <div v-if="task.previews?.length" class="mb-3">
+          <div v-if="task.previews.length > 1" class="flex gap-1.5 mb-2">
+            <button v-for="pv in task.previews" :key="pv.platform" @click="setPreviewPlatform(task.id, pv.platform)"
+              :class="['px-2.5 py-1 rounded-md text-xs font-medium transition-colors', previewPlatform(task) === pv.platform ? platformBgColor(pv.platform) : 'text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800']">
+              {{ pv.platform }}
             </button>
           </div>
+          <template v-for="pv in task.previews" :key="pv.platform">
+            <PostPreview v-if="previewPlatform(task) === pv.platform"
+              :platform="pv.platform" :account-name="pv.accountName"
+              :text="pv.text" :hashtags="pv.hashtags"
+              :media-files="previewMedia(task)" :post-type="task.postType || 'TEXT'" />
+          </template>
+        </div>
+        <!-- Fallback (старые предложения без адаптаций) -->
+        <template v-else>
+          <p class="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-line mb-2">{{ task.proposedText }}</p>
+          <div v-if="task.proposedTags?.length" class="flex flex-wrap gap-1 mb-2">
+            <span v-for="t in task.proposedTags" :key="t" class="text-xs text-blue-500">#{{ t }}</span>
+          </div>
+        </template>
+
+        <!-- Управление фото (Ф1.2 + лайтбокс Ф1.5c) -->
+        <div v-if="task.media || task.postType === 'PHOTO' || task.postType === 'STORIES'" class="flex items-center gap-2 flex-wrap mb-3">
+          <template v-if="task.media">
+            <button @click="openLightbox(task.media!.url)"
+              class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-gray-300 dark:border-gray-700 text-xs font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800">
+              <Maximize2 :size="13" /> Открыть фото
+            </button>
+            <button v-if="task.status === 'proposed'" @click="openPicker(task)" :disabled="actingId === task.id"
+              class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-gray-300 dark:border-gray-700 text-xs font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50">
+              <RefreshCw :size="13" /> Заменить фото
+            </button>
+          </template>
           <button v-else-if="task.status === 'proposed'" @click="openPicker(task)"
             class="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-dashed border-gray-300 dark:border-gray-700 text-sm text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
             <ImagePlus :size="15" /> Подобрать фото из галереи
@@ -323,5 +360,15 @@ onMounted(load)
       @selected="onPhotoSelected"
       @close="pickerTask = null"
     />
+
+    <!-- Лайтбокс фото (Ф1.5c) -->
+    <Teleport to="body">
+      <div v-if="lightboxUrl" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80" @click="closeLightbox">
+        <img :src="lightboxUrl" class="max-w-full max-h-[88vh] object-contain rounded-lg shadow-2xl" @click.stop />
+        <button @click="closeLightbox" class="absolute top-4 right-4 w-9 h-9 rounded-full bg-white/90 shadow-lg flex items-center justify-center text-gray-700 hover:bg-white">
+          <X :size="18" />
+        </button>
+      </div>
+    </Teleport>
   </div>
 </template>

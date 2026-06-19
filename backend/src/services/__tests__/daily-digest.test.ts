@@ -44,6 +44,7 @@ vi.mock('../ai/prompt-builder', () => ({
   buildDigestStrategistPrompt: vi.fn().mockReturnValue('STRATEGIST_PROMPT'),
   buildDigestCopywriterPrompt: vi.fn().mockReturnValue('COPYWRITER_PROMPT'),
   buildDigestArtDirectorPrompt: vi.fn().mockReturnValue('ARTDIRECTOR_PROMPT'),
+  buildAdaptPrompt: vi.fn().mockReturnValue('ADAPT_PROMPT'),
 }))
 vi.mock('../ai/openrouter', () => ({ aiComplete: vi.fn() }))
 vi.mock('../telegram-approval', () => ({ sendApprovalToTelegram: vi.fn() }))
@@ -93,15 +94,18 @@ describe('runDailyDigest (Epic C — generate suggestions)', () => {
     mockDb.autoPostTask.count.mockResolvedValue(0)
     mockDb.post.findMany.mockResolvedValue([])
     mockDb.autoPostTask.create.mockResolvedValue({ id: 'task-1', businessId: 'biz-1' })
-    // Команда агентов: стратег (→ идеи) → копирайтер (→ текст). TEXT-формат => арт-директор не вызывается.
+    // Команда агентов: стратег → копирайтер → адаптация(VK). TEXT-формат => арт-директор не вызывается.
     vi.mocked(aiComplete)
       .mockResolvedValueOnce({
-        content: JSON.stringify({ ideas: [{ rubric: 'R', theme: 'Тема дня', format: 'TEXT', channel: 'VK', keyMessage: 'K', photoKeywords: [], reasoning: 'погода' }] }),
+        content: JSON.stringify({ ideas: [{ rubric: 'R', theme: 'Тема дня', format: 'TEXT', channels: ['VK'], keyMessage: 'K', photoKeywords: [], reasoning: 'погода' }] }),
         tokensIn: 1, tokensOut: 1, cachedTokens: 0, costUsd: 0, model: 'sonnet',
       } as any)
       .mockResolvedValueOnce({
         content: JSON.stringify({ text: 'Готовый текст поста', hashtags: ['нawode'] }),
         tokensIn: 1, tokensOut: 1, cachedTokens: 0, costUsd: 0, model: 'sonnet',
+      } as any)
+      .mockResolvedValueOnce({
+        content: 'Адаптация под VK', tokensIn: 1, tokensOut: 1, cachedTokens: 0, costUsd: 0, model: 'haiku',
       } as any)
 
     const res = await runDailyDigest({ businessId: 'biz-1', force: true })
@@ -124,8 +128,9 @@ describe('runDailyDigest (Epic C — generate suggestions)', () => {
       { id: 'mf-2', altText: 'замок с воды' },
     ])
     vi.mocked(aiComplete)
-      .mockResolvedValueOnce({ content: JSON.stringify({ ideas: [{ rubric: 'R', theme: 'Закат', format: 'PHOTO', channel: 'VK', keyMessage: 'K', photoKeywords: ['закат'], reasoning: 'погода' }] }), tokensIn: 1, tokensOut: 1, cachedTokens: 0, costUsd: 0, model: 'sonnet' } as any)
+      .mockResolvedValueOnce({ content: JSON.stringify({ ideas: [{ rubric: 'R', theme: 'Закат', format: 'PHOTO', channels: ['VK'], keyMessage: 'K', photoKeywords: ['закат'], reasoning: 'погода' }] }), tokensIn: 1, tokensOut: 1, cachedTokens: 0, costUsd: 0, model: 'sonnet' } as any)
       .mockResolvedValueOnce({ content: JSON.stringify({ text: 'Текст про закат', hashtags: ['закат'] }), tokensIn: 1, tokensOut: 1, cachedTokens: 0, costUsd: 0, model: 'sonnet' } as any)
+      .mockResolvedValueOnce({ content: 'Адаптация под VK', tokensIn: 1, tokensOut: 1, cachedTokens: 0, costUsd: 0, model: 'haiku' } as any)
       .mockResolvedValueOnce({ content: JSON.stringify({ mediaFileId: 'mf-2', reasoning: 'замок ярче' }), tokensIn: 1, tokensOut: 1, cachedTokens: 0, costUsd: 0, model: 'haiku' } as any)
 
     const res = await runDailyDigest({ businessId: 'biz-1', force: true })

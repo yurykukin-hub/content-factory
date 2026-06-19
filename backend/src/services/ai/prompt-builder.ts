@@ -122,13 +122,13 @@ ${RF_LAW_RULE}
 - rubric: рубрика из списка выше
 - theme: конкретная тема/угол подачи (1 фраза)
 - format: PHOTO | TEXT | STORIES
-- channel: один из доступных каналов
+- channels: массив каналов из доступных (пост идёт в несколько соцсетей с адаптацией под каждую; минимум 1 канал)
 - keyMessage: главная мысль поста (1-2 фразы — это бриф копирайтеру)
 - photoKeywords: массив из 2-4 РУССКИХ ключевых слов для поиска фото в галерее по СМЫСЛУ (объекты/локация/настроение: ["закат","вода"], ["замок","набережная"], ["дети","семья"]). Для PHOTO и STORIES обязательно; для TEXT можно [].
 - reasoning: почему именно это сегодня (погода/бронь/рубрика, 1 фраза)
 
 Ответь СТРОГО JSON без markdown:
-{"ideas":[{"rubric":"...","theme":"...","format":"PHOTO","channel":"VK","keyMessage":"...","photoKeywords":["...","..."],"reasoning":"..."}]}`
+{"ideas":[{"rubric":"...","theme":"...","format":"PHOTO","channels":["VK","INSTAGRAM"],"keyMessage":"...","photoKeywords":["...","..."],"reasoning":"..."}]}`
 }
 
 export interface DigestCopywriterBrief {

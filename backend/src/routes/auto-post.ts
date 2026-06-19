@@ -31,7 +31,7 @@ autoPost.get('/', async (c) => {
     take: limit,
   })
 
-  // Подтянуть превью выбранных фото (Ф1.2) — AutoPostTask.mediaFileId без relation, джойним вручную
+  // Превью выбранного фото (Ф1.2) — mediaFileId без relation, джойним вручную
   const mediaIds = [...new Set(tasks.map(t => t.mediaFileId).filter(Boolean))] as string[]
   const mediaMap = new Map<string, { id: string; url: string; thumbUrl: string | null; altText: string | null }>()
   if (mediaIds.length) {
@@ -41,7 +41,32 @@ autoPost.get('/', async (c) => {
     })
     files.forEach(f => mediaMap.set(f.id, f))
   }
-  const enriched = tasks.map(t => ({ ...t, media: t.mediaFileId ? mediaMap.get(t.mediaFileId) ?? null : null }))
+
+  // accountName per (business, platform) для предпросмотра «как в соцсети» (Ф1.5)
+  const bizIds = [...new Set(tasks.map(t => t.businessId))]
+  const acctMap = new Map<string, string>()
+  if (bizIds.length) {
+    const accounts = await db.platformAccount.findMany({
+      where: { businessId: { in: bizIds }, isActive: true },
+      select: { businessId: true, platform: true, accountName: true },
+    })
+    accounts.forEach(a => acctMap.set(`${a.businessId}:${a.platform}`, a.accountName))
+  }
+
+  // previews: per-platform {platform, accountName, text, hashtags} — адаптированный текст или fallback на мастер
+  const enriched = tasks.map(t => {
+    const adaptations = Array.isArray(t.adaptations) ? (t.adaptations as any[]) : []
+    const previews = (t.platforms || []).map((platform: string) => {
+      const ad = adaptations.find((a: any) => a?.platform === platform)
+      return {
+        platform,
+        accountName: acctMap.get(`${t.businessId}:${platform}`) || platform,
+        text: ad?.text || t.proposedText,
+        hashtags: ad?.hashtags ?? t.proposedTags,
+      }
+    })
+    return { ...t, media: t.mediaFileId ? mediaMap.get(t.mediaFileId) ?? null : null, previews }
+  })
 
   return c.json(enriched)
 })
