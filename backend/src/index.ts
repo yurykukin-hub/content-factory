@@ -4,12 +4,14 @@ import { db } from './db'
 import { startPublishScheduler } from './services/scheduler'
 import { startVideoPoller } from './services/video-poller'
 import { startPhotoCataloger } from './services/photo-cataloger'
+import { startImageDescriber } from './services/image-describer'
 import { setupTelegramWebhook } from './services/telegram-approval'
 
 // --- Start schedulers ---
 const publishInterval = startPublishScheduler()
 const videoPollerInterval = startVideoPoller()
 const catalogerInterval = startPhotoCataloger()
+const imageDescriberInterval = startImageDescriber()
 
 // --- Setup Telegram webhook (non-blocking) ---
 setupTelegramWebhook().catch(e =>
@@ -22,6 +24,7 @@ async function shutdown(signal: string) {
   clearInterval(publishInterval)
   clearInterval(videoPollerInterval)
   clearInterval(catalogerInterval)
+  clearInterval(imageDescriberInterval)
   await db.$disconnect()
   console.log('[Shutdown] Done')
   process.exit(0)

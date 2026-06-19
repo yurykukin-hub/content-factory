@@ -86,7 +86,8 @@ media.post('/upload', async (c) => {
     if (thumbFile) thumbUrl = `/uploads/${businessId}/${thumbFile}`
   }
 
-  // Create DB record
+  // Create DB record. Для фото ставим флаг авто-описания (Ф0.2) — фоновый image-describer
+  // опишет (altText) для семантического поиска по галерее.
   const mediaFile = await db.mediaFile.create({
     data: {
       businessId,
@@ -98,6 +99,7 @@ media.post('/upload', async (c) => {
       mimeType,
       sizeBytes: blob.size,
       sortOrder: 0,
+      aiModel: mimeType.startsWith('image/') ? 'describe_pending' : null,
     },
   })
 
@@ -409,7 +411,14 @@ media.get('/library/:bizId', async (c) => {
   else if (type === 'video') where.mimeType = { startsWith: 'video/' }
 
   if (tag) where.tags = { has: tag }
-  if (search) where.filename = { contains: search, mode: 'insensitive' }
+  // Поиск по смыслу (Ф0.4): по имени файла, AI-описанию (altText) и тегам.
+  if (search) {
+    where.OR = [
+      { filename: { contains: search, mode: 'insensitive' } },
+      { altText: { contains: search, mode: 'insensitive' } },
+      { tags: { has: search } },
+    ]
+  }
   if (unattached) where.postId = null
 
   // Folder filter: 'root' = files without folder, specific id = files in folder

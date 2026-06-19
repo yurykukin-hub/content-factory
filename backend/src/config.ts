@@ -25,7 +25,8 @@ export const config = {
   models: {
     haiku: 'anthropic/claude-3.5-haiku',
     sonnet: 'anthropic/claude-sonnet-4',
-    vision: 'google/gemini-2.5-flash',
+    vision: 'google/gemini-2.5-flash-lite', // captioning галереи: быстрее/дешевле flash при том же качестве (тест Ф0.1, 19.06.2026)
+    visionFallback: 'google/gemini-2.5-flash', // запасная (НЕ qwen — зацикливается)
     imageGen: 'google/gemini-2.5-flash-image',
     kieEditImage: 'nano-banana-2',
     kieRemoveBg: 'recraft/remove-background',

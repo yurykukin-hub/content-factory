@@ -4,7 +4,7 @@ import { db } from '../db'
 import { config } from '../config'
 import { aiComplete, aiVision, aiChat } from '../services/ai/openrouter'
 import { transcribeAudio } from '../services/ai/whisper'
-import { buildBrandContext, buildPlanPrompt, buildPostPrompt, buildAdaptPrompt, buildHashtagPrompt, buildImageEnhancerPrompt, buildEditEnhancerPrompt, buildStoryTitlePrompt, buildScenarioPrompt, buildVideoPromptEnhancer, buildVideoPromptEnhancerAdaptive, buildVideoPromptDirector, buildVideoPromptStructure, buildVideoPromptFocus, buildVideoPromptAudio, buildVideoPromptCamera, buildVideoPromptTranslate, buildVideoPromptSimplify, analyzeVideoPrompt, buildAgentSystemPrompt } from '../services/ai/prompt-builder'
+import { buildBrandContext, buildPlanPrompt, buildPostPrompt, buildAdaptPrompt, buildHashtagPrompt, buildImageEnhancerPrompt, buildEditEnhancerPrompt, buildStoryTitlePrompt, buildScenarioPrompt, buildVideoPromptEnhancer, buildVideoPromptEnhancerAdaptive, buildVideoPromptDirector, buildVideoPromptStructure, buildVideoPromptFocus, buildVideoPromptAudio, buildVideoPromptCamera, buildVideoPromptTranslate, buildVideoPromptSimplify, analyzeVideoPrompt, buildAgentSystemPrompt, buildGalleryVisionPrompt } from '../services/ai/prompt-builder'
 import { generateImage, editImage, removeBackground, createVideoTask, EDIT_MODELS } from '../services/ai/kie'
 import { emitEvent } from '../eventBus'
 import type { AuthUser } from '../middleware/auth'
@@ -1031,7 +1031,7 @@ Available reference tags: ${imageLabels}`
     systemPrompt,
     userPrompt,
     imageUrls: publicUrls,
-    model: 'google/gemini-2.0-flash-001', // vision model (Haiku не поддерживает image input)
+    model: config.models.vision, // vision model (Haiku не поддерживает image input)
     maxTokens: 800,
     businessId: data.businessId,
     action: 'merge_references',
@@ -1044,7 +1044,7 @@ Available reference tags: ${imageLabels}`
 // POST /api/ai/describe-image — AI Vision описывает фото для референса
 const describeImageSchema = z.object({
   imageUrl: z.string(),
-  type: z.enum(['auto', 'person', 'mascot', 'avatar', 'object', 'location']).default('auto'),
+  type: z.enum(['auto', 'person', 'mascot', 'avatar', 'object', 'location', 'gallery']).default('auto'),
 })
 
 ai.post('/describe-image', async (c) => {
@@ -1064,9 +1064,13 @@ ai.post('/describe-image', async (c) => {
     ? `${config.isProd ? 'https://content.yurykukin.ru' : `http://localhost:${config.port}`}${data.imageUrl}`
     : data.imageUrl
 
+  // 'gallery' — описание для семантического поиска по медиатеке (единый промпт, см. prompt-builder).
+  // Прочие типы — описание под AI-видео/референсы (исторический промпт).
+  const gallery = data.type === 'gallery' ? buildGalleryVisionPrompt() : null
+
   const result = await aiVision({
-    systemPrompt: 'Ты эксперт по визуальным описаниям для AI-видеогенерации. Напиши краткое описание на русском (2-3 предложения). Опиши всё видимое: субъекты, окружение, цвета, освещение, композицию. Никогда не отказывай — всегда описывай что видишь.',
-    userPrompt: typeHints[data.type] || typeHints.auto,
+    systemPrompt: gallery?.system ?? 'Ты эксперт по визуальным описаниям для AI-видеогенерации. Напиши краткое описание на русском (2-3 предложения). Опиши всё видимое: субъекты, окружение, цвета, освещение, композицию. Никогда не отказывай — всегда описывай что видишь.',
+    userPrompt: gallery?.user ?? (typeHints[data.type] || typeHints.auto),
     imageUrls: [publicUrl],
     model: config.models.vision,
     businessId: null,
