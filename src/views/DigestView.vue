@@ -10,6 +10,7 @@ import { formatDate } from '@/composables/useFormatters'
 import { Sunrise, Sparkles, Loader2, Check, X, Lightbulb, CalendarClock, FileEdit, Flame, RotateCcw, ChevronDown, ImagePlus, RefreshCw, Maximize2 } from 'lucide-vue-next'
 import MediaPickerModal from '@/components/MediaPickerModal.vue'
 import PostPreview from '@/components/posts/preview/PostPreview.vue'
+import StoriesPreview from '@/components/posts/preview/StoriesPreview.vue'
 
 interface DigestTask {
   id: string
@@ -177,7 +178,8 @@ function setPreviewPlatform(taskId: string, platform: string) {
   activePlatform.value = { ...activePlatform.value, [taskId]: platform }
 }
 function previewMedia(task: DigestTask) {
-  return task.media ? [{ url: task.media.url, thumbUrl: task.media.thumbUrl, mimeType: 'image/jpeg' }] : []
+  // Отдаём полное url и в thumbUrl: превью-компоненты берут (thumbUrl||url) → покажут чёткое фото, не мутный thumb 200px
+  return task.media ? [{ url: task.media.url, thumbUrl: task.media.url, mimeType: 'image/jpeg' }] : []
 }
 
 // Лайтбокс фото (Ф1.5c)
@@ -260,10 +262,16 @@ onMounted(load)
             </button>
           </div>
           <template v-for="pv in task.previews" :key="pv.platform">
-            <PostPreview v-if="previewPlatform(task) === pv.platform"
-              :platform="pv.platform" :account-name="pv.accountName"
-              :text="pv.text" :hashtags="pv.hashtags"
-              :media-files="previewMedia(task)" :post-type="task.postType || 'TEXT'" />
+            <template v-if="previewPlatform(task) === pv.platform">
+              <!-- STORIES — вертикальный 9:16; PHOTO — лента соцсети -->
+              <StoriesPreview v-if="task.postType === 'STORIES'"
+                :platform="pv.platform" :account-name="pv.accountName"
+                :text="pv.text" :media-files="previewMedia(task)" />
+              <PostPreview v-else
+                :platform="pv.platform" :account-name="pv.accountName"
+                :text="pv.text" :hashtags="pv.hashtags"
+                :media-files="previewMedia(task)" :post-type="task.postType || 'PHOTO'" />
+            </template>
           </template>
         </div>
         <!-- Fallback (старые предложения без адаптаций) -->
