@@ -401,7 +401,7 @@ async function runAgentTeam(businessId: string, ctx: DigestContext): Promise<Sug
           const photo = await db.mediaFile.findUnique({ where: { id: photoId }, select: { url: true } })
           if (photo) {
             const design = await renderAndSaveStoryDesign({
-              businessId, photoUrl: photo.url, title: copy.text,
+              businessId, photoUrl: photo.url, title: idea.theme || copy.text,
               temp: ctx.todayTemp, weather: ctx.todayWeather, cta: 'Записаться · nawode.ru',
             }).catch((e: any) => { log.warn('[Digest] story design failed', { error: e.message }); return null })
             if (design) mediaFileId = design.id
