@@ -96,4 +96,12 @@ auth, users, businesses, platforms, posts, content-plans, ai, publish, media, se
 - Billing: AppConfig markup + usd_rub_rate. Auto-charge $transaction. ADMIN exempt
 - Media library API: `{ files, hasMore, totalCount }` — НЕ массив
 - Publishers: getPublisher(platform, {postType, config}) — VK гибрид (PMP по флагу viaPostmypost / direct), IG→PMP, TG
-- Testing: Vitest, 178 tests, 17 files. Mock Prisma via vi.hoisted()
+- Testing: Vitest, 179 tests, 17 files. Mock Prisma via vi.hoisted()
+
+## СММ-петля НаWоде — «зрение» галереи + команда агентов (2026-06-19, Фазы 0+1, прод)
+- **Ф0 «зрение»:** vision-модель `gemini-2.5-flash-lite` (тест на реальных фото: qwen зацикливается «дождевой дождевой…», lite быстрее/дешевле flash при равном качестве). `config.models.vision`/`visionFallback`. `buildGalleryVisionPrompt` — единый промпт описания под поиск (RU, сплошной текст без markdown). Авто-describe при загрузке: `services/image-describer.ts` поллер (флаг `MediaFile.aiModel='describe_pending'`, снимается при успехе; `describe_failed` — не ретраит) → пишет altText. `batch-describe.ts` — разовый прогон (`bun src/batch-describe.ts nawode`). Галерея НаWоде = **499/499 описаны (RU)**. Поиск `/media/library` теперь OR по filename+altText+tags.
+- **Ф1 команда агентов:** `daily-digest.ts` — 1 Sonnet → **стратег→копирайтер→арт-директор**. Стратег (Sonnet): 3 темы {rubric,theme,format,channel,keyMessage,photoKeywords}. Копирайтер (Sonnet): финальный текст+хэштеги. Арт-директор (Haiku): `searchGalleryPhotos(keywords)` по altText → выбор `mediaFileId` (валидируется против кандидатов; null если нет подходящего). Fallback `runSingleShot`. Промпты: `buildDigest{Strategist,Copywriter,ArtDirector}Prompt`. Видео в Ф1 не предлагается.
+- `AutoPostTask.mediaFileId` пишется при создании; `approveDigestTask` привязывает фото к черновику (`MediaFile.postId`, как композер). Авто-архив: вчерашние `proposed`→`archived` при новом прогоне. `PATCH /auto-posts/:id {mediaFileId}` — замена фото. `GET /auto-posts` обогащает `media{url,thumbUrl,altText}` (ручной джойн — relation нет).
+- UI `/digest` (DigestView): превью подобранного фото + «Заменить»/«Подобрать» (MediaPickerModal).
+- **Промпты ролей — НЕ финал:** тексты докручиваются на горячую (`prompt-builder.ts`).
+- **Осталось:** Ф2 дизайн-слой HTML→PNG (Playwright + паттерн print-kit `/home/dev/projects/print-kit`), Ф3 Telegram-пинг (код готов, нужен `telegram_approval_bot_token`+`chat_id`). План: `~/.claude/plans/breezy-imagining-orbit.md`.
