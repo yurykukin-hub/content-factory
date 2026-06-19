@@ -37,6 +37,14 @@
 ## Блокеры
 - [2026-06-05] VK scope `photos` + `stats` застряли (требуют модерации VK-приложения — ре-авторизация их НЕ даёт, выдаёт только wall/video/stories/offline). `photos` ОБОЙДЁН через Postmypost (постинг). `stats` (сторис/account-статы) — Юрий подаёт VK-апп на модерацию; пост-метрики VK уже идут через `wall.getById` (scope wall есть).
 
+## Открытые задачи (next — что НЕ сделано / продолжить)
+- **🎯 nawode-erp виджет Метрики (ГЛАВНОЕ — замкнёт SMM-ROI до денег):** счётчик 92916147 НА erp.nawode.ru + cross-domain + цели-шаги воронки (открыл→слот→submit/оплата) + Webvisor. Промпт готов: `~/.claude/plans/nawode-erp-metrika-prompt.md`. Готово к заходу: токен read+WRITE, SSH `root@155.212.219.88:/opt/nawode-erp`, продукты/URL брони. Затем CF: `bun src/set-business-metrika.ts nawode 92916147 <booking_goalId>`.
+- **Утренний пинг дайджеста в TG:** код готов (`telegram-approval.ts`, graceful), ДОРМАНТ — нужны `telegram_approval_bot_token`+`telegram_approval_chat_id` (бот @BotFather, действие Юрия). **MAX-мессенджер доставка — НЕ реализована** (отдельный адаптер по образцу telegram-approval).
+- **C1 (security, pre-existing):** `GET /businesses/:id/platforms` отдаёт `accessToken` (VK/TG/PMP токены) во фронт → сериализатор-маска + фронт write-only (фронт-импакт `BusinessDetailView.vue:246`).
+- **VK scope stats/photos:** Юрий подаёт VK-апп на модерацию → VK сторис/account-статы + прямой VK фото-постинг (сейчас обход через Postmypost).
+- **Дизайн-слой (06-12):** живой визуальный тест canvas-UI (залит в прод, глазами не проверен) + интеграция в композер постов + бренд-кит шаблоны.
+- **«Вау»-редактор** (нужно дизайн-направление Юрия) + per-business Метрика UI-форма (счётчик/цели/токен в проекте).
+
 ## Schema (35 моделей, 8 enums)
 User, UserBusiness, Business, BrandProfile, PlatformAccount, ContentPlan, ContentPlanItem, Post, PostVersion, PublishLog, MediaFile, MediaFolder, AiUsageLog, WebhookRule, AppConfig, Idea, StoryTemplate, Character, CharacterBusiness, CharacterImage, Scenario, PromptEntry, PromptTemplate, GenerationSession, BalanceTransaction, MusicPersona, PhotoCatalog, AutoPostTask, SocialPostMetricSnapshot, SocialAccountMetricSnapshot, SiteTrafficSnapshot, AnalyticsReport, **Rubric**, **Occasion** (strategy-as-data)
 
@@ -63,27 +71,17 @@ auth, users, businesses, platforms, posts, content-plans, ai, publish, media, se
 - Reference images: VideoStudio-style UI (56x56 thumbs, @N метки, dropdown загрузить/медиатека, preview popup с AI-описание). MediaPickerModal multi-select. До 14 refs NB2, 8 Pro
 - **ВАЖНО:** Generate payload — фронтенд шлёт `model`/`resolution`/`aspectRatio` (НЕ photoModel/photoResolution/photoAspectRatio)
 
-## AI Agent + Sound Studio + Voice Input (2026-04-17) -> MEMORY-ARCHIVE
-- AI Agent: Simple (Haiku) / Advanced (Sonnet), chatHistory JSON per-session, prompt transfer
-- Sound Studio: suno.ts, 13 Ss*, wavesurfer.js. MusicPersona voice clone. 8 enhance modes
-- Voice Input: useVoiceInput, Whisper STT, ~$0.006/мин. AppConfig openai_api_key
-
-## Reference System v2 (2026-04-19)
-- **CharacterImage** — модель: неограниченная галерея фото на персонажа (isMain, sortOrder, source, description)
-- **SharedCharacterCarousel** + **SharedRefModal** — общие компоненты (src/components/shared/)
-- **@CharName автокомплит** в VsRichPrompt. Character Sheet: AI-генерация model sheet (4 views)
-- **ВАЖНО:** Character.referenceMediaId/additionalAngles пока НЕ удалены из schema (backward compat)
+## AI Agent + Sound Studio + Voice Input + Reference System v2 — детали в CLAUDE.md
+- AI Agent (Haiku/Sonnet, chatHistory per-session). Sound Studio (suno.ts, 13 Ss*, MusicPersona voice clone, 8 enhance modes). Voice Input (Whisper STT, AppConfig openai_api_key).
+- Reference: **CharacterImage** (галерея фото на персонажа) + SharedCharacterCarousel/SharedRefModal + @CharName автокомплит + Character Sheet (4 views). ВАЖНО: Character.referenceMediaId/additionalAngles НЕ удалены (backward compat).
 
 ## Prisma Migrations — КРИТИЧНЫЕ ПРАВИЛА (2026-04-20)
 - **НИКОГДА** не использовать `db push` на dev-БД с историей миграций. Только `bunx prisma migrate dev --name описание`
 - **НИКОГДА** не редактировать SQL файл миграции ПОСЛЕ apply (ломает checksum → drift)
 - Если миграция упала "already exists" → `bunx prisma migrate resolve --applied имя_миграции` (НЕ правка SQL)
 
-## Видео-сторис с текстом (ffmpeg overlay) — 2026-06-03
-- **Цепочка:** чистое фото → Seedance оживляет → текст НАКЛАДЫВАЕТСЯ поверх видео статично (ffmpeg) → публикация VK+IG. Текст НЕ оживляется
-- **"bake once":** текст вшивается в видео ОДИН раз перед циклом публикации, publishers НЕ трогаются, baked-видео переиспользуется
-- **services/video-overlay.ts:** `overlayImageOnVideo()` — ffmpeg `scale2ref`+`overlay`, `-map 0:a?`, libx264 yuv420p +faststart. Порядок выходов scale2ref: `[ovr][base]`
-- **scheduler.ts фикс:** догрузка mediaFiles + storiesOptions{skipOverlay} для scheduled STORIES
+## Видео-сторис + дизайн-слой (ffmpeg/sharp overlay) — детали в CLAUDE.md
+- "bake once": фото → Seedance оживляет → текст статично поверх (ffmpeg `scale2ref`+`overlay`, `services/video-overlay.ts`) → публикация VK+IG. scheduler догружает mediaFiles+skipOverlay для scheduled STORIES. Единый дизайн-слой: `design-layer.ts` + `/media/bake-design-layer` (фото→sharp, видео→ffmpeg).
 
 ## Архитектурные решения
 - Async generation: video-poller.ts (10 сек) обрабатывает video+music+photo. kieTaskId в PostgreSQL (deploy-safe)
