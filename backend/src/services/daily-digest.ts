@@ -23,6 +23,7 @@ import {
 import { getDataSourceAdapter } from './datasource'
 import { getStrategyBlock, getSeasonHint, getRubricNames } from './ai/strategy'
 import { getViralCompetitorPosts } from './competitor-poller'
+import { renderAndSaveStoryDesign } from './story-design'
 
 // --- AppConfig helpers ---
 async function getConfig(key: string): Promise<string | null> {
@@ -65,6 +66,8 @@ interface DigestContext {
   recentSummary: string
   competitorBlock: string
   platforms: string[]
+  todayTemp?: string | null      // "+21°" — для погодного виджета дизайн-сторис
+  todayWeather?: string | null   // "слабый ветер"
 }
 
 /** Скорость ветра (м/с) → словесное описание. Цифры м/с люди не понимают — в тексте только словами. */
@@ -193,6 +196,8 @@ async function generateDigestForBusiness(biz: any, force: boolean): Promise<numb
     recentSummary,
     competitorBlock,
     platforms,
+    todayTemp: data?.weather?.[0]?.tempMax != null ? `+${Math.round(data.weather[0].tempMax)}°` : null,
+    todayWeather: data?.weather?.[0]?.windMax != null ? windLabel(data.weather[0].windMax) : null,
   }
 
   // Команда агентов (стратег → копирайтер → арт-директор) с fallback на single-shot Sonnet.
@@ -386,10 +391,22 @@ async function runAgentTeam(businessId: string, ctx: DigestContext): Promise<Sug
       // РОЛЬ 3 — Арт-директор (реальное фото, не повторяя уже выбранные в этом дайджесте)
       let mediaFileId: string | null = null
       if (format === 'PHOTO' || format === 'STORIES') {
-        mediaFileId = await pickPhotoForPost(businessId, {
+        const photoId = await pickPhotoForPost(businessId, {
           theme: idea.theme, format, text: copy.text, photoKeywords: idea.photoKeywords || [],
         }, usedMediaIds).catch(() => null)
-        if (mediaFileId) usedMediaIds.add(mediaFileId)
+        if (photoId) usedMediaIds.add(photoId)
+        mediaFileId = photoId
+        // STORIES → авто-собрать дизайн-картинку (фото-фон + текст-оверлей + погодный виджет + лого)
+        if (format === 'STORIES' && photoId) {
+          const photo = await db.mediaFile.findUnique({ where: { id: photoId }, select: { url: true } })
+          if (photo) {
+            const design = await renderAndSaveStoryDesign({
+              businessId, photoUrl: photo.url, title: copy.text,
+              temp: ctx.todayTemp, weather: ctx.todayWeather, cta: 'Записаться · nawode.ru',
+            }).catch((e: any) => { log.warn('[Digest] story design failed', { error: e.message }); return null })
+            if (design) mediaFileId = design.id
+          }
+        }
       }
 
       suggestions.push({

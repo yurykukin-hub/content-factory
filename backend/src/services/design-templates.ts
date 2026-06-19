@@ -15,7 +15,8 @@ export interface StoryDesignOpts {
   temp?: string | null      // "+21°"
   weather?: string | null   // "тепло · слабый ветер"
   cta?: string | null       // "Записаться · nawode.ru"
-  brandInitial?: string     // буква бренда в кружке
+  brandInitial?: string     // буква бренда в кружке (если нет лого)
+  logoUri?: string          // data URI лого (приоритет над буквой)
 }
 
 /** Сторис 9:16: фото-фон + погодный виджет + заголовок-оверлей + CTA. */
@@ -34,8 +35,12 @@ export function buildStoryDesign(o: StoryDesignOpts): any {
     children.push(el('div', { position: 'absolute', top: 64, left: 64, display: 'flex', flexDirection: 'column' }, widget))
   }
 
-  // Бренд-кружок
-  children.push(el('div', { position: 'absolute', top: 76, right: 64, display: 'flex', width: 72, height: 72, borderRadius: 36, backgroundColor: BRAND.teal, alignItems: 'center', justifyContent: 'center', fontFamily: 'Montserrat', fontWeight: 700, fontSize: 38, color: 'white' }, o.brandInitial || 'Н'))
+  // Бренд: реальное лого (приоритет) или буква-кружок
+  if (o.logoUri) {
+    children.push({ type: 'img', props: { src: o.logoUri, style: { position: 'absolute', top: 60, right: 60, width: 180, height: 64, objectFit: 'contain' } } })
+  } else {
+    children.push(el('div', { position: 'absolute', top: 76, right: 64, display: 'flex', width: 72, height: 72, borderRadius: 36, backgroundColor: BRAND.teal, alignItems: 'center', justifyContent: 'center', fontFamily: 'Montserrat', fontWeight: 700, fontSize: 38, color: 'white' }, o.brandInitial || 'Н'))
+  }
 
   // Заголовок + CTA внизу
   const bottom: any[] = [el('div', { display: 'flex', fontFamily: 'Montserrat', fontWeight: 700, fontSize: 76, color: 'white', lineHeight: 1.12 }, o.title)]

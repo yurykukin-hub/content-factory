@@ -11,9 +11,7 @@ import { verifyMediaAccess, assertBusinessAccess } from '../middleware/resource-
 import { extractVideoThumbnail } from '../utils/video-thumbnail'
 import { overlayImageOnVideo, overlayAudioOnVideo } from '../services/video-overlay'
 import { bakeDesignLayer } from '../services/design-layer'
-import { config } from '../config'
-import { renderToPng, imageToDataUri } from '../services/html-render'
-import { buildStoryDesign, STORY_W, STORY_H } from '../services/design-templates'
+import { renderAndSaveStoryDesign } from '../services/story-design'
 
 const media = new Hono()
 
@@ -339,35 +337,10 @@ media.post('/render-design', async (c) => {
   const src = await db.mediaFile.findUnique({ where: { id: mediaFileId } })
   if (!src) return c.json({ error: 'Фото не найдено' }, 404)
 
-  const photoUri = await imageToDataUri(src.url, config.isProd, config.PORT)
-  if (!photoUri) return c.json({ error: 'Не удалось загрузить фото' }, 400)
-
   try {
-    const node = buildStoryDesign({ photoUri, title: title || '', temp, weather, cta })
-    const png = await renderToPng(node, STORY_W, STORY_H)
-
-    const fileId = nanoid(12)
-    const filename = `design_${fileId}.png`
-    const thumbName = `${fileId}_thumb.webp`
-    const bizDir = join(UPLOAD_DIR, businessId)
-    await mkdir(bizDir, { recursive: true })
-    await Bun.write(join(bizDir, filename), png)
-    await sharp(png).resize(THUMB_SIZE, THUMB_SIZE, { fit: 'cover' }).webp({ quality: 80 }).toFile(join(bizDir, thumbName))
-
-    // tag 'ai-generated' — дизайн-сторис не должна попадать в подбор арт-директора как «реальное фото»
-    const mediaFile = await db.mediaFile.create({
-      data: {
-        businessId,
-        filename: 'Сторис-дизайн',
-        url: `/uploads/${businessId}/${filename}`,
-        thumbUrl: `/uploads/${businessId}/${thumbName}`,
-        mimeType: 'image/png',
-        sizeBytes: png.length,
-        tags: ['story-design', 'ai-generated'],
-        sortOrder: 0,
-      },
-    })
-    return c.json(mediaFile, 201)
+    const result = await renderAndSaveStoryDesign({ businessId, photoUrl: src.url, title: title || '', temp, weather, cta })
+    if (!result) return c.json({ error: 'Не удалось загрузить фото' }, 400)
+    return c.json(result, 201)
   } catch (e: any) {
     console.error('[render-design] failed:', e)
     return c.json({ error: 'Ошибка рендера дизайна: ' + String(e?.message || e).slice(0, 200) }, 500)
