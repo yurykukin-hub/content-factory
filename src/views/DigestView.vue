@@ -26,7 +26,7 @@ interface DigestTask {
   postId: string | null
   createdAt: string
   mediaFileId: string | null
-  media: { id: string; url: string; thumbUrl: string | null; altText: string | null } | null
+  media: { id: string; url: string; thumbUrl: string | null; altText: string | null; tags?: string[] } | null
   adaptations?: { platform: string; text: string; hashtags: string[] }[] | null
   previews?: { platform: string; accountName: string; text: string; hashtags: string[] }[]
 }
@@ -187,6 +187,31 @@ const lightboxUrl = ref<string | null>(null)
 function openLightbox(url: string) { lightboxUrl.value = url }
 function closeLightbox() { lightboxUrl.value = null }
 
+// Дизайн-сторис (Ф2): фото → satori-картинка с текстом-оверлеем и виджетом
+function isDesigned(task: DigestTask): boolean {
+  return !!task.media?.tags?.includes('story-design')
+}
+async function generateDesign(task: DigestTask) {
+  if (!task.media) return
+  actingId.value = task.id
+  try {
+    const design = await http.post<{ id: string; url: string; thumbUrl: string | null; tags: string[] }>('/media/render-design', {
+      mediaFileId: task.media.id,
+      businessId: task.businessId,
+      title: task.title || task.proposedText.split('\n')[0].slice(0, 60),
+      cta: 'Записаться · nawode.ru',
+    })
+    await http.patch(`/auto-posts/${task.id}`, { mediaFileId: design.id })
+    task.mediaFileId = design.id
+    task.media = { id: design.id, url: design.url, thumbUrl: design.thumbUrl, altText: null, tags: design.tags }
+    toast.success('Дизайн-сторис готова')
+  } catch (e: any) {
+    toast.error('Ошибка: ' + (e.message || e))
+  } finally {
+    actingId.value = null
+  }
+}
+
 onMounted(load)
 </script>
 
@@ -266,7 +291,7 @@ onMounted(load)
               <!-- STORIES — вертикальный 9:16; PHOTO — лента соцсети -->
               <StoriesPreview v-if="task.postType === 'STORIES'"
                 :platform="pv.platform" :account-name="pv.accountName"
-                :text="pv.text" :media-files="previewMedia(task)" />
+                :text="pv.text" :media-files="previewMedia(task)" :baked="isDesigned(task)" />
               <PostPreview v-else
                 :platform="pv.platform" :account-name="pv.accountName"
                 :text="pv.text" :hashtags="pv.hashtags"
@@ -292,6 +317,11 @@ onMounted(load)
             <button v-if="task.status === 'proposed'" @click="openPicker(task)" :disabled="actingId === task.id"
               class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-gray-300 dark:border-gray-700 text-xs font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50">
               <RefreshCw :size="13" /> Заменить фото
+            </button>
+            <!-- Ф2: собрать дизайн-сторис (фото → satori-картинка с текстом+виджетом) -->
+            <button v-if="task.status === 'proposed' && task.postType === 'STORIES' && !isDesigned(task)" @click="generateDesign(task)" :disabled="actingId === task.id"
+              class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-xs font-medium disabled:opacity-50">
+              <Loader2 v-if="actingId === task.id" :size="13" class="animate-spin" /><Sparkles v-else :size="13" /> Оформить дизайн
             </button>
           </template>
           <button v-else-if="task.status === 'proposed'" @click="openPicker(task)"

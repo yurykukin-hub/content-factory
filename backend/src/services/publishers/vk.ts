@@ -7,6 +7,23 @@ import { log } from '../../utils/logger'
 
 const UPLOAD_DIR = join(getModuleDir(import.meta), '../../../uploads')
 
+// VK Stories link_text принимает только константы из фикс. списка (VK сам локализует надпись),
+// а не произвольный текст. Маппим русские варианты → константу, дефолт 'open' (Открыть).
+const VK_LINK_TEXT_VALID = new Set(['to_store', 'vote', 'more', 'book', 'order', 'enroll', 'fill', 'signup', 'buy', 'ticket', 'write', 'open', 'learn_more', 'view', 'go_to', 'contact', 'watch', 'play'])
+const VK_LINK_TEXT_MAP: Record<string, string> = {
+  'записаться': 'enroll', 'запись': 'enroll', 'регистрация': 'signup',
+  'забронировать': 'book', 'бронь': 'book', 'бронирование': 'book',
+  'купить': 'buy', 'заказать': 'order', 'заказ': 'order', 'билет': 'ticket',
+  'подробнее': 'more', 'перейти': 'go_to', 'открыть': 'open', 'смотреть': 'view', 'посмотреть': 'view',
+  'узнать больше': 'learn_more', 'связаться': 'contact', 'написать': 'write', 'в магазин': 'to_store',
+}
+function normalizeVkLinkText(raw?: string): string {
+  if (!raw) return 'open'
+  const low = raw.trim().toLowerCase()
+  if (VK_LINK_TEXT_VALID.has(low)) return low
+  return VK_LINK_TEXT_MAP[low] || 'open'
+}
+
 /**
  * VK Publisher — публикация через VK API.
  * Поддерживает: текст, фото, видео.
@@ -285,12 +302,12 @@ export class VkPublisher implements Publisher {
       if (accountType === 'GROUP') {
         serverParams.group_id = accountId
       }
-      // Кнопка-ссылка
-      if (storiesOptions?.linkText) {
-        serverParams.link_text = storiesOptions.linkText
-      }
+      // Кнопка-ссылка: VK требует link_text из фикс. списка констант CTA + пару с link_url
       if (storiesOptions?.linkUrl) {
         serverParams.link_url = storiesOptions.linkUrl
+        serverParams.link_text = normalizeVkLinkText(storiesOptions.linkText)
+      } else if (storiesOptions?.linkText) {
+        serverParams.link_text = normalizeVkLinkText(storiesOptions.linkText)
       }
 
       const serverRes = await fetch(`${this.baseUrl}/${method}`, {

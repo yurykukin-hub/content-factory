@@ -33,11 +33,11 @@ autoPost.get('/', async (c) => {
 
   // Превью выбранного фото (Ф1.2) — mediaFileId без relation, джойним вручную
   const mediaIds = [...new Set(tasks.map(t => t.mediaFileId).filter(Boolean))] as string[]
-  const mediaMap = new Map<string, { id: string; url: string; thumbUrl: string | null; altText: string | null }>()
+  const mediaMap = new Map<string, { id: string; url: string; thumbUrl: string | null; altText: string | null; tags: string[] }>()
   if (mediaIds.length) {
     const files = await db.mediaFile.findMany({
       where: { id: { in: mediaIds } },
-      select: { id: true, url: true, thumbUrl: true, altText: true },
+      select: { id: true, url: true, thumbUrl: true, altText: true, tags: true },
     })
     files.forEach(f => mediaMap.set(f.id, f))
   }
