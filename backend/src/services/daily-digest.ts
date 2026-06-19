@@ -67,6 +67,16 @@ interface DigestContext {
   platforms: string[]
 }
 
+/** Скорость ветра (м/с) → словесное описание. Цифры м/с люди не понимают — в тексте только словами. */
+function windLabel(ms: number | null | undefined): string {
+  if (ms == null) return 'ветер спокойный'
+  if (ms < 2) return 'штиль'
+  if (ms < 4) return 'слабый ветер'
+  if (ms < 7) return 'умеренный ветер'
+  if (ms < 10) return 'свежий ветер'
+  return 'сильный ветер'
+}
+
 /** Безопасный парс JSON из ответа LLM (срезает markdown-обёртку). */
 function parseJsonLoose<T>(raw: string): T | null {
   const cleaned = (raw || '').replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()
@@ -163,7 +173,7 @@ async function generateDigestForBusiness(biz: any, force: boolean): Promise<numb
   let dataBlock = 'Данные ERP недоступны.'
   if (data) {
     const w = data.weather.map(d =>
-      `${d.date}: ${d.tempMax ?? '?'}°C (днём ~${d.tempAvg ?? '?'}°C), ветер до ${d.windMax ?? '?'} м/с, ${d.label}${d.precipMm ? `, осадки ${d.precipMm}мм` : ''}`
+      `${d.date}: ${d.tempMax ?? '?'}°C (днём ~${d.tempAvg ?? '?'}°C), ${windLabel(d.windMax)}, ${d.label}${d.precipMm ? `, осадки ${d.precipMm}мм` : ''}`
     ).join('\n') || 'нет прогноза'
     const b = data.bookings.length
       ? data.bookings.map(d => `${d.date}: ${d.bookings} брони, ${d.people} чел.`).join('\n')
@@ -251,6 +261,7 @@ async function searchGalleryPhotos(businessId: string, keywords: string[], limit
       businessId,
       mimeType: { startsWith: 'image/' },
       altText: { not: null },
+      NOT: { tags: { has: 'ai-generated' } }, // только реальные фото — не AI-генерация/макеты
       OR: kw.map(k => ({ altText: { contains: k, mode: 'insensitive' as const } })),
     },
     select: { id: true, altText: true },
@@ -272,8 +283,10 @@ async function searchGalleryPhotos(businessId: string, keywords: string[], limit
 async function pickPhotoForPost(
   businessId: string,
   brief: { theme: string; format: string; text: string; photoKeywords: string[] },
+  excludeIds: Set<string> = new Set(),
 ): Promise<string | null> {
-  const candidates = await searchGalleryPhotos(businessId, brief.photoKeywords, 12)
+  const found = await searchGalleryPhotos(businessId, brief.photoKeywords, 16)
+  const candidates = found.filter(c => !excludeIds.has(c.id)) // дедуп: не повторять фото, уже выбранные в этом дайджесте
   if (!candidates.length) return null
   if (candidates.length === 1) return candidates[0].id
 
@@ -335,62 +348,67 @@ async function runAgentTeam(businessId: string, ctx: DigestContext): Promise<Sug
   const ideas = parseJsonLoose<{ ideas: any[] }>(stratRes.content || '')?.ideas || []
   if (!ideas.length) throw new Error('strategist returned no ideas')
 
-  // РОЛИ 2+3 — копирайтер и арт-директор по каждой идее (параллельно)
-  const results = await Promise.allSettled(ideas.slice(0, 4).map(async (idea: any): Promise<Suggestion> => {
-    // Ф1.6: только PHOTO/STORIES (каждый пост с фото). Любой другой формат → PHOTO.
-    const format = String(idea.format || 'PHOTO').toUpperCase() === 'STORIES' ? 'STORIES' : 'PHOTO'
-    // Каналы предложения: channels[] ∩ доступные; fallback — первый доступный (back-compat со старым полем channel)
-    const requested: string[] = Array.isArray(idea.channels) ? idea.channels : (idea.channel ? [idea.channel] : [])
-    let channels = requested.filter((c: string) => ctx.platforms.includes(c))
-    if (!channels.length) channels = ctx.platforms.slice(0, 1)
-    const primary = channels[0] || 'VK'
+  // РОЛИ 2+3 — копирайтер + адаптация + арт-директор по каждой идее.
+  // Последовательно (не параллельно) ради ДЕДУПА фото: usedMediaIds копит уже выбранные кадры.
+  const suggestions: Suggestion[] = []
+  const usedMediaIds = new Set<string>()
+  for (const idea of ideas.slice(0, 4)) {
+    try {
+      // Ф1.6: только PHOTO/STORIES (каждый пост с фото). Любой другой формат → PHOTO.
+      const format = String(idea.format || 'PHOTO').toUpperCase() === 'STORIES' ? 'STORIES' : 'PHOTO'
+      // Каналы: channels[] ∩ доступные; fallback — первый доступный (back-compat со старым полем channel)
+      const requested: string[] = Array.isArray(idea.channels) ? idea.channels : (idea.channel ? [idea.channel] : [])
+      let channels = requested.filter((c: string) => ctx.platforms.includes(c))
+      if (!channels.length) channels = ctx.platforms.slice(0, 1)
+      const primary = channels[0] || 'VK'
 
-    // РОЛЬ 2 — Копирайтер: мастер-текст (ориентир — первый канал)
-    const copyRes = await aiComplete({
-      model: 'anthropic/claude-sonnet-4',
-      systemPrompt: buildDigestCopywriterPrompt(
-        { rubric: idea.rubric, theme: idea.theme, format, channel: primary, keyMessage: idea.keyMessage },
-        ctx.brandContext, ctx.recentSummary,
-      ),
-      userPrompt: 'Напиши готовый текст поста. Ответь JSON.',
-      maxTokens: 1200,
-      businessId,
-      action: 'daily_digest',
-    })
-    const copy = parseJsonLoose<{ text: string; hashtags: string[] }>(copyRes.content || '')
-    if (!copy?.text) throw new Error('copywriter returned no text')
+      // РОЛЬ 2 — Копирайтер: мастер-текст (ориентир — первый канал)
+      const copyRes = await aiComplete({
+        model: 'anthropic/claude-sonnet-4',
+        systemPrompt: buildDigestCopywriterPrompt(
+          { rubric: idea.rubric, theme: idea.theme, format, channel: primary, keyMessage: idea.keyMessage },
+          ctx.brandContext, ctx.recentSummary,
+        ),
+        userPrompt: 'Напиши готовый текст поста. Ответь JSON.',
+        maxTokens: 1200,
+        businessId,
+        action: 'daily_digest',
+      })
+      const copy = parseJsonLoose<{ text: string; hashtags: string[] }>(copyRes.content || '')
+      if (!copy?.text) continue
 
-    // Адаптация под каналы. STORIES = короткая подпись-оверлей (без ленточной адаптации и хэштегов —
-    // иначе IG-правила раздувают её в длинный пост со «ссылкой в шапке» и хэштегами). PHOTO = полная адаптация.
-    const adaptations = format === 'STORIES'
-      ? channels.map(p => ({ platform: p, text: copy.text, hashtags: [] as string[] }))
-      : await adaptForPlatforms(copy.text, copy.hashtags || [], channels, ctx.brandContext, businessId)
+      // Адаптация под каналы. STORIES = короткая подпись-оверлей (без ленточной адаптации и хэштегов);
+      // PHOTO = полная адаптация текста ленты под каждую платформу.
+      const adaptations = format === 'STORIES'
+        ? channels.map(p => ({ platform: p, text: copy.text, hashtags: [] as string[] }))
+        : await adaptForPlatforms(copy.text, copy.hashtags || [], channels, ctx.brandContext, businessId)
 
-    // РОЛЬ 3 — Арт-директор (только для форматов с фото)
-    let mediaFileId: string | null = null
-    if (format === 'PHOTO' || format === 'STORIES') {
-      mediaFileId = await pickPhotoForPost(businessId, {
-        theme: idea.theme, format, text: copy.text, photoKeywords: idea.photoKeywords || [],
-      }).catch(() => null)
+      // РОЛЬ 3 — Арт-директор (реальное фото, не повторяя уже выбранные в этом дайджесте)
+      let mediaFileId: string | null = null
+      if (format === 'PHOTO' || format === 'STORIES') {
+        mediaFileId = await pickPhotoForPost(businessId, {
+          theme: idea.theme, format, text: copy.text, photoKeywords: idea.photoKeywords || [],
+        }, usedMediaIds).catch(() => null)
+        if (mediaFileId) usedMediaIds.add(mediaFileId)
+      }
+
+      suggestions.push({
+        postType: format,
+        platforms: channels,
+        title: idea.theme ? String(idea.theme).slice(0, 80) : undefined,
+        text: copy.text,
+        hashtags: copy.hashtags || [],
+        adaptations,
+        visualIdea: idea.keyMessage || null,
+        rubric: idea.rubric,
+        reasoning: idea.reasoning,
+        mediaFileId,
+      })
+    } catch (err: any) {
+      log.warn('[Digest] idea failed', { error: err.message })
     }
-
-    return {
-      postType: format,
-      platforms: channels,
-      title: idea.theme ? String(idea.theme).slice(0, 80) : undefined,
-      text: copy.text,
-      hashtags: copy.hashtags || [],
-      adaptations,
-      visualIdea: idea.keyMessage || null,
-      rubric: idea.rubric,
-      reasoning: idea.reasoning,
-      mediaFileId,
-    }
-  }))
-
-  return results
-    .filter((r): r is PromiseFulfilledResult<Suggestion> => r.status === 'fulfilled')
-    .map(r => r.value)
+  }
+  return suggestions
 }
 
 /** Fallback: один Sonnet генерит все предложения разом (прежнее поведение, без подбора фото). */
