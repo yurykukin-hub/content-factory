@@ -360,8 +360,11 @@ async function runAgentTeam(businessId: string, ctx: DigestContext): Promise<Sug
     const copy = parseJsonLoose<{ text: string; hashtags: string[] }>(copyRes.content || '')
     if (!copy?.text) throw new Error('copywriter returned no text')
 
-    // Адаптация мастер-текста под каждый канал (Ф1.5) — честный per-platform превью
-    const adaptations = await adaptForPlatforms(copy.text, copy.hashtags || [], channels, ctx.brandContext, businessId)
+    // Адаптация под каналы. STORIES = короткая подпись-оверлей (без ленточной адаптации и хэштегов —
+    // иначе IG-правила раздувают её в длинный пост со «ссылкой в шапке» и хэштегами). PHOTO = полная адаптация.
+    const adaptations = format === 'STORIES'
+      ? channels.map(p => ({ platform: p, text: copy.text, hashtags: [] as string[] }))
+      : await adaptForPlatforms(copy.text, copy.hashtags || [], channels, ctx.brandContext, businessId)
 
     // РОЛЬ 3 — Арт-директор (только для форматов с фото)
     let mediaFileId: string | null = null

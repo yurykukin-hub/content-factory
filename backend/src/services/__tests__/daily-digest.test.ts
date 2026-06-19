@@ -94,7 +94,7 @@ describe('runDailyDigest (Epic C — generate suggestions)', () => {
     mockDb.autoPostTask.count.mockResolvedValue(0)
     mockDb.post.findMany.mockResolvedValue([])
     mockDb.autoPostTask.create.mockResolvedValue({ id: 'task-1', businessId: 'biz-1' })
-    // Команда агентов: стратег → копирайтер → адаптация(VK). STORIES без photoKeywords => арт-директор не находит фото (нет aiComplete).
+    // STORIES: стратег → копирайтер. Ленточной адаптации НЕТ (короткий оверлей), фото нет (keywords []) — всего 2 вызова.
     vi.mocked(aiComplete)
       .mockResolvedValueOnce({
         content: JSON.stringify({ ideas: [{ rubric: 'R', theme: 'Тема дня', format: 'STORIES', channels: ['VK'], keyMessage: 'K', photoKeywords: [], reasoning: 'погода' }] }),
@@ -103,9 +103,6 @@ describe('runDailyDigest (Epic C — generate suggestions)', () => {
       .mockResolvedValueOnce({
         content: JSON.stringify({ text: 'Готовый текст поста', hashtags: ['нawode'] }),
         tokensIn: 1, tokensOut: 1, cachedTokens: 0, costUsd: 0, model: 'sonnet',
-      } as any)
-      .mockResolvedValueOnce({
-        content: 'Адаптация под VK', tokensIn: 1, tokensOut: 1, cachedTokens: 0, costUsd: 0, model: 'haiku',
       } as any)
 
     const res = await runDailyDigest({ businessId: 'biz-1', force: true })
