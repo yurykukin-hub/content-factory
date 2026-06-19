@@ -11,7 +11,7 @@ import { verifyMediaAccess, assertBusinessAccess } from '../middleware/resource-
 import { extractVideoThumbnail } from '../utils/video-thumbnail'
 import { overlayImageOnVideo, overlayAudioOnVideo } from '../services/video-overlay'
 import { bakeDesignLayer } from '../services/design-layer'
-import { renderAndSaveStoryDesign } from '../services/story-design'
+import { renderAndSaveStoryDesign, renderAndSaveCarousel } from '../services/story-design'
 
 const media = new Hono()
 
@@ -344,6 +344,42 @@ media.post('/render-design', async (c) => {
   } catch (e: any) {
     console.error('[render-design] failed:', e)
     return c.json({ error: 'Ошибка рендера дизайна: ' + String(e?.message || e).slice(0, 200) }, 500)
+  }
+})
+
+// POST /api/media/render-carousel — Ф2c: серия дизайн-слайдов карусели (4:5) → массив MediaFile
+media.post('/render-carousel', async (c) => {
+  const { businessId, slides } = await c.req.json<{
+    businessId: string
+    slides: Array<{ photoMediaId?: string; heading: string; body?: string; kind?: 'cover' | 'content' | 'cta'; cta?: string }>
+  }>()
+  const user = c.get('user') as AuthUser
+  try {
+    await assertBusinessAccess(user, businessId)
+  } catch (e: any) {
+    if (e.message === 'FORBIDDEN') return c.json({ error: 'Нет доступа' }, 403)
+    throw e
+  }
+  if (!Array.isArray(slides) || !slides.length) return c.json({ error: 'Нет слайдов' }, 400)
+
+  // Резолвим фото-фоны слайдов (photoMediaId → url)
+  const photoIds = [...new Set(slides.map(s => s.photoMediaId).filter(Boolean))] as string[]
+  const photoMap = new Map<string, string>()
+  if (photoIds.length) {
+    const files = await db.mediaFile.findMany({ where: { id: { in: photoIds } }, select: { id: true, url: true } })
+    files.forEach(f => photoMap.set(f.id, f.url))
+  }
+  const input = slides.map(s => ({
+    photoUrl: s.photoMediaId ? photoMap.get(s.photoMediaId) ?? null : null,
+    heading: s.heading || '', body: s.body, kind: s.kind, cta: s.cta,
+  }))
+
+  try {
+    const result = await renderAndSaveCarousel(businessId, input)
+    return c.json(result, 201)
+  } catch (e: any) {
+    console.error('[render-carousel] failed:', e)
+    return c.json({ error: 'Ошибка рендера карусели: ' + String(e?.message || e).slice(0, 200) }, 500)
   }
 })
 

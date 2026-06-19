@@ -61,3 +61,47 @@ export function buildStoryDesign(o: StoryDesignOpts): any {
 
   return el('div', { display: 'flex', position: 'relative', width: STORY_W, height: STORY_H, backgroundColor: '#1a1a1a' }, children)
 }
+
+// ─── Карусель (4:5 слайды) ───
+export const CAROUSEL_W = 1080
+export const CAROUSEL_H = 1350
+
+export interface CarouselSlideOpts {
+  photoUri?: string | null  // фото-фон (если нет — цветной бренд-фон)
+  heading: string
+  body?: string | null
+  index: number             // номер слайда (1-based)
+  total: number
+  kind?: 'cover' | 'content' | 'cta'
+  cta?: string | null
+  logoUri?: string
+}
+
+/** Один слайд карусели 4:5: фото-фон или бренд-фон + заголовок + текст + номер + лого. */
+export function buildCarouselSlide(o: CarouselSlideOpts): any {
+  const heading = stripEmoji(o.heading)
+  const body = o.body ? stripEmoji(o.body) : null
+  const cta = o.cta ? stripEmoji(o.cta) : null
+  const hasPhoto = !!o.photoUri
+  const isCover = o.kind === 'cover'
+
+  const children: any[] = []
+  if (hasPhoto) {
+    children.push({ type: 'img', props: { src: o.photoUri, style: { position: 'absolute', top: 0, left: 0, width: CAROUSEL_W, height: CAROUSEL_H, objectFit: 'cover' } } })
+    children.push(el('div', { position: 'absolute', bottom: 0, left: 0, width: CAROUSEL_W, height: 820, display: 'flex', backgroundImage: 'linear-gradient(to top, rgba(0,0,0,0.9), rgba(0,0,0,0))' }))
+  } else {
+    children.push(el('div', { position: 'absolute', top: 0, left: 0, width: CAROUSEL_W, height: CAROUSEL_H, display: 'flex', backgroundColor: BRAND.navy }))
+  }
+
+  // Номер слайда + лого
+  children.push(el('div', { position: 'absolute', top: 48, left: 56, display: 'flex', fontFamily: 'Montserrat', fontWeight: 700, fontSize: 32, color: 'white' }, `${o.index} / ${o.total}`))
+  if (o.logoUri) children.push({ type: 'img', props: { src: o.logoUri, style: { position: 'absolute', top: 44, right: 56, width: 150, height: 54, objectFit: 'contain' } } })
+
+  // Контент внизу
+  const content: any[] = [el('div', { display: 'flex', fontFamily: isCover ? 'Cormorant' : 'Montserrat', fontWeight: 700, fontSize: isCover ? 92 : 62, color: 'white', lineHeight: 1.1 }, heading)]
+  if (body) content.push(el('div', { display: 'flex', fontFamily: 'Montserrat', fontWeight: 600, fontSize: 40, color: 'white', marginTop: 26, lineHeight: 1.3 }, body))
+  if (cta) content.push(el('div', { display: 'flex', marginTop: 34, paddingTop: 22, paddingBottom: 22, paddingLeft: 44, paddingRight: 44, backgroundColor: BRAND.teal, borderRadius: 18, fontFamily: 'Montserrat', fontWeight: 700, fontSize: 40, color: 'white' }, cta))
+  children.push(el('div', { position: 'absolute', bottom: 90, left: 64, width: 952, display: 'flex', flexDirection: 'column' }, content))
+
+  return el('div', { display: 'flex', position: 'relative', width: CAROUSEL_W, height: CAROUSEL_H, backgroundColor: '#1a1a1a' }, children)
+}
