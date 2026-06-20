@@ -25,6 +25,7 @@ export interface StoryDesignOpts {
   cta?: string | null       // "Записаться · nawode.ru"
   brandInitial?: string     // буква бренда в кружке (если нет лого)
   logoUri?: string          // data URI лого (приоритет над буквой)
+  photoPosition?: string    // objectPosition фото '50% 50%' (вертикальный фокус кадра — чтобы объект не обрезался)
 }
 
 /** Сторис 9:16: фото-фон + погодный виджет + заголовок-оверлей + CTA. Эмодзи убираются (satori их не рисует). */
@@ -34,7 +35,7 @@ export function buildStoryDesign(o: StoryDesignOpts): any {
   const cta = o.cta ? stripEmoji(o.cta) : null
 
   const children: any[] = [
-    { type: 'img', props: { src: o.photoUri, style: { position: 'absolute', top: 0, left: 0, width: STORY_W, height: STORY_H, objectFit: 'cover' } } },
+    { type: 'img', props: { src: o.photoUri, style: { position: 'absolute', top: 0, left: 0, width: STORY_W, height: STORY_H, objectFit: 'cover', objectPosition: o.photoPosition || '50% 50%' } } },
     el('div', { position: 'absolute', top: 0, left: 0, width: STORY_W, height: 520, display: 'flex', backgroundImage: 'linear-gradient(to bottom, rgba(0,0,0,0.55), rgba(0,0,0,0))' }),
     el('div', { position: 'absolute', bottom: 0, left: 0, width: STORY_W, height: 980, display: 'flex', backgroundImage: 'linear-gradient(to top, rgba(0,0,0,0.9), rgba(0,0,0,0))' }),
   ]

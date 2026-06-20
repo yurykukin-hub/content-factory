@@ -333,8 +333,8 @@ media.post('/bake-design-layer', async (c) => {
 
 // POST /api/media/render-design — Ф2: дизайн-сторис (satori HTML→PNG: фото-фон + текст-оверлей + погодный виджет + CTA)
 media.post('/render-design', async (c) => {
-  const { mediaFileId, businessId, title, temp, weather, cta } = await c.req.json<{
-    mediaFileId: string; businessId: string; title: string; temp?: string; weather?: string; cta?: string
+  const { mediaFileId, businessId, title, temp, weather, cta, photoPosition } = await c.req.json<{
+    mediaFileId: string; businessId: string; title: string; temp?: string; weather?: string; cta?: string; photoPosition?: string
   }>()
   const user = c.get('user') as AuthUser
   try {
@@ -347,8 +347,16 @@ media.post('/render-design', async (c) => {
   const src = await db.mediaFile.findUnique({ where: { id: mediaFileId } })
   if (!src) return c.json({ error: 'Фото не найдено' }, 404)
 
+  // Если передан baked-дизайн (переоформление) — берём ИСХОДНОЕ фото, иначе получится дизайн-поверх-дизайна
+  let photoUrl = src.url
+  let sourceId = src.id
+  if (src.tags.includes('story-design') && src.sourceMediaId) {
+    const orig = await db.mediaFile.findUnique({ where: { id: src.sourceMediaId } })
+    if (orig) { photoUrl = orig.url; sourceId = orig.id }
+  }
+
   try {
-    const result = await renderAndSaveStoryDesign({ businessId, photoUrl: src.url, title: title || '', temp, weather, cta })
+    const result = await renderAndSaveStoryDesign({ businessId, photoUrl, title: title || '', temp, weather, cta, photoPosition, sourceMediaId: sourceId })
     if (!result) return c.json({ error: 'Не удалось загрузить фото' }, 400)
     return c.json(result, 201)
   } catch (e: any) {

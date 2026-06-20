@@ -411,6 +411,7 @@ model MediaFile {
   durationSec Int?     @map("duration_sec") // длительность видео/аудио в секундах
   aiModel     String?  @map("ai_model")     // модель генерации (nano-banana-2, bytedance/seedance-2, etc.)
   aiCostUsd   Float?   @map("ai_cost_usd")  // стоимость генерации в USD
+  sourceMediaId String? @map("source_media_id") // baked дизайн-сторис: исходное фото (чтобы переоформить с другой позицией кадра)
   createdAt   DateTime @default(now()) @map("created_at")
 
   post         Post?        @relation(fields: [postId], references: [id])

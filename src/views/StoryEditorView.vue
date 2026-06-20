@@ -14,6 +14,7 @@ import {
 } from 'lucide-vue-next'
 import ImageEditModal from '@/components/ai/ImageEditModal.vue'
 import MediaPickerModal from '@/components/MediaPickerModal.vue'
+import StoryDesignModal from '@/components/StoryDesignModal.vue'
 import { platformColor, platformBgColor, platformLabel } from '@/composables/usePlatform'
 import VsAgentChat from '@/components/video/VsAgentChat.vue'
 import type { AgentMessage } from '@/components/video/VsAgentMessage.vue'
@@ -303,6 +304,20 @@ const isBakedStory = computed(() => {
   if (!m) return false
   return !!m.tags?.includes('story-design') || /\/design_/.test(m.url || '')
 })
+
+// Корректировка кадра дизайн-сторис (модалка с ползунком позиции → перезапекание)
+const designModalOpen = ref(false)
+async function onStoryDesignDone(design: { id: string; url: string; thumbUrl: string | null; tags: string[] }) {
+  if (!post.value) return
+  const oldId = photo.value?.id
+  try {
+    if (oldId && oldId !== design.id) await http.post(`/media/${oldId}/attach`, { postId: null }).catch(() => {})
+    await http.post(`/media/${design.id}/attach`, { postId: post.value.id })
+    post.value.mediaFiles = [{ id: design.id, url: design.url, thumbUrl: design.thumbUrl, filename: 'Сторис-дизайн', mimeType: 'image/png', sizeBytes: 0, tags: design.tags }]
+    originalPhotoUrl.value = null
+    loadImage(design.url)
+  } catch (e: any) { toast.error('Ошибка: ' + (e.message || e)) }
+}
 // Полная блокировка — только после реальной публикации
 const isPublished = computed(() =>
   (post.value?.versions || []).some(v => v.status === 'PUBLISHED'))
@@ -1280,13 +1295,19 @@ onUnmounted(() => {
           </div>
         </div>
 
-        <!-- Baked-сторис: дизайн уже вшит → статус-баннер вместо ручной текст-панели -->
-        <div v-if="isBakedStory" class="bg-fuchsia-50 dark:bg-fuchsia-950/30 border border-fuchsia-200 dark:border-fuchsia-800/50 rounded-xl p-4 flex items-center gap-2.5">
-          <Sparkles :size="18" class="text-fuchsia-500 shrink-0" />
-          <div>
-            <p class="text-sm font-semibold text-fuchsia-800 dark:text-fuchsia-200">Готовая сторис</p>
-            <p class="text-xs text-fuchsia-600 dark:text-fuchsia-400">Дизайн вшит в картинку — выберите каналы и публикуйте. Чтобы сменить текст/фото — «Заменить фото» ниже.</p>
+        <!-- Baked-сторис: дизайн уже вшит → статус-баннер + правка кадра -->
+        <div v-if="isBakedStory" class="bg-fuchsia-50 dark:bg-fuchsia-950/30 border border-fuchsia-200 dark:border-fuchsia-800/50 rounded-xl p-4">
+          <div class="flex items-center gap-2.5">
+            <Sparkles :size="18" class="text-fuchsia-500 shrink-0" />
+            <div>
+              <p class="text-sm font-semibold text-fuchsia-800 dark:text-fuchsia-200">Готовая сторис</p>
+              <p class="text-xs text-fuchsia-600 dark:text-fuchsia-400">Дизайн вшит — выберите каналы и публикуйте.</p>
+            </div>
           </div>
+          <button v-if="!isPublished" @click="designModalOpen = true"
+            class="mt-3 w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-fuchsia-600 hover:bg-fuchsia-700 text-white text-xs font-medium transition-colors touch-manipulation">
+            <Sparkles :size="14" /> Поправить кадр / заголовок
+          </button>
         </div>
 
         <!-- Text + Templates (ручной текст-оверлей — только для НЕ-baked сторис) -->
@@ -1743,6 +1764,17 @@ onUnmounted(() => {
       :business-id="post.businessId"
       @close="showMediaPicker = false"
       @selected="pickFromLibrary"
+    />
+
+    <!-- Корректировка кадра дизайн-сторис -->
+    <StoryDesignModal
+      v-if="post && photo"
+      :visible="designModalOpen"
+      :business-id="post.businessId"
+      :media-id="photo.id"
+      :title="storyTitle || overlayText || post.title || ''"
+      @done="onStoryDesignDone"
+      @close="designModalOpen = false"
     />
   </div>
 </template>

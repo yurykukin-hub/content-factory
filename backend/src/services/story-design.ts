@@ -30,7 +30,7 @@ async function getLogoUri(): Promise<string | undefined> {
 export interface SavedDesign { id: string; url: string; thumbUrl: string; tags: string[] }
 
 /** Сохранить PNG-буфер как MediaFile (+ webp-thumb). Общий helper для сторис и карусели. */
-async function savePngAsMedia(businessId: string, png: Buffer, filenameLabel: string, tags: string[]): Promise<SavedDesign> {
+async function savePngAsMedia(businessId: string, png: Buffer, filenameLabel: string, tags: string[], sourceMediaId?: string): Promise<SavedDesign> {
   const fileId = nanoid(12)
   const filename = `design_${fileId}.png`
   const thumbName = `${fileId}_thumb.webp`
@@ -48,6 +48,7 @@ async function savePngAsMedia(businessId: string, png: Buffer, filenameLabel: st
       sizeBytes: png.length,
       tags,
       sortOrder: 0,
+      sourceMediaId: sourceMediaId || null,
     },
   })
   return { id: mf.id, url: mf.url, thumbUrl: mf.thumbUrl!, tags: mf.tags }
@@ -60,6 +61,8 @@ export interface RenderStoryOpts {
   temp?: string | null
   weather?: string | null
   cta?: string | null
+  photoPosition?: string   // objectPosition '50% 30%' — вертикальный фокус кадра
+  sourceMediaId?: string   // исходное фото (для переоформления с другой позицией)
 }
 
 /** Рендер дизайн-сторис (9:16) → MediaFile. null если фото недоступно. */
@@ -67,9 +70,9 @@ export async function renderAndSaveStoryDesign(o: RenderStoryOpts): Promise<Save
   const photoUri = await imageToDataUri(o.photoUrl, config.isProd, config.PORT)
   if (!photoUri) return null
   const logoUri = await getLogoUri()
-  const node = buildStoryDesign({ photoUri, title: o.title || '', temp: o.temp, weather: o.weather, cta: o.cta, logoUri })
+  const node = buildStoryDesign({ photoUri, title: o.title || '', temp: o.temp, weather: o.weather, cta: o.cta, logoUri, photoPosition: o.photoPosition })
   const png = await renderToPng(node, STORY_W, STORY_H)
-  return savePngAsMedia(o.businessId, png, 'Сторис-дизайн', ['story-design', 'ai-generated'])
+  return savePngAsMedia(o.businessId, png, 'Сторис-дизайн', ['story-design', 'ai-generated'], o.sourceMediaId)
 }
 
 export interface CarouselSlideInput {

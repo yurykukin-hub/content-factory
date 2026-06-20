@@ -11,6 +11,7 @@ import { Sunrise, Sparkles, Loader2, Check, X, Lightbulb, CalendarClock, FileEdi
 import MediaPickerModal from '@/components/MediaPickerModal.vue'
 import PostPreview from '@/components/posts/preview/PostPreview.vue'
 import StoriesPreview from '@/components/posts/preview/StoriesPreview.vue'
+import StoryDesignModal from '@/components/StoryDesignModal.vue'
 
 interface DigestTask {
   id: string
@@ -61,7 +62,14 @@ const actingId = ref<string | null>(null)
 const scheduleOpenId = ref<string | null>(null)        // id задачи с раскрытым выбором времени
 const scheduleAt = ref<Record<string, string>>({})     // datetime-local per task
 const confirmTask = ref<DigestTask | null>(null)        // задача в модалке подтверждения
+const confirmPlatforms = ref<string[]>([])              // выбранные каналы для публикации (галочки)
+const pubResults = ref<{ platform: string; success: boolean; error: string | null }[]>([]) // результат по каналам
 const publishingConfirm = ref(false)
+function togglePubPlatform(p: string) {
+  const i = confirmPlatforms.value.indexOf(p)
+  if (i >= 0) confirmPlatforms.value.splice(i, 1)
+  else confirmPlatforms.value.push(p)
+}
 function localNow(): string {
   return new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16)
 }
@@ -150,23 +158,32 @@ function toggleSchedule(taskId: string) {
 function openPublishConfirm(task: DigestTask) {
   scheduleOpenId.value = null
   confirmTask.value = task
+  confirmPlatforms.value = [...(task.platforms || [])] // по умолчанию все каналы выбраны
+  pubResults.value = []
 }
 
-// Опубликовать сейчас: одобрить + публикация во все каналы предложения, минуя редактор
+// Опубликовать сейчас: одобрить + публикация в ВЫБРАННЫЕ каналы (одна сторис, в каждый канал отдельно)
 async function doPublishNow(task: DigestTask) {
-  if (publishingConfirm.value) return
+  if (publishingConfirm.value || !confirmPlatforms.value.length) return
   publishingConfirm.value = true
+  pubResults.value = []
   try {
     const res = await http.post<{ results: { platform: string; success: boolean; error: string | null }[] }>(
-      `/auto-posts/${task.id}/approve-publish`, { when: 'now' }
+      `/auto-posts/${task.id}/approve-publish`, { when: 'now', platforms: confirmPlatforms.value }
     )
-    const ok = res.results.filter(r => r.success).map(r => platformLabel(r.platform))
+    pubResults.value = res.results
+    const ok = res.results.filter(r => r.success)
     const fail = res.results.filter(r => !r.success)
-    task.status = 'published'
-    confirmTask.value = null
-    if (!fail.length) toast.success(`Опубликовано: ${ok.join(', ')}`)
-    else if (ok.length) toast.info(`Опубликовано: ${ok.join(', ')} · ошибки: ${fail.map(f => platformLabel(f.platform)).join(', ')}`)
-    else toast.error('Не удалось опубликовать: ' + (fail[0]?.error || ''))
+    if (!fail.length) {
+      task.status = 'published'
+      toast.success(`Опубликовано: ${ok.map(r => platformLabel(r.platform)).join(', ')}`)
+      setTimeout(() => { if (confirmTask.value === task) confirmTask.value = null }, 1400) // дать увидеть галочки
+    } else if (ok.length) {
+      task.status = 'published'
+      toast.info(`Опубликовано: ${ok.map(r => platformLabel(r.platform)).join(', ')} · ошибки: ${fail.map(f => platformLabel(f.platform)).join(', ')}`)
+    } else {
+      toast.error('Не удалось опубликовать: ' + (fail[0]?.error || ''))
+    }
   } catch (e: any) {
     toast.error('Ошибка: ' + (e.message || e))
   } finally {
@@ -282,6 +299,19 @@ async function generateDesign(task: DigestTask) {
   } finally {
     actingId.value = null
   }
+}
+
+// Корректировка кадра дизайн-сторис (ползунок позиции + перезапекание)
+const designTask = ref<DigestTask | null>(null)
+function openDesignModal(task: DigestTask) { designTask.value = task }
+async function onDesignDone(design: { id: string; url: string; thumbUrl: string | null; tags: string[] }) {
+  const task = designTask.value
+  if (!task) return
+  try {
+    await http.patch(`/auto-posts/${task.id}`, { mediaFileId: design.id })
+    task.mediaFileId = design.id
+    task.media = { id: design.id, url: design.url, thumbUrl: design.thumbUrl, altText: null, tags: design.tags }
+  } catch (e: any) { toast.error('Ошибка: ' + (e.message || e)) }
 }
 
 onMounted(load)
@@ -437,8 +467,12 @@ onMounted(load)
                 <Loader2 v-if="actingId === task.id" :size="14" class="animate-spin" /><Clock v-else :size="14" /> Запланировать
               </button>
             </div>
-            <!-- Вторичное: В редактор / Отклонить -->
-            <div class="flex items-center gap-2 mt-2">
+            <!-- Вторичное: Поправить кадр / В редактор / Отклонить -->
+            <div class="flex items-center gap-2 mt-2 flex-wrap">
+              <button @click="openDesignModal(task)" :disabled="actingId === task.id"
+                class="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-fuchsia-300 dark:border-fuchsia-700 text-xs font-medium text-fuchsia-600 dark:text-fuchsia-400 hover:bg-fuchsia-50 dark:hover:bg-fuchsia-950 disabled:opacity-50 touch-manipulation">
+                <Sparkles :size="13" /> Поправить кадр
+              </button>
               <button @click="approveAndOpen(task)" :disabled="actingId === task.id"
                 class="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 text-xs font-medium text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50 touch-manipulation">
                 <FileEdit :size="13" /> В редактор
@@ -574,37 +608,60 @@ onMounted(load)
         @click.self="!publishingConfirm && (confirmTask = null)">
         <div class="w-full sm:max-w-sm bg-white dark:bg-gray-900 rounded-t-2xl sm:rounded-2xl shadow-2xl max-h-[88vh] overflow-y-auto">
           <div class="flex justify-center pt-3 pb-1 sm:hidden"><div class="w-10 h-1 rounded-full bg-gray-300 dark:bg-gray-700"></div></div>
-          <h3 class="text-sm font-semibold text-center pt-2 px-4">Опубликовать сторис?</h3>
+          <h3 class="text-sm font-semibold text-center pt-2 px-4">Опубликовать сторис</h3>
           <!-- Превью baked-сторис -->
           <div class="flex justify-center px-4 pt-3 pb-2">
             <div class="relative overflow-hidden rounded-xl shadow-md bg-gray-100 dark:bg-gray-800" style="width: 130px; aspect-ratio: 9/16;">
               <img v-if="confirmTask.media" :src="confirmTask.media.url" class="absolute inset-0 w-full h-full object-cover" />
             </div>
           </div>
-          <!-- Каналы -->
-          <div class="px-4 pb-2">
-            <div class="text-xs text-gray-500 mb-1.5 text-center">Публикуется в</div>
-            <div class="flex flex-wrap gap-1.5 justify-center">
-              <span v-for="p in confirmTask.platforms" :key="p"
-                :class="['flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium', platformBgColor(p)]">
-                <span class="w-1.5 h-1.5 rounded-full bg-current opacity-60"></span>{{ platformLabel(p) }}
-              </span>
+          <!-- Выбор каналов: одна сторис в каждый выбранный канал отдельно -->
+          <div class="px-4 pb-1">
+            <div class="text-xs text-gray-500 mb-2 text-center">Сторис опубликуется в каждый выбранный канал:</div>
+            <div class="space-y-1.5">
+              <button v-for="p in confirmTask.platforms" :key="p" @click="!publishingConfirm && togglePubPlatform(p)"
+                class="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg border transition-colors text-left touch-manipulation"
+                :class="confirmPlatforms.includes(p) ? 'border-green-400 bg-green-50 dark:bg-green-950/40' : 'border-gray-200 dark:border-gray-700 opacity-60'">
+                <span class="w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0"
+                  :class="confirmPlatforms.includes(p) ? 'bg-green-600 border-green-600' : 'border-gray-300 dark:border-gray-600'">
+                  <Check v-if="confirmPlatforms.includes(p)" :size="12" class="text-white" />
+                </span>
+                <span class="w-2 h-2 rounded-full shrink-0" :class="platformBgColor(p)"></span>
+                <span class="flex-1 text-sm font-medium">{{ platformLabel(p) }} · Stories</span>
+                <!-- результат по каналу после публикации -->
+                <span v-if="pubResults.find(r => r.platform === p)" class="text-xs font-medium shrink-0"
+                  :class="pubResults.find(r => r.platform === p)!.success ? 'text-green-600' : 'text-red-500'">
+                  {{ pubResults.find(r => r.platform === p)!.success ? '✓ готово' : '✗ ошибка' }}
+                </span>
+              </button>
             </div>
           </div>
-          <p class="text-xs text-gray-400 text-center px-4 pb-3">Действие необратимо — из соцсетей удаляется вручную</p>
+          <p class="text-xs text-gray-400 text-center px-4 py-2.5">Публикация необратима — из соцсетей удаляется вручную</p>
           <div class="flex gap-2 p-4 pt-0">
             <button @click="confirmTask = null" :disabled="publishingConfirm"
               class="flex-1 px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50">
               Назад
             </button>
-            <button @click="doPublishNow(confirmTask)" :disabled="publishingConfirm"
+            <button @click="doPublishNow(confirmTask)" :disabled="publishingConfirm || !confirmPlatforms.length"
               class="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-green-600 hover:bg-green-700 active:bg-green-800 text-white text-sm font-semibold disabled:opacity-50 transition-colors touch-manipulation">
               <Loader2 v-if="publishingConfirm" :size="16" class="animate-spin" /><Send v-else :size="16" />
-              {{ publishingConfirm ? 'Публикую…' : 'Опубликовать сейчас' }}
+              {{ publishingConfirm ? 'Публикую…' : `Опубликовать (${confirmPlatforms.length})` }}
             </button>
           </div>
         </div>
       </div>
     </Teleport>
+
+    <!-- Корректировка кадра дизайн-сторис -->
+    <StoryDesignModal
+      v-if="designTask"
+      :visible="true"
+      :business-id="designTask.businessId"
+      :media-id="designTask.media?.id || designTask.mediaFileId || ''"
+      :title="designTask.title || designTask.proposedText.split('\n')[0]"
+      cta="Записаться · nawode.ru"
+      @done="onDesignDone"
+      @close="designTask = null"
+    />
   </div>
 </template>
