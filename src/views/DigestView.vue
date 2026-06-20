@@ -73,9 +73,13 @@ function togglePubPlatform(p: string) {
 function localNow(): string {
   return new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16)
 }
-// Готовая сторис (дизайн вшит) — можно публиковать сразу из дайджеста, без редактора
-function canPublishStory(task: DigestTask): boolean {
-  return task.postType === 'STORIES' && isDesigned(task)
+// Можно опубликовать сразу из дайджеста (без редактора): готовая сторис (дизайн вшит) ИЛИ фото-пост с фото
+function canPublishNow(task: DigestTask): boolean {
+  if (task.postType === 'STORIES') return isDesigned(task)
+  return task.postType === 'PHOTO' && !!task.media
+}
+function isStoriesTask(task: DigestTask | null): boolean {
+  return task?.postType === 'STORIES'
 }
 
 function bizName(id: string): string {
@@ -444,8 +448,8 @@ onMounted(load)
 
         <!-- Actions: предложение -->
         <div v-if="task.status === 'proposed'" class="pt-1">
-          <!-- Готовая сторис (дизайн вшит): 2 пути — Опубликовать / В редактор -->
-          <template v-if="canPublishStory(task)">
+          <!-- Готовая сторис или фото-пост: 2 пути — Опубликовать / В редактор -->
+          <template v-if="canPublishNow(task)">
             <div class="flex items-stretch gap-2">
               <button @click="openPublishConfirm(task)" :disabled="actingId === task.id"
                 class="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-l-lg bg-green-600 hover:bg-green-700 active:bg-green-800 text-white text-sm font-semibold disabled:opacity-50 transition-colors touch-manipulation">
@@ -467,9 +471,9 @@ onMounted(load)
                 <Loader2 v-if="actingId === task.id" :size="14" class="animate-spin" /><Clock v-else :size="14" /> Запланировать
               </button>
             </div>
-            <!-- Вторичное: Поправить кадр / В редактор / Отклонить -->
+            <!-- Вторичное: Поправить кадр (только дизайн-сторис) / В редактор / Отклонить -->
             <div class="flex items-center gap-2 mt-2 flex-wrap">
-              <button @click="openDesignModal(task)" :disabled="actingId === task.id"
+              <button v-if="isDesigned(task)" @click="openDesignModal(task)" :disabled="actingId === task.id"
                 class="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-fuchsia-300 dark:border-fuchsia-700 text-xs font-medium text-fuchsia-600 dark:text-fuchsia-400 hover:bg-fuchsia-50 dark:hover:bg-fuchsia-950 disabled:opacity-50 touch-manipulation">
                 <Sparkles :size="13" /> Поправить кадр
               </button>
@@ -608,7 +612,7 @@ onMounted(load)
         @click.self="!publishingConfirm && (confirmTask = null)">
         <div class="w-full sm:max-w-sm bg-white dark:bg-gray-900 rounded-t-2xl sm:rounded-2xl shadow-2xl max-h-[88vh] overflow-y-auto">
           <div class="flex justify-center pt-3 pb-1 sm:hidden"><div class="w-10 h-1 rounded-full bg-gray-300 dark:bg-gray-700"></div></div>
-          <h3 class="text-sm font-semibold text-center pt-2 px-4">Опубликовать сторис</h3>
+          <h3 class="text-sm font-semibold text-center pt-2 px-4">Опубликовать {{ isStoriesTask(confirmTask) ? 'сторис' : 'пост' }}</h3>
           <!-- Превью baked-сторис -->
           <div class="flex justify-center px-4 pt-3 pb-2">
             <div class="relative overflow-hidden rounded-xl shadow-md bg-gray-100 dark:bg-gray-800" style="width: 130px; aspect-ratio: 9/16;">
@@ -617,7 +621,7 @@ onMounted(load)
           </div>
           <!-- Выбор каналов: одна сторис в каждый выбранный канал отдельно -->
           <div class="px-4 pb-1">
-            <div class="text-xs text-gray-500 mb-2 text-center">Сторис опубликуется в каждый выбранный канал:</div>
+            <div class="text-xs text-gray-500 mb-2 text-center">{{ isStoriesTask(confirmTask) ? 'Сторис' : 'Пост' }} опубликуется в каждый выбранный канал:</div>
             <div class="space-y-1.5">
               <button v-for="p in confirmTask.platforms" :key="p" @click="!publishingConfirm && togglePubPlatform(p)"
                 class="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg border transition-colors text-left touch-manipulation"
@@ -627,7 +631,7 @@ onMounted(load)
                   <Check v-if="confirmPlatforms.includes(p)" :size="12" class="text-white" />
                 </span>
                 <span class="w-2 h-2 rounded-full shrink-0" :class="platformBgColor(p)"></span>
-                <span class="flex-1 text-sm font-medium">{{ platformLabel(p) }} · Stories</span>
+                <span class="flex-1 text-sm font-medium">{{ platformLabel(p) }} · {{ isStoriesTask(confirmTask) ? 'Stories' : 'Лента' }}</span>
                 <!-- результат по каналу после публикации -->
                 <span v-if="pubResults.find(r => r.platform === p)" class="text-xs font-medium shrink-0"
                   :class="pubResults.find(r => r.platform === p)!.success ? 'text-green-600' : 'text-red-500'">

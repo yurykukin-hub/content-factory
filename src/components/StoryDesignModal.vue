@@ -1,11 +1,11 @@
 <script setup lang="ts">
-// Модалка корректировки кадра дизайн-сторис: ползунок вертикального фокуса фото +
+// Модалка корректировки кадра дизайн-сторис: перетаскивание фото пальцем/мышкой (обе оси) +
 // живое CSS-превью (object-position совпадает с satori objectPosition) → перезапекание satori.
 // Решает проблему «фото обрезано неудачно, объект не виден».
-import { ref, watch, computed } from 'vue'
+import { ref, watch, computed, onUnmounted } from 'vue'
 import { http } from '@/api/client'
 import { useToast } from '@/composables/useToast'
-import { X, Loader2, Sparkles } from 'lucide-vue-next'
+import { X, Loader2, Sparkles, Move } from 'lucide-vue-next'
 
 interface MediaFile { id: string; url: string; tags?: string[]; sourceMediaId?: string | null }
 interface SavedDesign { id: string; url: string; thumbUrl: string | null; tags: string[] }
@@ -26,10 +26,46 @@ const toast = useToast()
 const loading = ref(false)
 const baking = ref(false)
 const sourceUrl = ref<string | null>(null)
+const posX = ref(50)
 const posY = ref(50)
 const titleEdit = ref('')
+const previewRef = ref<HTMLElement | null>(null)
 
-const objectPosition = computed(() => `50% ${posY.value}%`)
+const objectPosition = computed(() => `${posX.value}% ${posY.value}%`)
+
+// Перетаскивание фото (естественнее ползунка): двигаем кадр по обеим осям
+const dragging = ref(false)
+let startX = 0, startY = 0, startPosX = 50, startPosY = 50, boxW = 200, boxH = 356
+function onDragStart(e: MouseEvent | TouchEvent) {
+  if (loading.value || baking.value || !sourceUrl.value) return
+  const pt = 'touches' in e ? e.touches[0] : (e as MouseEvent)
+  const box = previewRef.value?.getBoundingClientRect()
+  if (box) { boxW = box.width; boxH = box.height }
+  dragging.value = true
+  startX = pt.clientX; startY = pt.clientY
+  startPosX = posX.value; startPosY = posY.value
+  window.addEventListener('mousemove', onDragMove)
+  window.addEventListener('touchmove', onDragMove, { passive: false })
+  window.addEventListener('mouseup', onDragEnd)
+  window.addEventListener('touchend', onDragEnd)
+}
+function onDragMove(e: MouseEvent | TouchEvent) {
+  if (!dragging.value) return
+  if (e.cancelable && 'touches' in e) e.preventDefault() // не скроллить страницу при перетаскивании
+  const pt = 'touches' in e ? e.touches[0] : (e as MouseEvent)
+  const clamp = (v: number) => Math.min(100, Math.max(0, v))
+  // тащим фото → кадр (object-position) смещается в противоположную сторону
+  posX.value = clamp(startPosX - ((pt.clientX - startX) / boxW) * 100)
+  posY.value = clamp(startPosY - ((pt.clientY - startY) / boxH) * 100)
+}
+function onDragEnd() {
+  dragging.value = false
+  window.removeEventListener('mousemove', onDragMove)
+  window.removeEventListener('touchmove', onDragMove)
+  window.removeEventListener('mouseup', onDragEnd)
+  window.removeEventListener('touchend', onDragEnd)
+}
+onUnmounted(onDragEnd)
 
 // Загрузить ИСХОДНОЕ фото (для baked — из sourceMediaId, иначе само medias)
 async function loadSource() {
@@ -53,7 +89,7 @@ async function loadSource() {
 
 // immediate: модалка монтируется через v-if с visible=true сразу → без immediate watch не сработает
 watch(() => props.visible, (v) => {
-  if (v) { posY.value = 50; titleEdit.value = props.title || ''; loadSource() }
+  if (v) { posX.value = 50; posY.value = 50; titleEdit.value = props.title || ''; loadSource() }
 }, { immediate: true })
 
 async function bake() {
@@ -91,35 +127,34 @@ async function bake() {
         </div>
 
         <div class="p-4 space-y-4">
-          <!-- Живое превью 9:16 (object-position = то, что запечёт satori) -->
+          <!-- Живое превью 9:16: перетаскивай фото пальцем/мышкой (object-position = то, что запечёт satori) -->
           <div class="flex justify-center">
-            <div class="relative overflow-hidden rounded-xl bg-gray-900 shadow-md" style="width: 200px; aspect-ratio: 9/16;">
+            <div ref="previewRef" class="relative overflow-hidden rounded-xl bg-gray-900 shadow-md select-none"
+              :class="sourceUrl ? (dragging ? 'cursor-grabbing' : 'cursor-grab') : ''"
+              style="width: 200px; aspect-ratio: 9/16;"
+              @mousedown="onDragStart" @touchstart="onDragStart">
               <div v-if="loading" class="absolute inset-0 flex items-center justify-center"><Loader2 :size="24" class="animate-spin text-white/70" /></div>
               <template v-else-if="sourceUrl">
-                <img :src="sourceUrl" class="absolute inset-0 w-full h-full object-cover" :style="{ objectPosition }" />
-                <div class="absolute inset-x-0 top-0 h-1/4 bg-gradient-to-b from-black/50 to-transparent"></div>
-                <div class="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/80 to-transparent"></div>
-                <div v-if="temp || weather" class="absolute top-2 left-2 text-white">
+                <img :src="sourceUrl" draggable="false" class="absolute inset-0 w-full h-full object-cover pointer-events-none" :style="{ objectPosition }" />
+                <div class="absolute inset-x-0 top-0 h-1/4 bg-gradient-to-b from-black/50 to-transparent pointer-events-none"></div>
+                <div class="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/80 to-transparent pointer-events-none"></div>
+                <div v-if="temp || weather" class="absolute top-2 left-2 text-white pointer-events-none">
                   <div v-if="temp" class="text-2xl font-bold leading-none" style="font-family: Georgia, serif">{{ temp }}</div>
                   <div v-if="weather" class="text-[8px] mt-0.5">{{ weather }}</div>
                 </div>
-                <div class="absolute bottom-3 left-2 right-2">
+                <div class="absolute bottom-3 left-2 right-2 pointer-events-none">
                   <p class="text-white text-[11px] font-bold leading-tight line-clamp-3">{{ titleEdit }}</p>
                   <span v-if="cta" class="inline-block mt-1.5 px-2 py-0.5 rounded bg-[#217D8C] text-white text-[7px] font-bold">{{ cta || 'Записаться · nawode.ru' }}</span>
+                </div>
+                <!-- подсказка-хинт пока не двигали -->
+                <div v-if="!dragging" class="absolute top-2 right-2 flex items-center gap-1 px-1.5 py-1 rounded-md bg-black/40 text-white/90 text-[8px] pointer-events-none">
+                  <Move :size="10" /> двигайте фото
                 </div>
               </template>
               <div v-else class="absolute inset-0 flex items-center justify-center text-white/50 text-xs">нет фото</div>
             </div>
           </div>
-
-          <!-- Ползунок вертикального фокуса -->
-          <div>
-            <label class="text-xs text-gray-500 flex items-center justify-between mb-1">
-              <span>Положение кадра (по вертикали)</span><span class="text-gray-400">{{ posY }}%</span>
-            </label>
-            <input type="range" min="0" max="100" step="1" v-model.number="posY" class="w-full accent-fuchsia-500" :disabled="loading || baking" />
-            <div class="flex justify-between text-[10px] text-gray-400"><span>↑ показать верх</span><span>центр</span><span>низ ↓</span></div>
-          </div>
+          <p class="text-[11px] text-gray-400 text-center -mt-1">Перетащите фото, чтобы поймать нужный кадр</p>
 
           <!-- Заголовок -->
           <div>
