@@ -2,10 +2,9 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import { db } from '../db'
 import { emitEvent } from '../eventBus'
-import { getPublisher } from '../services/publishers/base'
 import type { AuthUser } from '../middleware/auth'
 import { verifyPostVersionAccess } from '../middleware/resource-access'
-import { applyUtmForPublish } from '../services/publish-utm'
+import { publishPostVersion, schedulePostVersion } from '../services/publish-runner'
 
 const publish = new Hono()
 
@@ -44,93 +43,18 @@ publish.post('/post-versions/:id/publish', async (c) => {
     storiesOptions = body?.storiesOptions
   } catch {} // Body может быть пустым
 
-  const version = await db.postVersion.findUnique({
-    where: { id },
-    include: { platformAccount: true, post: true },
-  })
-  if (!version) return c.json({ error: 'Версия поста не найдена' }, 404)
-
-  // Загрузить медиафайлы поста (если есть)
-  const mediaFiles = await db.mediaFile.findMany({
-    where: { postId: version.postId },
-    orderBy: { sortOrder: 'asc' },
-  })
-
-  // Получить publisher для платформы и опубликовать (VK: гибрид — сторис прямой, стена через PMP по флагу)
-  const publisher = getPublisher(version.platformAccount.platform, {
-    postType: version.post.postType,
-    config: version.platformAccount.config,
-  })
-
-  const isStories = version.post.postType === 'STORIES'
-  // Для Stories: overlay текст = post.body (короткий), не version.body (AI-адаптация)
-  const baseText = isStories ? version.post.body : version.body
-
-  // UTM-метки на ссылки бренда (мост к аналитике, Эпик B)
-  const { text: publishText, storiesOptions: effectiveStoriesOptions } = await applyUtmForPublish({
-    businessId: version.post.businessId,
-    platform: version.platformAccount.platform,
-    postType: version.post.postType,
-    postId: version.postId,
-    text: baseText,
-    storiesOptions,
-  })
-
-  const result = await publisher.publish({
-    text: publishText,
-    hashtags: isStories ? [] : version.hashtags,
-    mediaFiles: mediaFiles.map(mf => ({
-      url: mf.url,
-      mimeType: mf.mimeType,
-      filename: mf.filename,
-    })),
-    platformAccount: version.platformAccount,
-    postType: version.post.postType,
-    storiesOptions: effectiveStoriesOptions,
-  })
-
-  // Записать лог публикации
-  await db.publishLog.create({
-    data: {
-      postVersionId: id,
-      status: result.success ? 'SUCCESS' : 'FAILED',
-      response: result.rawResponse as any,
-      errorMessage: result.error || null,
-    },
-  })
-
-  // Обновить статус версии
-  const updated = await db.postVersion.update({
-    where: { id },
-    data: {
-      status: result.success ? 'PUBLISHED' : 'FAILED',
-      publishedAt: result.success ? new Date() : null,
-      externalPostId: result.externalPostId || null,
-      externalUrl: result.externalUrl || null,
-    },
-    include: { platformAccount: true, post: true },
-  })
-
-  // Обновить статус поста если публикация успешна
-  if (result.success) {
-    await db.post.update({
-      where: { id: version.postId },
-      data: { status: 'PUBLISHED' },
+  try {
+    const result = await publishPostVersion(id, { storiesOptions, tabId: c.req.header('X-Tab-ID') || '' })
+    return c.json({
+      success: result.success,
+      version: result.version,
+      externalUrl: result.externalUrl,
+      error: result.error,
     })
+  } catch (e: any) {
+    if (e.message === 'VERSION_NOT_FOUND') return c.json({ error: 'Версия поста не найдена' }, 404)
+    throw e
   }
-
-  emitEvent({
-    type: result.success ? 'post_published' : 'post_publish_failed',
-    tabId: c.req.header('X-Tab-ID') || '',
-    postId: version.postId,
-  })
-
-  return c.json({
-    success: result.success,
-    version: updated,
-    externalUrl: result.externalUrl,
-    error: result.error,
-  })
 })
 
 // POST /api/post-versions/:id/schedule — запланировать публикацию
@@ -150,40 +74,7 @@ publish.post('/post-versions/:id/schedule', async (c) => {
     return c.json({ error: 'Неверные данные', details: parsed.error.flatten() }, 400)
   }
   const { scheduledAt, storiesOptions } = parsed.data
-
-  // null = отменить планирование
-  const version = await db.postVersion.update({
-    where: { id },
-    data: scheduledAt
-      ? {
-          scheduledAt: new Date(scheduledAt),
-          status: 'SCHEDULED',
-          // Сохраняем опции (кнопка ВК, музыка), чтобы они не потерялись при отложке
-          publishOptions: storiesOptions ?? undefined,
-        }
-      : { scheduledAt: null, status: 'DRAFT' },
-  })
-
-  // Rollup статуса поста, чтобы списки/фильтры/бейджи отражали реальное состояние
-  if (scheduledAt) {
-    const p = await db.post.findUnique({ where: { id: version.postId }, select: { status: true } })
-    if (p && p.status !== 'PUBLISHED') {
-      await db.post.update({ where: { id: version.postId }, data: { status: 'SCHEDULED' } })
-    }
-  } else {
-    // Отмена — пересчитать статус по оставшимся версиям
-    const siblings = await db.postVersion.findMany({
-      where: { postId: version.postId },
-      select: { status: true },
-    })
-    const rollup = siblings.some(s => s.status === 'PUBLISHED')
-      ? 'PUBLISHED'
-      : siblings.some(s => s.status === 'SCHEDULED')
-        ? 'SCHEDULED'
-        : 'DRAFT'
-    await db.post.update({ where: { id: version.postId }, data: { status: rollup as any } })
-  }
-
+  const version = await schedulePostVersion(id, scheduledAt, storiesOptions)
   return c.json(version)
 })
 

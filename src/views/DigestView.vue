@@ -5,9 +5,9 @@ import { useRouter } from 'vue-router'
 import { useToast } from '@/composables/useToast'
 import { useBusinessesStore } from '@/stores/businesses'
 import { useAuthStore } from '@/stores/auth'
-import { platformColor, platformBgColor } from '@/composables/usePlatform'
+import { platformColor, platformBgColor, platformLabel } from '@/composables/usePlatform'
 import { formatDate } from '@/composables/useFormatters'
-import { Sunrise, Sparkles, Loader2, Check, X, Lightbulb, CalendarClock, FileEdit, Flame, RotateCcw, ChevronDown, ImagePlus, RefreshCw, Maximize2 } from 'lucide-vue-next'
+import { Sunrise, Sparkles, Loader2, Check, X, Lightbulb, CalendarClock, FileEdit, Flame, RotateCcw, ChevronDown, ImagePlus, RefreshCw, Maximize2, Send, Clock, Calendar } from 'lucide-vue-next'
 import MediaPickerModal from '@/components/MediaPickerModal.vue'
 import PostPreview from '@/components/posts/preview/PostPreview.vue'
 import StoriesPreview from '@/components/posts/preview/StoriesPreview.vue'
@@ -54,7 +54,21 @@ const loading = ref(true)
 const generating = ref(false)
 const showArchive = ref(false)
 const showApproved = ref(false)
+const showPublished = ref(false)
 const actingId = ref<string | null>(null)
+
+// Прямая публикация сторис из дайджеста (2 пути: «Опубликовать» / «В редактор»)
+const scheduleOpenId = ref<string | null>(null)        // id задачи с раскрытым выбором времени
+const scheduleAt = ref<Record<string, string>>({})     // datetime-local per task
+const confirmTask = ref<DigestTask | null>(null)        // задача в модалке подтверждения
+const publishingConfirm = ref(false)
+function localNow(): string {
+  return new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16)
+}
+// Готовая сторис (дизайн вшит) — можно публиковать сразу из дайджеста, без редактора
+function canPublishStory(task: DigestTask): boolean {
+  return task.postType === 'STORIES' && isDesigned(task)
+}
 
 function bizName(id: string): string {
   return businesses.businesses.find(b => b.id === id)?.name || ''
@@ -67,8 +81,8 @@ const POST_TYPE_LABELS: Record<string, string> = {
 async function load() {
   loading.value = true
   try {
-    // proposed + approved + rejected: одобренные (черновик) и отклонённые (архив) остаются
-    tasks.value = await http.get<DigestTask[]>('/auto-posts?source=digest&status=proposed,approved,rejected&limit=50')
+    // proposed + approved + rejected + published: всё остаётся видимым (черновики, опубликованные, архив)
+    tasks.value = await http.get<DigestTask[]>('/auto-posts?source=digest&status=proposed,approved,rejected,published&limit=50')
   } catch (e: any) {
     toast.error('Ошибка загрузки: ' + (e.message || e))
   } finally {
@@ -84,6 +98,7 @@ async function load() {
 // Развёрнуты только активные предложения (proposed). Одобренные и отклонённые — свёрнутые секции ниже.
 const activeTasks = computed(() => tasks.value.filter(t => t.status === 'proposed'))
 const approvedTasks = computed(() => tasks.value.filter(t => t.status === 'approved'))
+const publishedTasks = computed(() => tasks.value.filter(t => t.status === 'published'))
 const archivedTasks = computed(() => tasks.value.filter(t => t.status === 'rejected'))
 
 async function generate() {
@@ -117,6 +132,63 @@ async function approve(task: DigestTask) {
 function openDraft(task: DigestTask) {
   if (!task.postId) return
   router.push(task.postType === 'STORIES' ? `/stories/${task.postId}` : `/posts/${task.postId}`)
+}
+
+// «В редактор»: одобрить (создать черновик) → перейти в редактор для доработки
+async function approveAndOpen(task: DigestTask) {
+  if (task.status !== 'approved') await approve(task)
+  openDraft(task)
+}
+
+function toggleSchedule(taskId: string) {
+  scheduleOpenId.value = scheduleOpenId.value === taskId ? null : taskId
+  if (scheduleOpenId.value && !scheduleAt.value[taskId]) {
+    scheduleAt.value = { ...scheduleAt.value, [taskId]: localNow() }
+  }
+}
+
+function openPublishConfirm(task: DigestTask) {
+  scheduleOpenId.value = null
+  confirmTask.value = task
+}
+
+// Опубликовать сейчас: одобрить + публикация во все каналы предложения, минуя редактор
+async function doPublishNow(task: DigestTask) {
+  if (publishingConfirm.value) return
+  publishingConfirm.value = true
+  try {
+    const res = await http.post<{ results: { platform: string; success: boolean; error: string | null }[] }>(
+      `/auto-posts/${task.id}/approve-publish`, { when: 'now' }
+    )
+    const ok = res.results.filter(r => r.success).map(r => platformLabel(r.platform))
+    const fail = res.results.filter(r => !r.success)
+    task.status = 'published'
+    confirmTask.value = null
+    if (!fail.length) toast.success(`Опубликовано: ${ok.join(', ')}`)
+    else if (ok.length) toast.info(`Опубликовано: ${ok.join(', ')} · ошибки: ${fail.map(f => platformLabel(f.platform)).join(', ')}`)
+    else toast.error('Не удалось опубликовать: ' + (fail[0]?.error || ''))
+  } catch (e: any) {
+    toast.error('Ошибка: ' + (e.message || e))
+  } finally {
+    publishingConfirm.value = false
+  }
+}
+
+// Запланировать: одобрить + запланировать публикацию на выбранное время
+async function publishScheduled(task: DigestTask) {
+  const at = scheduleAt.value[task.id]
+  if (!at) return
+  actingId.value = task.id
+  try {
+    await http.post(`/auto-posts/${task.id}/approve-publish`, { when: 'schedule', scheduledAt: new Date(at).toISOString() })
+    task.status = 'approved' // пост запланирован; задача одобрена (показ в свёрнутой секции)
+    scheduleOpenId.value = null
+    toast.success('Запланировано на ' + new Date(at).toLocaleString('ru-RU', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }))
+  } catch (e: any) {
+    toast.error('Ошибка: ' + (e.message || e))
+  } finally {
+    actingId.value = null
+  }
 }
 
 async function reject(task: DigestTask) {
@@ -341,16 +413,54 @@ onMounted(load)
         </p>
 
         <!-- Actions: предложение -->
-        <div v-if="task.status === 'proposed'" class="flex gap-2 pt-1">
-          <button @click="approve(task)" :disabled="actingId === task.id"
-            class="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-green-600 hover:bg-green-700 text-white text-sm font-medium disabled:opacity-50">
-            <Loader2 v-if="actingId === task.id" :size="15" class="animate-spin" /><Check v-else :size="15" />
-            Одобрить → черновик
-          </button>
-          <button @click="reject(task)" :disabled="actingId === task.id"
-            class="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 text-sm font-medium text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50">
-            <X :size="15" /> Отклонить
-          </button>
+        <div v-if="task.status === 'proposed'" class="pt-1">
+          <!-- Готовая сторис (дизайн вшит): 2 пути — Опубликовать / В редактор -->
+          <template v-if="canPublishStory(task)">
+            <div class="flex items-stretch gap-2">
+              <button @click="openPublishConfirm(task)" :disabled="actingId === task.id"
+                class="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-l-lg bg-green-600 hover:bg-green-700 active:bg-green-800 text-white text-sm font-semibold disabled:opacity-50 transition-colors touch-manipulation">
+                <Send :size="15" /> Опубликовать
+              </button>
+              <button @click="toggleSchedule(task.id)" :disabled="actingId === task.id"
+                class="px-3 rounded-r-lg bg-green-700 hover:bg-green-800 text-white disabled:opacity-50 border-l border-green-500/40 transition-colors touch-manipulation" aria-label="Запланировать">
+                <ChevronDown :size="16" :class="scheduleOpenId === task.id ? 'rotate-180' : ''" class="transition-transform" />
+              </button>
+            </div>
+            <!-- Инлайн выбор времени (по шеврону) -->
+            <div v-if="scheduleOpenId === task.id"
+              class="mt-2 flex flex-col sm:flex-row gap-2 items-stretch p-3 rounded-lg bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800">
+              <span class="text-xs text-blue-700 dark:text-blue-300 flex items-center gap-1 shrink-0"><Calendar :size="14" /> Когда:</span>
+              <input v-model="scheduleAt[task.id]" type="datetime-local" :min="localNow()"
+                class="flex-1 min-w-0 px-2 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-xs" />
+              <button @click="publishScheduled(task)" :disabled="!scheduleAt[task.id] || actingId === task.id"
+                class="flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium disabled:opacity-50 shrink-0 touch-manipulation">
+                <Loader2 v-if="actingId === task.id" :size="14" class="animate-spin" /><Clock v-else :size="14" /> Запланировать
+              </button>
+            </div>
+            <!-- Вторичное: В редактор / Отклонить -->
+            <div class="flex items-center gap-2 mt-2">
+              <button @click="approveAndOpen(task)" :disabled="actingId === task.id"
+                class="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 text-xs font-medium text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50 touch-manipulation">
+                <FileEdit :size="13" /> В редактор
+              </button>
+              <button @click="reject(task)" :disabled="actingId === task.id"
+                class="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 text-xs font-medium text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50 touch-manipulation">
+                <X :size="13" /> Отклонить
+              </button>
+            </div>
+          </template>
+          <!-- Прочее (сторис без дизайна / посты): классическое одобрение в черновик -->
+          <div v-else class="flex gap-2">
+            <button @click="approve(task)" :disabled="actingId === task.id"
+              class="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-green-600 hover:bg-green-700 text-white text-sm font-medium disabled:opacity-50">
+              <Loader2 v-if="actingId === task.id" :size="15" class="animate-spin" /><Check v-else :size="15" />
+              Одобрить → черновик
+            </button>
+            <button @click="reject(task)" :disabled="actingId === task.id"
+              class="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 text-sm font-medium text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50">
+              <X :size="15" /> Отклонить
+            </button>
+          </div>
         </div>
         <!-- Actions: черновик уже создан -->
         <div v-else class="flex items-center gap-2 pt-1 flex-wrap">
@@ -385,6 +495,32 @@ onMounted(load)
             class="shrink-0 flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-gray-600 dark:text-gray-300 hover:bg-green-100 dark:hover:bg-green-900/40">
             <FileEdit :size="13" /> Открыть
           </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Опубликовано (свёрнуто) -->
+    <div v-if="!loading && publishedTasks.length" class="mt-5">
+      <button @click="showPublished = !showPublished"
+        class="flex items-center gap-1.5 text-sm text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300">
+        <ChevronDown :size="16" :class="showPublished ? '' : '-rotate-90'" class="transition-transform" />
+        <Send :size="14" /> Опубликовано ({{ publishedTasks.length }})
+      </button>
+      <div v-if="showPublished" class="space-y-2 mt-3">
+        <div v-for="task in publishedTasks" :key="task.id"
+          class="flex items-start gap-3 bg-green-50/40 dark:bg-green-950/20 rounded-lg p-3 border border-green-200 dark:border-green-900/40">
+          <div v-if="task.media" class="shrink-0 w-10 h-[68px] rounded overflow-hidden bg-gray-100 dark:bg-gray-800">
+            <img :src="task.media.thumbUrl || task.media.url" class="w-full h-full object-cover" />
+          </div>
+          <div class="flex-1 min-w-0">
+            <div class="text-xs font-medium text-gray-600 dark:text-gray-300">
+              {{ POST_TYPE_LABELS[task.postType || 'TEXT'] || task.postType }}<span v-if="task.title"> · {{ task.title }}</span>
+            </div>
+            <p class="text-xs text-gray-400 mt-0.5">{{ task.proposedText.slice(0, 90) }}{{ task.proposedText.length > 90 ? '…' : '' }}</p>
+          </div>
+          <span class="shrink-0 flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium text-green-600 dark:text-green-400">
+            <Check :size="13" /> в соцсетях
+          </span>
         </div>
       </div>
     </div>
@@ -429,6 +565,45 @@ onMounted(load)
         <button @click="closeLightbox" class="absolute top-4 right-4 w-9 h-9 rounded-full bg-white/90 shadow-lg flex items-center justify-center text-gray-700 hover:bg-white">
           <X :size="18" />
         </button>
+      </div>
+    </Teleport>
+
+    <!-- Подтверждение публикации сторис (bottom-sheet на мобильном) -->
+    <Teleport to="body">
+      <div v-if="confirmTask" class="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 p-0 sm:p-4"
+        @click.self="!publishingConfirm && (confirmTask = null)">
+        <div class="w-full sm:max-w-sm bg-white dark:bg-gray-900 rounded-t-2xl sm:rounded-2xl shadow-2xl max-h-[88vh] overflow-y-auto">
+          <div class="flex justify-center pt-3 pb-1 sm:hidden"><div class="w-10 h-1 rounded-full bg-gray-300 dark:bg-gray-700"></div></div>
+          <h3 class="text-sm font-semibold text-center pt-2 px-4">Опубликовать сторис?</h3>
+          <!-- Превью baked-сторис -->
+          <div class="flex justify-center px-4 pt-3 pb-2">
+            <div class="relative overflow-hidden rounded-xl shadow-md bg-gray-100 dark:bg-gray-800" style="width: 130px; aspect-ratio: 9/16;">
+              <img v-if="confirmTask.media" :src="confirmTask.media.url" class="absolute inset-0 w-full h-full object-cover" />
+            </div>
+          </div>
+          <!-- Каналы -->
+          <div class="px-4 pb-2">
+            <div class="text-xs text-gray-500 mb-1.5 text-center">Публикуется в</div>
+            <div class="flex flex-wrap gap-1.5 justify-center">
+              <span v-for="p in confirmTask.platforms" :key="p"
+                :class="['flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium', platformBgColor(p)]">
+                <span class="w-1.5 h-1.5 rounded-full bg-current opacity-60"></span>{{ platformLabel(p) }}
+              </span>
+            </div>
+          </div>
+          <p class="text-xs text-gray-400 text-center px-4 pb-3">Действие необратимо — из соцсетей удаляется вручную</p>
+          <div class="flex gap-2 p-4 pt-0">
+            <button @click="confirmTask = null" :disabled="publishingConfirm"
+              class="flex-1 px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-700 text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50">
+              Назад
+            </button>
+            <button @click="doPublishNow(confirmTask)" :disabled="publishingConfirm"
+              class="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-green-600 hover:bg-green-700 active:bg-green-800 text-white text-sm font-semibold disabled:opacity-50 transition-colors touch-manipulation">
+              <Loader2 v-if="publishingConfirm" :size="16" class="animate-spin" /><Send v-else :size="16" />
+              {{ publishingConfirm ? 'Публикую…' : 'Опубликовать сейчас' }}
+            </button>
+          </div>
+        </div>
       </div>
     </Teleport>
   </div>

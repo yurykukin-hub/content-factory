@@ -18,7 +18,7 @@ import { platformColor, platformBgColor, platformLabel } from '@/composables/use
 import VsAgentChat from '@/components/video/VsAgentChat.vue'
 import type { AgentMessage } from '@/components/video/VsAgentMessage.vue'
 
-interface MediaFile { id: string; url: string; thumbUrl: string | null; filename: string; mimeType: string; sizeBytes: number; durationSec?: number | null; aiModel?: string | null; aiCostUsd?: number | null; altText?: string | null }
+interface MediaFile { id: string; url: string; thumbUrl: string | null; filename: string; mimeType: string; sizeBytes: number; durationSec?: number | null; aiModel?: string | null; aiCostUsd?: number | null; altText?: string | null; tags?: string[] }
 interface PlatformAccount { id: string; platform: string; accountName: string; accountId: string }
 interface PostVersion {
   id: string; status: string; externalUrl: string | null; publishedAt: string | null; scheduledAt: string | null
@@ -93,7 +93,7 @@ const textAlign = ref<'left' | 'center' | 'right'>('center')
 // Auto-save title + text (debounce 1.5s)
 let saveTimer: ReturnType<typeof setTimeout> | null = null
 function autoSave() {
-  if (!post.value || isPublished.value) return
+  if (!post.value || isPublished.value || isBakedStory.value) return // baked: текст вшит, body не трогаем
   if (saveTimer) clearTimeout(saveTimer)
   saveTimer = setTimeout(async () => {
     try {
@@ -296,6 +296,13 @@ function toggleChannel(id: string) {
 
 const photo = computed(() => post.value?.mediaFiles?.[0] || null)
 const isVideoMedia = computed(() => photo.value?.mimeType?.startsWith('video/') || false)
+// Baked-сторис: дизайн (текст/погода/CTA/лого) УЖЕ вшит в картинку через satori (дайджест).
+// Тег 'story-design' или url с 'design_'. Для таких НЕ рисуем текст-оверлей поверх (иначе дубль).
+const isBakedStory = computed(() => {
+  const m = photo.value
+  if (!m) return false
+  return !!m.tags?.includes('story-design') || /\/design_/.test(m.url || '')
+})
 // Полная блокировка — только после реальной публикации
 const isPublished = computed(() =>
   (post.value?.versions || []).some(v => v.status === 'PUBLISHED'))
@@ -434,8 +441,9 @@ function drawScene(ctx: CanvasRenderingContext2D, w: number, h: number, fSize: n
     }
   }
 
-  // Draw text overlay (позиционируется относительно кнопки если есть)
-  if (overlayText.value.trim()) {
+  // Draw text overlay (позиционируется относительно кнопки если есть).
+  // Для baked-сторис текст УЖЕ вшит в картинку (satori) → не рисуем поверх, иначе дубль.
+  if (!isBakedStory.value && overlayText.value.trim()) {
     drawTextOverlay(ctx, overlayText.value, w, h, fSize, buttonTopY)
   }
 }
@@ -464,7 +472,7 @@ function drawOverlayLayer(ctx: CanvasRenderingContext2D, w: number, h: number, f
     const scale = w / 360
     buttonTopY = (h - Math.round(40 * scale)) - Math.round(12 * scale)
   }
-  if (overlayText.value.trim()) {
+  if (!isBakedStory.value && overlayText.value.trim()) {
     drawTextOverlay(ctx, overlayText.value, w, h, fSize, buttonTopY)
   }
 }
@@ -861,6 +869,15 @@ async function generateOverlayText() {
 async function preparePreview() {
   if (!post.value || !photo.value) { toast.error('Загрузите медиа'); return }
   if (!selectedChannels.value.length) { toast.error('Выберите хотя бы один канал'); return }
+  // Baked-сторис: дизайн уже вшит в картинку — не рендерим canvas, показываем готовое как есть
+  if (isBakedStory.value) {
+    if (previewBlobUrl.value && previewBlobUrl.value.startsWith('blob:')) URL.revokeObjectURL(previewBlobUrl.value)
+    previewBlob.value = null
+    previewBlobUrl.value = photo.value.url
+    previewSize.value = photo.value.sizeBytes
+    showPreview.value = true
+    return
+  }
   previewExporting.value = true
   try {
     // Видео: текст-слой как прозрачный PNG (наложится на видео при публикации). Фото: плоский JPEG.
@@ -925,18 +942,21 @@ async function ensureVersion(channelId: string): Promise<string> {
 
 // ШАГ 2: Подтвердить и опубликовать в выбранные каналы (мультипостинг VK + IG)
 async function confirmPublish() {
-  if (!post.value || !previewBlob.value || !selectedChannels.value.length) return
+  if (!post.value || !selectedChannels.value.length) return
+  if (!isBakedStory.value && !previewBlob.value) return
   publishing.value = true
   publishResults.value = []
   try {
-    // Видео: наложить текст на видео (ffmpeg, backend). Фото: загрузить плоский JPEG.
-    const renderedFile = isVideoMedia.value ? await renderVideoForPublish() : await uploadRendered()
-    await http.put(`/posts/${post.value.id}`, { body: overlayText.value, title: storyTitle.value || null })
-
-    // Отвязать оригиналы, привязать rendered к посту (общий для всех версий — publisher берёт mediaFiles поста)
-    const originalFileIds = post.value.mediaFiles.map(m => m.id)
-    for (const mfId of originalFileIds) await http.post(`/media/${mfId}/attach`, { postId: null }).catch(() => {})
-    await http.post(`/media/${renderedFile.id}/attach`, { postId: post.value.id }).catch(() => {})
+    // Baked: публикуем готовую картинку как есть (уже привязана к посту, текст вшит).
+    // Видео: наложить текст на видео (ffmpeg). Фото: загрузить плоский JPEG из canvas.
+    if (!isBakedStory.value) {
+      const renderedFile = isVideoMedia.value ? await renderVideoForPublish() : await uploadRendered()
+      await http.put(`/posts/${post.value.id}`, { body: overlayText.value, title: storyTitle.value || null })
+      // Отвязать оригиналы, привязать rendered к посту (publisher берёт mediaFiles поста)
+      const originalFileIds = post.value.mediaFiles.map(m => m.id)
+      for (const mfId of originalFileIds) await http.post(`/media/${mfId}/attach`, { postId: null }).catch(() => {})
+      await http.post(`/media/${renderedFile.id}/attach`, { postId: post.value.id }).catch(() => {})
+    }
 
     // Цикл по каналам — частичный успех допустим (VK ок, IG упал — не падаем целиком)
     for (const channelId of selectedChannels.value) {
@@ -970,17 +990,19 @@ async function confirmPublish() {
 }
 
 async function schedulePublish() {
-  if (!post.value || !previewBlob.value || !scheduledAt.value || !selectedChannels.value.length) return
+  if (!post.value || !scheduledAt.value || !selectedChannels.value.length) return
+  if (!isBakedStory.value && !previewBlob.value) return
   scheduling.value = true
   publishResults.value = []
   try {
-    // Видео: наложить текст на видео (ffmpeg, backend). Фото: загрузить плоский JPEG.
-    const renderedFile = isVideoMedia.value ? await renderVideoForPublish() : await uploadRendered()
-    await http.put(`/posts/${post.value.id}`, { body: overlayText.value, title: storyTitle.value || null })
-
-    const originalFileIds = post.value.mediaFiles.map(m => m.id)
-    for (const mfId of originalFileIds) await http.post(`/media/${mfId}/attach`, { postId: null }).catch(() => {})
-    await http.post(`/media/${renderedFile.id}/attach`, { postId: post.value.id }).catch(() => {})
+    // Baked: запланировать готовую картинку как есть. Видео: ffmpeg overlay. Фото: canvas JPEG.
+    if (!isBakedStory.value) {
+      const renderedFile = isVideoMedia.value ? await renderVideoForPublish() : await uploadRendered()
+      await http.put(`/posts/${post.value.id}`, { body: overlayText.value, title: storyTitle.value || null })
+      const originalFileIds = post.value.mediaFiles.map(m => m.id)
+      for (const mfId of originalFileIds) await http.post(`/media/${mfId}/attach`, { postId: null }).catch(() => {})
+      await http.post(`/media/${renderedFile.id}/attach`, { postId: post.value.id }).catch(() => {})
+    }
 
     const iso = new Date(scheduledAt.value).toISOString()
     for (const channelId of selectedChannels.value) {
@@ -1173,8 +1195,8 @@ onUnmounted(() => {
           </div>
         </div>
 
-        <!-- Zoom controls -->
-        <div v-if="!isPublished" class="flex items-center gap-2 mt-3">
+        <!-- Zoom controls (скрыто для baked — картинка фиксирована) -->
+        <div v-if="!isPublished && !isBakedStory" class="flex items-center gap-2 mt-3">
           <button @click="zoomOut" class="p-1.5 rounded-lg bg-gray-200 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-300"><ZoomOut :size="16" /></button>
           <span class="text-xs text-gray-400 w-12 text-center">{{ Math.round(imgScale * 100) }}%</span>
           <button @click="zoomIn" class="p-1.5 rounded-lg bg-gray-200 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-300"><ZoomIn :size="16" /></button>
@@ -1258,8 +1280,17 @@ onUnmounted(() => {
           </div>
         </div>
 
-        <!-- Text + Templates -->
-        <div :class="['bg-white dark:bg-gray-900 rounded-xl p-5 border border-gray-200 dark:border-gray-800', isPublished && 'opacity-60 pointer-events-none select-none']">
+        <!-- Baked-сторис: дизайн уже вшит → статус-баннер вместо ручной текст-панели -->
+        <div v-if="isBakedStory" class="bg-fuchsia-50 dark:bg-fuchsia-950/30 border border-fuchsia-200 dark:border-fuchsia-800/50 rounded-xl p-4 flex items-center gap-2.5">
+          <Sparkles :size="18" class="text-fuchsia-500 shrink-0" />
+          <div>
+            <p class="text-sm font-semibold text-fuchsia-800 dark:text-fuchsia-200">Готовая сторис</p>
+            <p class="text-xs text-fuchsia-600 dark:text-fuchsia-400">Дизайн вшит в картинку — выберите каналы и публикуйте. Чтобы сменить текст/фото — «Заменить фото» ниже.</p>
+          </div>
+        </div>
+
+        <!-- Text + Templates (ручной текст-оверлей — только для НЕ-baked сторис) -->
+        <div v-if="!isBakedStory" :class="['bg-white dark:bg-gray-900 rounded-xl p-5 border border-gray-200 dark:border-gray-800', isPublished && 'opacity-60 pointer-events-none select-none']">
           <!-- Templates from DB -->
           <div v-if="storyTemplates.length" class="mb-4">
             <div class="text-xs text-gray-400 mb-1.5">Шаблоны</div>

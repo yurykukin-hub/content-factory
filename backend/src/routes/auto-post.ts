@@ -6,6 +6,8 @@
 import { Hono } from 'hono'
 import { db } from '../db'
 import { z } from 'zod'
+import type { AuthUser } from '../middleware/auth'
+import { assertBusinessAccess } from '../middleware/resource-access'
 
 export const autoPost = new Hono()
 
@@ -88,6 +90,77 @@ autoPost.post('/:id/approve', async (c) => {
   const { handleCallbackQuery } = await import('../services/telegram-approval')
   await handleCallbackQuery({ data: `approve:${task.id}`, message: null, id: '' })
   return c.json({ ok: true })
+})
+
+// POST /api/auto-posts/:id/approve-publish — одобрить + сразу опубликовать/запланировать (минуя редактор).
+// Для готовых baked-сторис из дайджеста: картинка уже оформлена (текст вшит satori) → skipOverlay.
+const approvePublishSchema = z.object({
+  when: z.enum(['now', 'schedule']).default('now'),
+  scheduledAt: z.string().nullable().optional(),
+  platforms: z.array(z.string()).optional(),
+})
+
+autoPost.post('/:id/approve-publish', async (c) => {
+  const user = c.get('user') as AuthUser
+  const task = await db.autoPostTask.findUnique({ where: { id: c.req.param('id') } })
+  if (!task) return c.json({ error: 'Task not found' }, 404)
+  if (task.source !== 'digest') return c.json({ error: 'Only digest tasks' }, 400)
+  if (task.status !== 'proposed') return c.json({ error: 'Task is not in proposed state' }, 400)
+
+  // Публикация — чувствительное действие, проверяем доступ к бизнесу
+  try {
+    await assertBusinessAccess(user, task.businessId)
+  } catch (e: any) {
+    if (e.message === 'FORBIDDEN') return c.json({ error: 'Нет доступа' }, 403)
+    throw e
+  }
+
+  const parsed = approvePublishSchema.safeParse(await c.req.json().catch(() => ({})))
+  if (!parsed.success) return c.json({ error: 'Неверные данные', details: parsed.error.flatten() }, 400)
+  const { when, scheduledAt, platforms } = parsed.data
+  if (when === 'schedule' && !scheduledAt) return c.json({ error: 'scheduledAt обязателен для планирования' }, 400)
+
+  // Baked (дизайн вшит satori) → skipOverlay: публикуем картинку как есть, без наложения текста
+  let skipOverlay = false
+  if (task.mediaFileId) {
+    const mf = await db.mediaFile.findUnique({ where: { id: task.mediaFileId }, select: { tags: true } })
+    skipOverlay = !!mf?.tags?.includes('story-design')
+  }
+
+  // Одобрить → Post(DRAFT) + per-platform PostVersion (та же логика, что обычное одобрение)
+  const { approveDigestTask } = await import('../services/daily-digest')
+  const { postId } = await approveDigestTask(task)
+
+  const versions = await db.postVersion.findMany({ where: { postId }, include: { platformAccount: true } })
+  const targetPlatforms = platforms && platforms.length ? platforms : (task.platforms || [])
+  const chosen = versions.filter(v => !targetPlatforms.length || targetPlatforms.includes(v.platformAccount.platform))
+  if (!chosen.length) return c.json({ error: 'Нет версий для выбранных каналов' }, 400)
+
+  const { publishPostVersion, schedulePostVersion } = await import('../services/publish-runner')
+  const tabId = c.req.header('X-Tab-ID') || ''
+  const storiesOptions = { skipOverlay }
+  const results: { platform: string; success: boolean; externalUrl: string | null; error: string | null }[] = []
+
+  for (const v of chosen) {
+    try {
+      if (when === 'schedule') {
+        await schedulePostVersion(v.id, scheduledAt!, storiesOptions)
+        results.push({ platform: v.platformAccount.platform, success: true, externalUrl: null, error: null })
+      } else {
+        const r = await publishPostVersion(v.id, { storiesOptions, tabId })
+        results.push({ platform: v.platformAccount.platform, success: r.success, externalUrl: r.externalUrl, error: r.error })
+      }
+    } catch (e: any) {
+      results.push({ platform: v.platformAccount.platform, success: false, externalUrl: null, error: e?.message || String(e) })
+    }
+  }
+
+  // now + хоть один успех → задача published; schedule → пост уже SCHEDULED (задача остаётся approved)
+  if (when === 'now' && results.some(r => r.success)) {
+    await db.autoPostTask.update({ where: { id: task.id }, data: { status: 'published' } })
+  }
+
+  return c.json({ ok: true, postId, when, results })
 })
 
 // POST /api/auto-posts/generate-digest — ручной запуск утреннего дайджеста (admin)
