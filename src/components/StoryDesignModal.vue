@@ -51,9 +51,10 @@ async function loadSource() {
   }
 }
 
+// immediate: модалка монтируется через v-if с visible=true сразу → без immediate watch не сработает
 watch(() => props.visible, (v) => {
   if (v) { posY.value = 50; titleEdit.value = props.title || ''; loadSource() }
-})
+}, { immediate: true })
 
 async function bake() {
   if (baking.value || !sourceUrl.value) return
