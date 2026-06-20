@@ -116,3 +116,10 @@ auth, users, businesses, platforms, posts, content-plans, ai, publish, media, se
 - **EXIF-баг:** thumbnail при загрузке теперь с `.rotate()` (фото с телефона не «на боку»).
 - **Live-описание:** `image-describer` эмитит SSE `media_described` → MediaLibraryView обновляет altText/индикацию без F5 (спиннер «описывает»/«не удалось»+повтор). MediaPicker получил cursor-пагинацию («Показать ещё»).
 - Доступ: рассинхрон БД↔диск при delete теперь логируется (`log.warn` сирот). План: `~/.claude/plans/stateless-splashing-starlight.md`.
+
+## Инцидент: дайджест перестал подбирать фото (2026-06-20)
+- **Симптом:** дайджест НаWоде создаёт предложения БЕЗ фото (`media_file_id=null` у всех), хотя 513/516 фото описаны. Вчера (до 16:00) работало.
+- **Корень:** OpenRouter slug `anthropic/claude-3.5-haiku` маршрутизировался на **Amazon Bedrock**, где версия достигла **EOL → 404** («This model version has reached the end of its life»). Арт-директор (`pickPhotoForPost`) и `adaptForPlatforms` зовут Haiku → падали → `.catch(()=>null)` **молча** возвращал null. Sonnet (стратег/копирайтер) работал → идеи и тексты были, фото нет. В `ai_usage_logs` 0 Haiku-вызовов (падал ДО записи лога).
+- **НЕ связано с деплоем галереи** — совпало по времени (Bedrock задепрекейтил модель в тот же день). Диагностика: репликация flow по шагам в контейнере — стратег OK → keywords OK (`["сапборд","замок"]`) → `searchGalleryPhotos` находит 50 → прямой вызов Haiku даёт 404.
+- **Фикс:** `config.models.haiku` → `anthropic/claude-haiku-4.5` (актуальный Haiku 4.5, $1/$5; сверено с claude-api skill + эмпирически). Убран хардкод слага в `daily-digest.ts` (2 места → `config.models.haiku`). Обновлён `MODEL_PRICING` в `openrouter.ts`. **Все модели теперь только через `config.models`** — менять в одном месте.
+- **Урок:** провайдерские EOL ломают ТИХО (`catch→null`, fallback на runSingleShot без фото). Кандидат на алерт: рост `ai_usage_logs.status≠success` или 0 вызовов ожидаемой модели за период.

@@ -23,7 +23,7 @@ export const config = {
 
   // AI models
   models: {
-    haiku: 'anthropic/claude-3.5-haiku',
+    haiku: 'anthropic/claude-haiku-4.5', // 3.5-haiku снят с Bedrock (EOL → 404) 2026-06-20; 4.5 — актуальный Haiku
     sonnet: 'anthropic/claude-sonnet-4',
     vision: 'google/gemini-2.5-flash-lite', // captioning галереи: быстрее/дешевле flash при том же качестве (тест Ф0.1, 19.06.2026)
     visionFallback: 'google/gemini-2.5-flash', // запасная (НЕ qwen — зацикливается)

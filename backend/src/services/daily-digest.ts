@@ -11,6 +11,7 @@
  */
 
 import { db } from '../db'
+import { config } from '../config'
 import { log } from '../utils/logger'
 import { emitEvent } from '../eventBus'
 import {
@@ -297,7 +298,7 @@ async function pickPhotoForPost(
 
   const { aiComplete } = await import('./ai/openrouter')
   const res = await aiComplete({
-    model: 'anthropic/claude-3.5-haiku', // выбор из списка — простая задача, Haiku дешевле
+    model: config.models.haiku, // выбор из списка — простая задача, Haiku дешевле
     systemPrompt: buildDigestArtDirectorPrompt(brief, candidates),
     userPrompt: 'Выбери лучшее фото под пост. Ответь JSON.',
     maxTokens: 300,
@@ -321,7 +322,7 @@ async function adaptForPlatforms(
   const { aiComplete } = await import('./ai/openrouter')
   const results = await Promise.allSettled(platforms.map(async (platform): Promise<PlatformAdaptation> => {
     const res = await aiComplete({
-      model: 'anthropic/claude-3.5-haiku',
+      model: config.models.haiku,
       systemPrompt: buildAdaptPrompt(platform, brandContext),
       userPrompt: masterText,
       maxTokens: 1000,
