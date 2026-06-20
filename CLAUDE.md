@@ -51,9 +51,9 @@ content-factory/
 │   │   │   ├── posts.ts        # CRUD + approve + versions (access checks)
 │   │   │   ├── content-plans.ts # CRUD + create-post/ai-generate + batch
 │   │   │   ├── ai.ts           # generate-post/image/video/scenario, adapt, hashtags, rewrite, enhance-prompt, describe-image, suggest-templates, agent-chat, transcribe (Whisper)
-│   │   │   ├── publish.ts      # publish + schedule (access checks)
+│   │   │   ├── publish.ts      # publish + schedule (тонкие обёртки над services/publish-runner.ts — общая логика для роутов и дайджеста)
 │   │   │   ├── media.ts        # upload/delete/attach + library(+counts) + tags + rotate + overlay-video + bake-design-layer (единый дизайн-слой: фото→sharp, видео→ffmpeg)
-│   │   │   ├── auto-post.ts     # дайджест/авто-пост: list (multi-status), approve→draft, reject, restore, generate-digest, collect-competitors, competitor-inspiration
+│   │   │   ├── auto-post.ts     # дайджест/авто-пост: list (multi-status), approve→draft, approve-publish (прямая публикация baked-сторис), reject, restore, generate-digest, collect-competitors, competitor-inspiration
 │   │   │   ├── settings.ts     # AppConfig CRUD (ADMIN-only, .env fallback)
 │   │   │   ├── vk-oauth.ts     # VK OAuth 2.1 PKCE
 │   │   │   ├── ideas.ts        # CRUD идей (per-user, ownership check)
@@ -354,6 +354,7 @@ API keys: OpenRouter — из БД (AppConfig) или .env. FAL — из .env (F
 - AI prompt templates: hybrid pattern — БД-шаблоны (PromptTemplate, per-business) + кнопка "✨ Подобрать по контексту" (Haiku, brandContext). Применено к image + video
 - Все routes с businessId проверяют доступ (resource-access middleware)
 - Stories-first UI: навигация "Stories" (не "Посты"), только STORIES тип, lock после публикации
+- **Baked-сторис (2026-06-20):** дизайн вшит satori (тег `story-design`/url `design_`). `StoryEditorView` детектит `isBakedStory` → НЕ рисует canvas-текст поверх (иначе дубль), скрывает древнюю панель «Текст на фото» + zoom, статус-баннер «Готовая сторис», публикует оригинал напрямую. **Прямая публикация из дайджеста** (минуя редактор): `DigestView` split-кнопка «Опубликовать ▾» (Сейчас/Запланировать) + «В редактор» для готовых сторис → `POST /auto-posts/:id/approve-publish`. Общая publish-логика — `services/publish-runner.ts`
 - Business isActive toggle: ADMIN видит неактивные, toggle на карточках
 - VK Stories: кнопка-ссылка рисуется ТОЛЬКО в превью canvas, НЕ в JPEG (VK рисует нативную)
 - **Единый композер (Эпик A, рефактор 2026-06):** PostEditorView = одноколоночный flow (Текст→Медиа→Каналы→**Опубликовать ▾**: Сейчас/Запланировать/Черновик). Чипы каналов + per-канал счётчики символов/валидация лимита (effective text = живой черновик → оверрайд PostVersion → мастер-текст Post). Per-канал «Настроить» (⚙): **превью «как в ленте»** (VK/TG/IG, `components/posts/preview/`) + **редактируемый оверрайд** (ленивое create/update/reset через autosave debounce) + adapt-one / повтор / отмена-плана. Composables `usePlatformLimits` + `usePlatformRegistry`. Backend `PUT/DELETE /post-versions/:id` (правка/сброс оверрайда; 409 если PUBLISHED/SCHEDULED). Сторис = ОТДЕЛЬНАЯ поверхность (канвас), переключатель типа ведёт в неё; создаётся из общего входа. (Эпик A — Фазы 1-5 done.)
