@@ -38,4 +38,7 @@ console.log(`Content Factory backend starting on port ${config.PORT}`)
 export default {
   port: config.PORT,
   fetch: app.fetch,
+  // Лимит тела запроса: дефолт Bun — 128 МБ, из-за чего рилз/видео туров с телефона
+  // (часто 150–500 МБ) роняли загрузку. Поднимаем до 600 МБ (запас над MAX_FILE_SIZE=500 МБ).
+  maxRequestBodySize: 600 * 1024 * 1024,
 }

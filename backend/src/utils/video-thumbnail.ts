@@ -30,15 +30,17 @@ export async function extractVideoThumbnail(
   const thumbPath = join(outputDir, thumbFilename)
 
   try {
-    // Extract frame at 1 second (fallback to 0 for very short videos)
+    // Extract frame at 1 second (fallback to 0 for very short videos).
+    // -ss ДО -i = fast input seek по ключевому кадру: на больших видео не декодит с начала
+    // (раньше -ss после -i декодировал весь поток → тормоза/таймаут). -threads 1 бережёт CPU.
     await execAsync(
-      `ffmpeg -y -i "${videoPath}" -ss 1 -frames:v 1 -q:v 2 "${tempPng}"`,
-      { timeout: 15000 },
+      `ffmpeg -y -ss 1 -i "${videoPath}" -frames:v 1 -q:v 2 -threads 1 "${tempPng}"`,
+      { timeout: 30000 },
     ).catch(() =>
-      // Fallback: try frame at 0s (video might be < 1s)
+      // Fallback: видео короче 1с — берём самый первый кадр
       execAsync(
-        `ffmpeg -y -i "${videoPath}" -frames:v 1 -q:v 2 "${tempPng}"`,
-        { timeout: 15000 },
+        `ffmpeg -y -i "${videoPath}" -frames:v 1 -q:v 2 -threads 1 "${tempPng}"`,
+        { timeout: 30000 },
       ),
     )
 

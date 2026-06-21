@@ -18,7 +18,7 @@ const media = new Hono()
 
 const UPLOAD_DIR = join(getModuleDir(import.meta), '../../uploads')
 const THUMB_SIZE = 200
-const MAX_FILE_SIZE = 100 * 1024 * 1024 // 100 MB
+const MAX_FILE_SIZE = 500 * 1024 * 1024 // 500 MB (рилз/видео туров с телефона)
 
 // POST /api/media/upload — загрузка файла (multipart/form-data)
 media.post('/upload', async (c) => {
@@ -44,7 +44,7 @@ media.post('/upload', async (c) => {
 
   const blob = file as File
   if (blob.size > MAX_FILE_SIZE) {
-    return c.json({ error: 'Файл слишком большой (макс. 100 MB)' }, 400)
+    return c.json({ error: 'Файл слишком большой (макс. 500 MB)' }, 400)
   }
 
   // Determine file type (prefer extension-based detection when blob.type is missing/generic)
@@ -62,17 +62,18 @@ media.post('/upload', async (c) => {
   const bizDir = join(UPLOAD_DIR, businessId)
   await mkdir(bizDir, { recursive: true })
 
-  // Save original file
+  // Save original file. Стримим Blob прямо на диск (Bun.write принимает Blob) — НЕ материализуем
+  // через Buffer.from(arrayBuffer()), который держал ВТОРУЮ полную копию файла в памяти поверх blob.
+  // На больших видео (до 500 МБ) это снимает риск OOM на Docker-лимите памяти.
   const filePath = join(bizDir, filename)
-  const buffer = Buffer.from(await blob.arrayBuffer())
-  await Bun.write(filePath, buffer)
+  await Bun.write(filePath, blob)
 
-  // Generate thumbnail for images
+  // Generate thumbnail for images — читаем с диска (sharp на одной картинке дёшев по памяти).
   let thumbUrl: string | null = null
   if (mimeType.startsWith('image/')) {
     try {
       const thumbPath = join(bizDir, thumbFilename)
-      await sharp(buffer)
+      await sharp(filePath)
         .rotate() // нормализуем EXIF-ориентацию (фото с телефона не «на боку» в превью)
         .resize(THUMB_SIZE, THUMB_SIZE, { fit: 'cover' })
         .webp({ quality: 80 })
