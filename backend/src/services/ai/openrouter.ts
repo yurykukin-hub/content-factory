@@ -57,6 +57,7 @@ interface AiCompleteParams {
   userPrompt: string
   model?: string
   maxTokens?: number
+  temperature?: number
   businessId?: string
   action?: string
   userId?: string
@@ -147,6 +148,7 @@ export async function aiComplete(params: AiCompleteParams): Promise<AiCompleteRe
     body: JSON.stringify({
       model,
       max_tokens: params.maxTokens || 2000,
+      ...(params.temperature != null ? { temperature: params.temperature } : {}),
       messages: [
         { role: 'system', content: params.systemPrompt },
         { role: 'user', content: params.userPrompt },
