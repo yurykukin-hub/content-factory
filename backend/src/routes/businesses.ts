@@ -4,6 +4,7 @@ import { db } from '../db'
 import { emitEvent } from '../eventBus'
 import type { AuthUser } from '../middleware/auth'
 import { getUserBusinessIds } from '../middleware/business-access'
+import { getBookingLinks, isNawodeDataAvailable, DEFAULT_BOOKING_BASE_URL } from '../services/nawode-data'
 
 const businesses = new Hono()
 
@@ -148,6 +149,33 @@ businesses.get('/:id/brand-profile', async (c) => {
 
   const profile = await db.brandProfile.findUnique({ where: { businessId: id } })
   return c.json(profile)
+})
+
+// GET /api/businesses/:id/booking-links — готовые ссылки для кнопки в редакторе.
+// Источник 1: НаWоде ERP booking_links (если у бизнеса настроен erpType). Источник 2 (fallback): BrandProfile.links.
+businesses.get('/:id/booking-links', async (c) => {
+  const { id } = c.req.param()
+  const user = c.get('user') as AuthUser
+  const accessibleIds = await getUserBusinessIds(user)
+  if (accessibleIds && !accessibleIds.includes(id)) {
+    return c.json({ error: 'Нет доступа' }, 403)
+  }
+
+  // 1) ERP-ссылки (НаWоде) — если у бизнеса есть источник данных
+  const biz = await db.business.findUnique({ where: { id }, select: { erpType: true } })
+  if (biz?.erpType && isNawodeDataAvailable()) {
+    const cfg = await db.appConfig.findUnique({ where: { key: 'nawode_booking_base_url' } })
+    const links = await getBookingLinks(cfg?.value || DEFAULT_BOOKING_BASE_URL)
+    if (links.length) return c.json(links)
+  }
+
+  // 2) Fallback: ссылки из BrandProfile.links ([{label,url}])
+  const bp = await db.brandProfile.findUnique({ where: { businessId: id }, select: { links: true } })
+  const raw = Array.isArray(bp?.links) ? (bp!.links as any[]) : []
+  const fallback = raw
+    .filter(l => l && typeof l === 'object' && l.url)
+    .map(l => ({ label: String(l.label || l.url), ref: '', url: String(l.url), scope: [] as string[] }))
+  return c.json(fallback)
 })
 
 export { businesses }

@@ -152,3 +152,59 @@ export async function getBookingsInRange(startISO: string, endISO: string): Prom
     return []
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// Готовые ref-ссылки бронирования (booking_links) — для кнопки-ссылки в редакторе.
+// ─────────────────────────────────────────────────────────────────────────
+
+export interface BookingLinkOption {
+  label: string
+  ref: string
+  url: string
+  scope: string[] // ['vk'] | ['vk','story'] | ['instagram'] | ['cert'] — для авто-дефолта по платформе/типу
+}
+
+/** Базовый URL ref-ссылок по умолчанию (переопределяется AppConfig `nawode_booking_base_url`). */
+export const DEFAULT_BOOKING_BASE_URL = 'https://nawode.ru/?ref='
+
+/** Полный URL ref-ссылки из базового шаблона. Форматы: '…/?ref=' (base+ref) · '…/{ref}' (подстановка) · '…' (добавит ?ref=/&ref=). */
+function buildRefUrl(baseUrl: string, ref: string): string {
+  const enc = encodeURIComponent(ref)
+  if (baseUrl.includes('{ref}')) return baseUrl.replace('{ref}', enc)
+  if (baseUrl.endsWith('=')) return baseUrl + enc
+  const sep = baseUrl.includes('?') ? '&' : '?'
+  return `${baseUrl}${sep}ref=${enc}`
+}
+
+/** Назначение ссылки по названию (для авто-дефолта в редакторе): VK / сторис / Instagram / сертификат. */
+function deriveScope(name: string): string[] {
+  const n = name.toLowerCase()
+  const scope: string[] = []
+  if (n.includes('сторис') || n.includes('сториз') || n.includes('stories')) scope.push('story')
+  if (n.includes('вк') || n.includes('vk') || n.includes('вконтакт')) scope.push('vk')
+  if (n.includes('инст') || n.includes('insta')) scope.push('instagram')
+  if (n.includes('сертификат')) scope.push('cert')
+  return scope
+}
+
+/** Готовые ref-ссылки бронирования из НаWоде ERP (booking_links) → опции для редактора. */
+export async function getBookingLinks(baseUrl = DEFAULT_BOOKING_BASE_URL): Promise<BookingLinkOption[]> {
+  const db = getSql()
+  if (!db) return []
+  try {
+    const rows = await db<any[]>`
+      SELECT name, ref FROM booking_links
+      WHERE ref IS NOT NULL AND ref <> ''
+      ORDER BY created_at DESC
+    `
+    return (rows || [])
+      .filter((r: any) => r.ref)
+      .map((r: any) => {
+        const label = String(r.name || r.ref)
+        return { label, ref: String(r.ref), url: buildRefUrl(baseUrl, String(r.ref)), scope: deriveScope(label) }
+      })
+  } catch (err: any) {
+    log.error('[NawodeData] getBookingLinks failed', { error: err.message })
+    return []
+  }
+}
