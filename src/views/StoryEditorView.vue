@@ -9,12 +9,13 @@ import { formatDate } from '@/composables/useFormatters'
 import { useRates } from '@/composables/useRates'
 import {
   ArrowLeft, Upload, Sparkles, Loader2, Send, CheckCircle,
-  ExternalLink, AlertCircle, Image, Images, Link, Trash2, ZoomIn, ZoomOut, Eye, Wand2, Eraser,
-  ChevronLeft, ChevronRight, Calendar, Clock, Video, X, Music
+  ExternalLink, AlertCircle, Image, Images, Link, Trash2, ZoomIn, ZoomOut, Wand2, Eraser,
+  ChevronLeft, ChevronRight, ChevronDown, Calendar, Clock, Video, X, Music, FileText
 } from 'lucide-vue-next'
 import ImageEditModal from '@/components/ai/ImageEditModal.vue'
 import MediaPickerModal from '@/components/MediaPickerModal.vue'
 import StoryDesignModal from '@/components/StoryDesignModal.vue'
+import StoriesPreview from '@/components/posts/preview/StoriesPreview.vue'
 import { platformColor, platformBgColor, platformLabel } from '@/composables/usePlatform'
 import VsAgentChat from '@/components/video/VsAgentChat.vue'
 import type { AgentMessage } from '@/components/video/VsAgentMessage.vue'
@@ -110,19 +111,20 @@ watch([overlayText, storyTitle], autoSave)
 const TEXT_COLORS = ['#ffffff', '#000000', '#ef4444', '#f97316', '#eab308', '#22c55e', '#3b82f6', '#8b5cf6', '#ec4899', '#d946ef']
 const linkType = ref('')
 const linkUrl = ref('')
-const savedLinks = ref<{ label: string; url: string }[]>([])
+// Готовые ссылки бронирования: НаWоде ERP booking_links (вкл. «Бронь ВК Сторис») → fallback BrandProfile.links
+interface BookingLinkOption { label: string; ref: string; url: string; scope: string[] }
+const bookingLinks = ref<BookingLinkOption[]>([])
 
 // A4: музыка для видео-сторис (трек из Звуковой студии вшивается в видео при публикации)
 interface MusicTrack { id: string; title: string }
 const musicTracks = ref<MusicTrack[]>([])
 const selectedMusicSessionId = ref<string | null>(null)
 
-// Preview modal
-const showPreview = ref(false)
-const previewBlobUrl = ref('')
-const previewBlob = ref<Blob | null>(null)
-const previewSize = ref(0)
-const previewExporting = ref(false)
+// Публикация: единый дропдаун «Опубликовать ▾» (как в PostEditor) + режим планирования
+const publishMenuOpen = ref(false)
+const scheduleMode = ref(false)
+// Превью «как в соцсети» по каналам (таб VK / Instagram)
+const previewPlatform = ref('VK')
 
 // AI
 const aiTextLoading = ref(false)
@@ -552,6 +554,7 @@ async function loadPost() {
       // Сторис поддерживают VK + Instagram (TG — нет сторис)
       storyChannels.value = platforms.filter(p => p.platform === 'VK' || p.platform === 'INSTAGRAM')
       selectedChannels.value = storyChannels.value.map(c => c.id) // по умолчанию все
+      previewPlatform.value = storyChannels.value[0]?.platform || 'VK' // таб превью по умолчанию
       if (post.value.postType !== 'STORIES') { router.replace(`/posts/${post.value.id}`); return }
       // Load image — если тот же URL что был, сохранить offset/scale
       if (photo.value) {
@@ -577,10 +580,11 @@ async function loadPost() {
       imageTemplates.value = await http.get<any[]>(`/prompt-templates?type=image&businessId=${post.value.businessId}`)
     } catch { imageTemplates.value = [] }
     loadCharacters(post.value.businessId)
+    // Готовые ссылки бронирования (НаWоде ERP → fallback BrandProfile.links) + авто-дефолт для VK
     try {
-      const bp = await http.get<{ links?: { label: string; url: string }[] }>(`/businesses/${post.value.businessId}/brand-profile`)
-      savedLinks.value = Array.isArray(bp?.links) ? bp.links.filter(l => l.url) : []
-    } catch {}
+      bookingLinks.value = await http.get<BookingLinkOption[]>(`/businesses/${post.value.businessId}/booking-links`)
+    } catch { bookingLinks.value = [] }
+    applyDefaultBookingLink()
 
     // Load text history from aiPromptHistory
     try {
@@ -880,39 +884,41 @@ async function generateOverlayText() {
 }
 
 // --- Publish ---
-// ШАГ 1: Подготовить превью (экспорт canvas → модалка)
-async function preparePreview() {
+const canPublishNow = computed(() => !!photo.value && selectedChannels.value.length > 0)
+
+// Дропдаун «Опубликовать ▾»: рендер canvas/видео и публикация/планирование происходят прямо
+// внутри confirmPublish/schedulePublish (без отдельной модалки-превью — оно постоянно видно справа).
+function onPublishNow() {
+  publishMenuOpen.value = false
   if (!post.value || !photo.value) { toast.error('Загрузите медиа'); return }
   if (!selectedChannels.value.length) { toast.error('Выберите хотя бы один канал'); return }
-  // Baked-сторис: дизайн уже вшит в картинку — не рендерим canvas, показываем готовое как есть
-  if (isBakedStory.value) {
-    if (previewBlobUrl.value && previewBlobUrl.value.startsWith('blob:')) URL.revokeObjectURL(previewBlobUrl.value)
-    previewBlob.value = null
-    previewBlobUrl.value = photo.value.url
-    previewSize.value = photo.value.sizeBytes
-    showPreview.value = true
-    return
-  }
-  previewExporting.value = true
+  confirmPublish()
+}
+function onChooseSchedule() {
+  publishMenuOpen.value = false
+  if (!photo.value) { toast.error('Загрузите медиа'); return }
+  if (!selectedChannels.value.length) { toast.error('Выберите хотя бы один канал'); return }
+  scheduleMode.value = true
+}
+async function onSaveDraft() {
+  publishMenuOpen.value = false
+  if (!post.value) return
   try {
-    // Видео: текст-слой как прозрачный PNG (наложится на видео при публикации). Фото: плоский JPEG.
-    const blob = isVideoMedia.value ? await exportOverlayPng() : await exportCanvas()
-    // Освободить старый URL
-    if (previewBlobUrl.value) URL.revokeObjectURL(previewBlobUrl.value)
-    previewBlob.value = blob
-    previewBlobUrl.value = URL.createObjectURL(blob)
-    previewSize.value = blob.size
-    showPreview.value = true
-  } catch (e: any) { toast.error('Ошибка рендеринга: ' + e.message) }
-  finally { previewExporting.value = false }
+    // baked: текст вшит в картинку — body не трогаем
+    await http.put(`/posts/${post.value.id}`, isBakedStory.value
+      ? { title: storyTitle.value || null }
+      : { body: overlayText.value, title: storyTitle.value || null })
+    toast.success('Черновик сохранён')
+  } catch (e: any) { toast.error('Ошибка: ' + (e.message || e)) }
 }
 
 // Загрузить готовую сторис-картинку в медиатеку (тег story, НЕ удаляем — видна в истории + превью поста)
 async function uploadRendered(): Promise<MediaFile> {
+  const blob = await exportCanvas() // рендерим canvas→JPEG прямо при публикации (без промежуточной модалки)
   const dateStr = new Date().toISOString().slice(0, 10)
   const safeTitle = (storyTitle.value || 'story').replace(/[^\wа-яё\- ]/gi, '').slice(0, 40).trim() || 'story'
   const formData = new FormData()
-  formData.append('file', previewBlob.value!, `story-${safeTitle}-${dateStr}.jpg`)
+  formData.append('file', blob, `story-${safeTitle}-${dateStr}.jpg`)
   formData.append('businessId', post.value!.businessId)
   const res = await fetch('/api/media/upload', { method: 'POST', body: formData, credentials: 'include', headers: { 'X-Tab-ID': TAB_ID } })
   const mf = await res.json() as MediaFile
@@ -922,7 +928,7 @@ async function uploadRendered(): Promise<MediaFile> {
 
 // Видео-сторис: наложить текст-слой на видео через backend (ffmpeg) → новый baked-видео MediaFile
 async function renderVideoForPublish(): Promise<MediaFile> {
-  const overlayBlob = previewBlob.value ?? await exportOverlayPng()
+  const overlayBlob = await exportOverlayPng() // текст-слой рендерим прямо при публикации
   const fd = new FormData()
   fd.append('overlay', overlayBlob, 'overlay.png')
   fd.append('videoMediaFileId', photo.value!.id)
@@ -958,7 +964,6 @@ async function ensureVersion(channelId: string): Promise<string> {
 // ШАГ 2: Подтвердить и опубликовать в выбранные каналы (мультипостинг VK + IG)
 async function confirmPublish() {
   if (!post.value || !selectedChannels.value.length) return
-  if (!isBakedStory.value && !previewBlob.value) return
   publishing.value = true
   publishResults.value = []
   try {
@@ -994,7 +999,6 @@ async function confirmPublish() {
     else if (ok === 0) toast.error('Не удалось опубликовать ни в один канал')
     else toast.info(`Опубликовано: ${ok}, ошибок: ${fail}`)
 
-    showPreview.value = false
     try {
       const freshPost = await http.get<Post>(`/posts/${post.value.id}`)
       if (freshPost) { post.value.versions = freshPost.versions; post.value.status = freshPost.status; post.value.mediaFiles = freshPost.mediaFiles }
@@ -1006,7 +1010,6 @@ async function confirmPublish() {
 
 async function schedulePublish() {
   if (!post.value || !scheduledAt.value || !selectedChannels.value.length) return
-  if (!isBakedStory.value && !previewBlob.value) return
   scheduling.value = true
   publishResults.value = []
   try {
@@ -1041,7 +1044,8 @@ async function schedulePublish() {
     else if (ok === 0) toast.error('Не удалось запланировать')
     else toast.info(`Запланировано: ${ok}, ошибок: ${fail}`)
 
-    showPreview.value = false
+    scheduleMode.value = false
+    scheduledAt.value = ''
     try {
       const freshPost = await http.get<Post>(`/posts/${post.value.id}`)
       if (freshPost) { post.value.versions = freshPost.versions; post.value.status = freshPost.status; post.value.mediaFiles = freshPost.mediaFiles }
@@ -1049,10 +1053,6 @@ async function schedulePublish() {
     render()
   } catch (e: any) { toast.error('Ошибка: ' + e.message) }
   finally { scheduling.value = false }
-}
-
-function closePreview() {
-  showPreview.value = false
 }
 
 // VK link_text → реальный текст кнопки в VK (проверено)
@@ -1087,6 +1087,28 @@ const LINK_TYPES = [
   { value: 'ticket', label: 'Билет' },
   { value: 'install', label: 'Установить' },
 ]
+
+// Превью «как в соцсети»: выбранные каналы (VK/IG) + активный таб
+const previewChannels = computed(() => storyChannels.value.filter(c => selectedChannels.value.includes(c.id)))
+const activePreviewChannel = computed(() =>
+  previewChannels.value.find(c => c.platform === previewPlatform.value)
+  || previewChannels.value[0] || storyChannels.value[0] || null)
+// Медиа для StoriesPreview: видео → кадр-превью (webp), фото → оригинал
+const previewMediaFiles = computed(() => {
+  if (!photo.value) return [] as { url: string; thumbUrl: string | null; mimeType: string }[]
+  const url = isVideoMedia.value ? (photo.value.thumbUrl || photo.value.url) : photo.value.url
+  return [{ url, thumbUrl: photo.value.thumbUrl ?? null, mimeType: photo.value.mimeType }]
+})
+
+// Авто-дефолт кнопки-ссылки по платформе/типу: VK-сторис → «Бронь ВК Сторис», иначе любая VK-бронь.
+// Только если ссылка ещё не задана и сторис не опубликован — ручной выбор не перетираем.
+function applyDefaultBookingLink() {
+  if (linkUrl.value || isPublished.value || !bookingLinks.value.length) return
+  const story = bookingLinks.value.find(b => b.scope.includes('story') && b.scope.includes('vk'))
+  const vk = bookingLinks.value.find(b => b.scope.includes('vk'))
+  const pick = story || vk
+  if (pick) { if (!linkType.value) linkType.value = 'book'; linkUrl.value = pick.url }
+}
 
 // Re-render on settings change (canvas для фото + overlay-слой для видео)
 watch([overlayText, textPosition, textColor, fontSize, bgStyle, bgRadius, textAlign, linkType, linkUrl],
@@ -1157,71 +1179,10 @@ onUnmounted(() => {
 
     <div v-if="loading" class="text-gray-500 py-8 text-center">Загрузка...</div>
 
-    <div v-else-if="post" class="grid grid-cols-1 lg:grid-cols-5 gap-6">
+    <div v-else-if="post" class="grid grid-cols-1 lg:grid-cols-12 gap-6">
 
-      <!-- LEFT: Canvas Preview (3/5) -->
-      <div class="lg:col-span-3 flex flex-col items-center">
-        <h2 class="text-lg font-bold mb-3">Превью Stories</h2>
-
-        <!-- Phone frame -->
-        <div class="relative bg-black rounded-[2rem] p-2 shadow-2xl w-full max-w-[376px]">
-          <div class="absolute top-0 left-1/2 -translate-x-1/2 w-24 h-5 bg-black rounded-b-xl z-10"></div>
-
-          <!-- Video preview + статичный текст-слой поверх (WYSIWYG для видео-сторис) -->
-          <div
-            v-if="isVideoMedia"
-            class="relative rounded-[1.5rem] overflow-hidden w-full"
-            style="aspect-ratio: 9/16;"
-          >
-            <video
-              :src="photo!.url"
-              class="absolute inset-0 w-full h-full"
-              style="object-fit: cover; background: #000;"
-              controls loop muted autoplay playsinline
-            />
-            <canvas
-              ref="overlayCanvasRef"
-              :width="canvasWidth"
-              :height="canvasHeight"
-              class="absolute inset-0 w-full h-full pointer-events-none"
-            />
-          </div>
-
-          <!-- Image canvas (для фото) -->
-          <canvas
-            v-else
-            ref="canvasRef"
-            :width="canvasWidth"
-            :height="canvasHeight"
-            :class="[
-              'rounded-[1.5rem]',
-              isPublished ? 'cursor-default' : 'cursor-grab active:cursor-grabbing',
-              dragging && !isPublished && 'cursor-grabbing',
-            ]"
-            @mousedown="!isPublished && onMouseDown($event)"
-            @wheel.prevent="!isPublished && onWheel($event)"
-          />
-          <!-- Overlay: generation in progress -->
-          <div v-if="editingImage || aiVideoLoading || videoGenerating" class="absolute inset-2 rounded-[1.5rem] bg-black/50 flex items-center justify-center">
-            <div class="flex flex-col items-center gap-2 text-white">
-              <Loader2 :size="28" class="animate-spin" :class="(aiVideoLoading || videoGenerating) ? 'text-emerald-400' : 'text-purple-400'" />
-              <span class="text-xs font-medium text-center px-3">{{ videoGenerating ? 'Видео генерируется (1-3 мин)...' : aiVideoLoading ? 'Запуск генерации...' : 'Генерация изображения...' }}</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- Zoom controls (скрыто для baked — картинка фиксирована) -->
-        <div v-if="!isPublished && !isBakedStory" class="flex items-center gap-2 mt-3">
-          <button @click="zoomOut" class="p-1.5 rounded-lg bg-gray-200 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-300"><ZoomOut :size="16" /></button>
-          <span class="text-xs text-gray-400 w-12 text-center">{{ Math.round(imgScale * 100) }}%</span>
-          <button @click="zoomIn" class="p-1.5 rounded-lg bg-gray-200 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-300"><ZoomIn :size="16" /></button>
-          <button @click="resetView" class="px-2 py-1 rounded-lg text-[10px] text-gray-500 hover:bg-gray-200 dark:hover:bg-gray-800">Сброс</button>
-        </div>
-        <p v-if="!isPublished" class="text-[10px] text-gray-500 mt-1">Перетаскивайте фото мышкой. Колёсико = zoom.</p>
-      </div>
-
-      <!-- RIGHT: Settings (2/5) -->
-      <div class="lg:col-span-2 space-y-4">
+      <!-- LEFT: Редактирование (7/12) -->
+      <div class="lg:col-span-7 space-y-4">
 
         <!-- Published lock banner -->
         <div v-if="isPublished" class="p-3 rounded-xl bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 text-center">
@@ -1292,6 +1253,39 @@ onUnmounted(() => {
               class="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300 text-xs font-medium hover:bg-purple-200 disabled:opacity-50">
               <Loader2 v-if="removingBg" :size="14" class="animate-spin" /><Eraser v-else :size="14" />
             </button>
+          </div>
+        </div>
+
+        <!-- Холст: перетаскивание/zoom фото + текст-оверлей (скрыт для baked — дизайн уже вшит) -->
+        <div v-if="!isBakedStory" :class="['bg-white dark:bg-gray-900 rounded-xl p-5 border border-gray-200 dark:border-gray-800', isPublished && 'opacity-60 pointer-events-none select-none']">
+          <h3 class="font-semibold text-sm mb-3 flex items-center gap-2"><Image :size="16" /> Холст</h3>
+          <div class="flex flex-col items-center">
+            <div class="relative bg-black rounded-[2rem] p-2 shadow-2xl w-full max-w-[320px]">
+              <div class="absolute top-0 left-1/2 -translate-x-1/2 w-24 h-5 bg-black rounded-b-xl z-10"></div>
+              <!-- Video preview + статичный текст-слой поверх (WYSIWYG для видео-сторис) -->
+              <div v-if="isVideoMedia" class="relative rounded-[1.5rem] overflow-hidden w-full" style="aspect-ratio: 9/16;">
+                <video :src="photo!.url" class="absolute inset-0 w-full h-full" style="object-fit: cover; background: #000;" controls loop muted autoplay playsinline />
+                <canvas ref="overlayCanvasRef" :width="canvasWidth" :height="canvasHeight" class="absolute inset-0 w-full h-full pointer-events-none" />
+              </div>
+              <!-- Image canvas (для фото) -->
+              <canvas v-else ref="canvasRef" :width="canvasWidth" :height="canvasHeight"
+                :class="['rounded-[1.5rem]', isPublished ? 'cursor-default' : 'cursor-grab active:cursor-grabbing', dragging && !isPublished && 'cursor-grabbing']"
+                @mousedown="!isPublished && onMouseDown($event)" @wheel.prevent="!isPublished && onWheel($event)" />
+              <!-- Overlay: generation in progress -->
+              <div v-if="editingImage || aiVideoLoading || videoGenerating" class="absolute inset-2 rounded-[1.5rem] bg-black/50 flex items-center justify-center">
+                <div class="flex flex-col items-center gap-2 text-white">
+                  <Loader2 :size="28" class="animate-spin" :class="(aiVideoLoading || videoGenerating) ? 'text-emerald-400' : 'text-purple-400'" />
+                  <span class="text-xs font-medium text-center px-3">{{ videoGenerating ? 'Видео генерируется (1-3 мин)...' : aiVideoLoading ? 'Запуск генерации...' : 'Генерация изображения...' }}</span>
+                </div>
+              </div>
+            </div>
+            <div v-if="!isPublished" class="flex items-center gap-2 mt-3">
+              <button @click="zoomOut" class="p-1.5 rounded-lg bg-gray-200 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-300"><ZoomOut :size="16" /></button>
+              <span class="text-xs text-gray-400 w-12 text-center">{{ Math.round(imgScale * 100) }}%</span>
+              <button @click="zoomIn" class="p-1.5 rounded-lg bg-gray-200 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-300"><ZoomIn :size="16" /></button>
+              <button @click="resetView" class="px-2 py-1 rounded-lg text-[10px] text-gray-500 hover:bg-gray-200 dark:hover:bg-gray-800">Сброс</button>
+            </div>
+            <p v-if="!isPublished" class="text-[10px] text-gray-500 mt-1">Перетаскивайте фото мышкой. Колёсико = zoom.</p>
           </div>
         </div>
 
@@ -1417,20 +1411,51 @@ onUnmounted(() => {
           <select v-model="linkType" class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm mb-2">
             <option v-for="lt in LINK_TYPES" :key="lt.value" :value="lt.value">{{ lt.label }}</option>
           </select>
-          <input v-if="linkType" v-model="linkUrl" placeholder="https://nawode.ru"
-            class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />
-          <div v-if="linkType && savedLinks.length" class="flex flex-wrap gap-1 mt-1.5">
-            <button v-for="sl in savedLinks" :key="sl.url" @click="linkUrl = sl.url"
-              :class="['px-2 py-0.5 rounded-full text-[10px] font-medium transition-colors',
-                linkUrl === sl.url
-                  ? 'bg-brand-600 text-white'
-                  : 'bg-gray-100 dark:bg-gray-800 text-gray-500 hover:bg-brand-50 dark:hover:bg-brand-950 hover:text-brand-600']">
-              {{ sl.label || sl.url }}
-            </button>
-          </div>
+          <template v-if="linkType">
+            <!-- Готовые ссылки из НаWоде ERP (booking_links) — авто-дефолт «Бронь ВК Сторис» -->
+            <select v-if="bookingLinks.length" :value="linkUrl" @change="linkUrl = ($event.target as HTMLSelectElement).value"
+              class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm mb-2">
+              <option value="">— готовая ссылка (бронь) —</option>
+              <option v-for="bl in bookingLinks" :key="bl.url" :value="bl.url">{{ bl.label }}</option>
+            </select>
+            <input v-model="linkUrl" placeholder="https://nawode.ru"
+              class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm" />
+            <p class="text-[10px] text-gray-400 mt-1.5">Для VK-сторис подставлена «Бронь ВК Сторис» — можно сменить из списка или вписать вручную. UTM добавится автоматически.</p>
+          </template>
         </div>
 
-        <!-- Publish -->
+      </div>
+
+      <!-- RIGHT: Превью «как в соцсети» + публикация (5/12) -->
+      <div class="lg:col-span-5 space-y-4 lg:sticky lg:top-4 lg:self-start">
+
+        <!-- Превью по каналам (табы VK / Instagram) -->
+        <div class="bg-white dark:bg-gray-900 rounded-xl p-5 border border-gray-200 dark:border-gray-800">
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="font-semibold text-sm">Превью</h3>
+            <div v-if="previewChannels.length" class="flex gap-1">
+              <button v-for="ch in previewChannels" :key="ch.id" @click="previewPlatform = ch.platform"
+                :class="['px-2.5 py-1 rounded-lg text-[11px] font-medium border transition-colors flex items-center gap-1',
+                  previewPlatform === ch.platform
+                    ? 'border-brand-500 bg-brand-50 dark:bg-brand-950 text-brand-700 dark:text-brand-300'
+                    : 'border-gray-200 dark:border-gray-700 text-gray-500 hover:border-gray-300']">
+                <span :class="['w-1.5 h-1.5 rounded-full', platformBgColor(ch.platform)]"></span>
+                {{ platformLabel(ch.platform) }}
+              </button>
+            </div>
+          </div>
+          <StoriesPreview
+            :account-name="activePreviewChannel?.accountName || ''"
+            :text="isBakedStory ? '' : overlayText"
+            :media-files="previewMediaFiles"
+            :platform="activePreviewChannel?.platform || previewPlatform"
+            :baked="isBakedStory" />
+          <p v-if="linkType" class="text-center text-[10px] text-gray-400 mt-2">
+            Кнопка «{{ LINK_TYPES.find(l => l.value === linkType)?.label }}» — VK добавит нативно
+          </p>
+        </div>
+
+        <!-- Публикация -->
         <div class="bg-white dark:bg-gray-900 rounded-xl p-5 border border-gray-200 dark:border-gray-800">
           <h3 class="font-semibold text-sm mb-3 flex items-center gap-2"><Send :size="16" /> Публикация</h3>
           <div v-if="storyChannels.length" class="mb-3">
@@ -1492,86 +1517,49 @@ onUnmounted(() => {
             </div>
           </div>
 
-          <button v-if="!isPublished" @click="preparePreview" :disabled="publishing || previewExporting || !photo || !selectedChannels.length"
-            class="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-lg bg-green-600 hover:bg-green-700 text-white font-medium disabled:opacity-50">
-            <Loader2 v-if="previewExporting" :size="18" class="animate-spin" /><Eye v-else :size="18" />
-            {{ previewExporting ? 'Рендеринг...' : 'Предпросмотр и публикация' }}
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Preview Modal -->
-    <div v-if="showPreview" class="fixed inset-0 z-50 flex items-center justify-center bg-black/70" @click.self="closePreview">
-      <div class="bg-white dark:bg-gray-900 rounded-2xl p-6 w-full max-w-lg shadow-xl">
-        <h2 class="text-lg font-bold mb-4 text-center">Предпросмотр публикации</h2>
-
-        <!-- Rendered media in phone frame + link button -->
-        <div class="flex justify-center mb-4">
-          <div class="relative bg-black rounded-[1.5rem] p-1.5 shadow-xl" style="width: 240px;">
-            <div v-if="isVideoMedia" class="relative rounded-[1.2rem] overflow-hidden w-full" style="aspect-ratio: 9/16;">
-              <video :src="photo!.url" class="absolute inset-0 w-full h-full" style="object-fit: cover; background: #000;" controls loop muted autoplay playsinline />
-              <img v-if="previewBlobUrl" :src="previewBlobUrl" class="absolute inset-0 w-full h-full pointer-events-none" style="object-fit: cover;" />
+          <!-- Опубликовать ▾ (единый UX как в редакторе постов) -->
+          <div v-if="!isPublished" class="relative">
+            <div class="flex items-stretch gap-2">
+              <button @click="onPublishNow" :disabled="publishing || !canPublishNow"
+                class="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-l-lg bg-green-600 hover:bg-green-700 text-white text-sm font-medium disabled:opacity-50">
+                <Loader2 v-if="publishing" :size="16" class="animate-spin" /><Send v-else :size="16" />
+                {{ publishing ? 'Публикуем...' : `Опубликовать сейчас (${selectedChannels.length})` }}
+              </button>
+              <button @click="publishMenuOpen = !publishMenuOpen" :disabled="publishing"
+                class="px-3 rounded-r-lg bg-green-700 hover:bg-green-800 text-white disabled:opacity-50 border-l border-green-500/40">
+                <ChevronDown :size="16" />
+              </button>
             </div>
-            <img v-else :src="previewBlobUrl" class="rounded-[1.2rem] w-full" style="aspect-ratio: 9/16; object-fit: cover;" />
-            <!-- Кнопка будет добавлена ВК нативно -->
-            <div v-if="linkType" class="absolute bottom-5 left-1/2 -translate-x-1/2 px-5 py-1.5 bg-white/90 rounded-full text-[10px] font-bold text-gray-700 shadow whitespace-nowrap">
-              {{ LINK_TYPES.find(l => l.value === linkType)?.label }}
+
+            <div v-if="publishMenuOpen" class="absolute right-0 bottom-full mb-1 z-20 w-56 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 py-1">
+              <button @click="onPublishNow" :disabled="!canPublishNow"
+                class="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-700 text-left disabled:opacity-40">
+                <Send :size="15" class="text-green-600" /> Опубликовать сейчас
+              </button>
+              <button @click="onChooseSchedule"
+                class="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-700 text-left">
+                <Calendar :size="15" class="text-blue-600" /> Запланировать…
+              </button>
+              <button @click="onSaveDraft"
+                class="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-700 text-left">
+                <FileText :size="15" class="text-gray-500" /> Сохранить черновик
+              </button>
             </div>
-          </div>
-          <p v-if="linkType" class="text-[10px] text-gray-400 text-center mt-2">
-            Кнопка будет добавлена ВКонтакте
-          </p>
-        </div>
+            <div v-if="publishMenuOpen" class="fixed inset-0 z-10" @click="publishMenuOpen = false"></div>
 
-        <!-- Metadata -->
-        <div class="bg-gray-50 dark:bg-gray-800 rounded-xl p-4 mb-4 space-y-2 text-sm">
-          <div class="flex justify-between">
-            <span class="text-gray-500">{{ isVideoMedia ? 'Формат' : 'Разрешение' }}</span>
-            <span class="font-medium">{{ isVideoMedia ? ('Видео 9:16' + (photo?.durationSec ? ` · ${photo.durationSec} сек` : '')) : '1080 × 1920' }}</span>
+            <!-- Режим планирования -->
+            <div v-if="scheduleMode" class="mt-2 flex flex-col sm:flex-row gap-2 items-stretch sm:items-center p-3 rounded-lg bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800">
+              <span class="text-xs text-blue-700 dark:text-blue-300 flex items-center gap-1 shrink-0"><Calendar :size="14" /> Когда:</span>
+              <input v-model="scheduledAt" type="datetime-local" :min="new Date().toISOString().slice(0,16)"
+                class="flex-1 min-w-0 px-2 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-xs" />
+              <button @click="schedulePublish" :disabled="scheduling || !scheduledAt || !selectedChannels.length"
+                class="flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium disabled:opacity-50 shrink-0">
+                <Loader2 v-if="scheduling" :size="14" class="animate-spin" /><Clock v-else :size="14" /> Запланировать ({{ selectedChannels.length }})
+              </button>
+              <button @click="scheduleMode = false; scheduledAt = ''" class="p-2 rounded-lg text-gray-400 hover:bg-white dark:hover:bg-gray-800 shrink-0"><X :size="14" /></button>
+            </div>
+            <p class="text-[10px] text-gray-400 mt-2">Сторис уйдёт в выбранные каналы. Текст вшивается в картинку; ссылка-кнопка — нативная в VK.</p>
           </div>
-          <div v-if="!isVideoMedia" class="flex justify-between">
-            <span class="text-gray-500">Размер файла</span>
-            <span class="font-medium">{{ (previewSize / 1024).toFixed(0) }} KB</span>
-          </div>
-          <div class="flex justify-between gap-3">
-            <span class="text-gray-500 shrink-0">Каналы</span>
-            <span class="font-medium text-right">{{ storyChannels.filter(c => selectedChannels.includes(c.id)).map(c => platformLabel(c.platform) + ' ' + c.accountName).join(', ') || '—' }}</span>
-          </div>
-          <div v-if="linkType" class="flex justify-between">
-            <span class="text-gray-500">Кнопка</span>
-            <span class="font-medium">{{ LINK_TYPES.find(l => l.value === linkType)?.label }} → {{ linkUrl || '—' }}</span>
-          </div>
-        </div>
-
-        <!-- Schedule -->
-        <div class="bg-gray-50 dark:bg-gray-800 rounded-xl p-4 mb-4">
-          <label class="flex items-center gap-2 text-sm font-medium mb-2">
-            <Calendar :size="14" /> Запланировать
-          </label>
-          <div class="flex gap-2">
-            <input v-model="scheduledAt" type="datetime-local"
-              :min="new Date().toISOString().slice(0, 16)"
-              class="flex-1 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm" />
-            <button @click="schedulePublish" :disabled="scheduling || !scheduledAt"
-              class="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium disabled:opacity-50">
-              <Loader2 v-if="scheduling" :size="14" class="animate-spin" /><Clock v-else :size="14" />
-              {{ scheduling ? '...' : 'Запланировать' }}
-            </button>
-          </div>
-        </div>
-
-        <!-- Actions -->
-        <div class="flex gap-3">
-          <button @click="closePreview"
-            class="flex-1 px-4 py-3 rounded-lg border border-gray-300 dark:border-gray-700 text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800">
-            ← Назад
-          </button>
-          <button @click="confirmPublish" :disabled="publishing"
-            class="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg bg-green-600 hover:bg-green-700 text-white font-medium disabled:opacity-50">
-            <Loader2 v-if="publishing" :size="16" class="animate-spin" /><Send v-else :size="16" />
-            {{ publishing ? 'Публикация...' : 'Опубликовать сейчас' }}
-          </button>
         </div>
       </div>
     </div>
