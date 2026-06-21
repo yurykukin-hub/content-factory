@@ -46,7 +46,7 @@ content-factory/
 │   │   ├── routes/             # API endpoints (~18 файлов)
 │   │   │   ├── auth.ts         # login/logout/me/refresh (access+refresh tokens)
 │   │   │   ├── users.ts        # CRUD пользователей (ADMIN-only)
-│   │   │   ├── businesses.ts   # CRUD + brand profile + isActive toggle (ADMIN sees inactive)
+│   │   │   ├── businesses.ts   # CRUD + brand profile + isActive toggle (ADMIN sees inactive) + booking-links (ERP ref-ссылки → fallback BrandProfile.links)
 │   │   │   ├── platforms.ts    # platformsByBiz + platformsById
 │   │   │   ├── posts.ts        # CRUD + approve + versions (access checks)
 │   │   │   ├── content-plans.ts # CRUD + create-post/ai-generate + batch
@@ -106,7 +106,7 @@ content-factory/
 │   │   ├── BusinessesView      # Grid карточек проектов (клик → detail)
 │   │   ├── BusinessDetailView  # Хаб проекта: 3 таба (профиль/каналы/обзор+доступы)
 │   │   ├── PostEditorView      # Редактор постов (текст + медиа + платформы)
-│   │   ├── StoryEditorView     # Stories (canvas WYSIWYG + шаблоны, lock after publish)
+│   │   ├── StoryEditorView     # Stories (модерн. UI: 12-кол, превью VK/IG табы + «Опубликовать ▾»; canvas+baked+видео, ERP-ссылки дропдаун)
 │   │   ├── ContentPlansView    # AI планы (таблица + календарь)
 │   │   ├── MediaLibraryView    # Медиа-библиотека (grid, click-to-preview modal, AI describe)
 │   │   ├── VideoStudioView     # Видео-студия (Kling-style 50/50 layout, sessions, rich prompt)
@@ -356,6 +356,10 @@ API keys: OpenRouter — из БД (AppConfig) или .env. FAL — из .env (F
 - Stories-first UI: навигация "Stories" (не "Посты"), только STORIES тип, lock после публикации
 - **Baked-сторис (2026-06-20):** дизайн вшит satori (тег `story-design`/url `design_`). `StoryEditorView` детектит `isBakedStory` → НЕ рисует canvas-текст поверх (иначе дубль), скрывает древнюю панель «Текст на фото» + zoom, статус-баннер «Готовая сторис», публикует оригинал напрямую. **Прямая публикация из дайджеста** (минуя редактор): `DigestView` split-кнопка «Опубликовать ▾» (Сейчас/Запланировать) + «В редактор» для готовых сторис → `POST /auto-posts/:id/approve-publish`. Общая publish-логика — `services/publish-runner.ts`
 - **Кадр дизайн-сторис (2026-06-20):** `buildStoryDesign` принимает `photoPosition` (objectPosition — satori это поддерживает). Модалка `StoryDesignModal.vue` (**drag фото пальцем/мышкой по обеим осям** → objectPosition X+Y + живое CSS-превью = satori + правка заголовка → перезапекание `render-design`). Кнопка «Поправить кадр» в дайджесте и редакторе (только дизайн-сторис). `MediaFile.sourceMediaId` хранит исходное фото → переоформление берёт оригинал (не дизайн-поверх). **Прямая публикация — для STORIES И PHOTO** (`canPublishNow`): модалка — галочки каналов (VK/IG · Stories/Лента) + результат по каждому
+- **Модернизация редактора Stories (2026-06-21):** `StoryEditorView` приведён к новому UI как PostEditor/студии. 12-кол: слева редактирование (медиа/холст/текст/музыка/ссылка), справа sticky — **превью «как в соцсети» табы VK/IG** (`StoriesPreview`) + единая **«Опубликовать ▾»** (Сейчас/Запланировать/Черновик). Preview Modal удалена — рендер canvas/видео прямо при публикации. Текст-оверрайды per-канал НЕ делаем (текст вшит в одну картинку). Ядро (canvas drag/zoom, видео+музыка, baked, AI, SSE) сохранено.
+- **Готовые ссылки бронирования (2026-06-21):** `GET /businesses/:id/booking-links` → НаWоде ERP `booking_links` (id,name,ref) → `{label,ref,url,scope}` (scope из названия: story/vk/instagram/cert; URL из AppConfig `nawode_booking_base_url`, дефолт `https://nawode.ru/?ref=`), fallback на `BrandProfile.links`. В редакторе сторис — дропдаун + авто-дефолт «Бронь ВК Сторис» для VK. `nawode-data.getBookingLinks()`. (Тот же эндпоинт можно подключить в `PostEditorView` для VK-постов.)
+- **Загрузка больших видео (2026-06-21):** `media.ts` MAX_FILE_SIZE=500МБ + стриминг `Bun.write(blob)` (без 2× копии в памяти); `index.ts` Bun `maxRequestBodySize`=600МБ; `video-thumbnail.ts` fast-seek `-ss` ДО `-i`+30с+`-threads 1`; Docker backend память 2ГБ. Чинит загрузку рилз/клипов/видео-туров везде.
+- **Анти-повтор дайджеста (2026-06-21):** стратегу (`buildDigestStrategistPrompt`) подаётся `recentProposals` (AutoPostTask за 7 дней, все статусы) + `temperature:0.9` (раньше анти-повтор смотрел только одобренные Post → агент повторялся, т.к. их не одобряют). `aiComplete` теперь поддерживает `temperature`.
 - Business isActive toggle: ADMIN видит неактивные, toggle на карточках
 - VK Stories: кнопка-ссылка рисуется ТОЛЬКО в превью canvas, НЕ в JPEG (VK рисует нативную)
 - **Единый композер (Эпик A, рефактор 2026-06):** PostEditorView = одноколоночный flow (Текст→Медиа→Каналы→**Опубликовать ▾**: Сейчас/Запланировать/Черновик). Чипы каналов + per-канал счётчики символов/валидация лимита (effective text = живой черновик → оверрайд PostVersion → мастер-текст Post). Per-канал «Настроить» (⚙): **превью «как в ленте»** (VK/TG/IG, `components/posts/preview/`) + **редактируемый оверрайд** (ленивое create/update/reset через autosave debounce) + adapt-one / повтор / отмена-плана. Composables `usePlatformLimits` + `usePlatformRegistry`. Backend `PUT/DELETE /post-versions/:id` (правка/сброс оверрайда; 409 если PUBLISHED/SCHEDULED). Сторис = ОТДЕЛЬНАЯ поверхность (канвас), переключатель типа ведёт в неё; создаётся из общего входа. (Эпик A — Фазы 1-5 done.)

@@ -4,6 +4,27 @@
 
 ---
 
+## Ключевые факты 2026-06-03 … 06-08 (перенесено 2026-06-21)
+- [2026-06-04] **SMM-аналитика (Эпик B Phase 4+5) — в проде.** Миграция `20260604185535_add_smm_analytics` (4 модели). `services/analytics/` + `metrics-poller.ts` (2×/день) + `routes/analytics.ts` + `AnalyticsView.vue`. ADR `decisions/2026-06-smm-analytics-architecture`.
+- [2026-06-04] **Postmypost analytics:** `/analytics/publications` → analytics{likes,shares,engagements,views,reach,er}. Джойн: `externalPostId`→`GET /publications/{id}`→`external_id`(IG media). PMP accounts проекта 347349: VK НаWоде=2164096, IG nawode.ru=2163599, IG yurykukin=2163523.
+- [2026-06-04] **VK-метрики:** `wall.getById` требует USER-токен (community→error 27); `ensureValidToken()` авто-рефреш. `stats.get`/`stories.getStats`→scope `stats`. CF VK-контент=СТОРИС, статы ~24ч. Счётчик nawode.ru=92916147.
+- [2026-06-04] **ИНЦИДЕНТ:** `docker compose up` из dev-папки уронил прод-БД (общий compose-проект по basename). Правило: dev-БД только standalone `docker run --name cf-dev-pg -p 5441:5432`, НИКОГДА не compose из dev-папки.
+- [2026-06-03] Instagram через **Postmypost** (не Meta Graph). API base `https://api.postmypost.io/v4.1`. Upload byFile (init→S3→complete→poll). type POST=1/STORY=2/REELS=4. PlatformAccount: accessToken+accountId+config.postmypostProjectId.
+- [2026-06-03] НаWоде каналы: IG @nawode.ru (2163599) + VK NAWODE (group 150371202). PlatformAccounts: pmp_ig_nawode, pmp_ig_yurykukin, vk_personal_yurykukin.
+- [2026-06-04] **Отложка сторис (A1):** `PostVersion.publishOptions Json?` = {skipOverlay,linkText,linkUrl,photoPosition,musicSessionId?}. `/schedule` принимает storiesOptions. **A2:** isPublished только PUBLISHED, isScheduled отдельно.
+- [2026-06-04] **Утренний AI-агент (Эпик C):** `daily-digest.ts` (Sonnet) + DataSourceAdapter. Триггер scheduler 04:00 UTC. `AutoPostTask(source='digest')`. Approve→черновик Post. UI `/digest`.
+- [2026-06-04] **Музыка в видео-сторис (A4):** `overlayAudioOnVideo()` (ffmpeg -shortest). Нативную музыку VK/IG сторис через API нельзя — вшиваем.
+- [2026-06-04] **Все форматы:** `PostType.CLIPS`. VK клипы=вертикальное видео (нет публичного API Клипов). IG REELS+CLIPS→PMP type=4.
+- [2026-06-04] **ИНЦИДЕНТ:** `bun file.js` с TS-синтаксисом (`as any`) крашит Bun. Скрипты для `bun file.js` = чистый JS ИЛИ `.ts`.
+- [2026-06-04] **Интеллект контент-плана (Эпик D):** `generate-plan` подставляет рубрики/поводы из БД; `buildPostPrompt` анти-повтор (8 постов); `POST /plan-items/:id/regenerate`.
+- [2026-06-06] **FIX зависание видео-генерации:** `/ai/generate-video` не оборачивал `createVideoTask()` в try/catch → сессия навсегда `generating`. Урок: все 3 студии откатывают статус при ошибке KIE. Баланс KIE: `GET /api/v1/chat/credit`.
+- [2026-06-08] **FIX Cataloger EROFS:** `photo-cataloger.ts` писал в read-only `/app/google-photos` → `THUMBS_DIR`→`/app/uploads/.google-photos-thumbs`.
+- [2026-06-05] **Метрика:** OAuth-токен в AppConfig `metrika_oauth_token`. Per-business: `Business.metrikaCounterId`+`metrikaGoalIds` + `metrika_token_{id}`. НаWоде счётчик 92916147, цель РАСПИСАНИЕ 302969632 (booking-intent). Счётчик на nawode.ru, НЕ на erp.nawode.ru.
+- [2026-06-05] **VK ре-авторизация:** scope `stats`/`photos` требуют модерации VK-аппа. `photos` обойдён через Postmypost. Пост-метрики VK через `wall.getById`.
+- [2026-06-06] **Метрика WRITE подтверждён** (цели: DELETE `/goal/{id}` ед.ч., создание `/goals` мн.ч.). yclients убран со всех 14 страниц nawode.ru → свой ERP-виджет `erp.nawode.ru/booking.html?ref=X&serviceType={WALK|TOUR|RENTAL|LESSON}&productId=Z`.
+
+---
+
 ## Архив: базовые факты + сторис-сессия 2026-06-03 (перенесено 2026-06-04)
 - [2026-04-05] Порты: backend :3800, frontend :5176, postgres :5441 (актуально в CLAUDE.md)
 - [2026-04-05] Brand color: Fuchsia/Magenta (#d946ef)
