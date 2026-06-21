@@ -6,6 +6,7 @@ import { getUserBusinessIds } from '../middleware/business-access'
 import { collectBusinessMetrics, collectAllBusinesses } from '../services/analytics/collector'
 import { getMetrikaToken } from '../services/analytics/metrika-adapter'
 import { generateAnalyticsReport } from '../services/analytics/analyst-agent'
+import { getBookingRoiByRef, getBookingLinks, isNawodeDataAvailable } from '../services/nawode-data'
 
 const analytics = new Hono()
 
@@ -19,6 +20,22 @@ async function assertAccess(user: AuthUser, businessId: string): Promise<boolean
 
 function engagementsOf(s: { likes: number | null; comments: number | null; shares: number | null; saves: number | null }): number {
   return (s.likes || 0) + (s.comments || 0) + (s.shares || 0) + (s.saves || 0)
+}
+
+/** ref брони → читаемая метка (если ссылки нет в booking_links). */
+function prettyRef(ref: string): string {
+  if (ref === 'website_widget') return 'Кнопка на сайте'
+  return ref.replace(/_/g, ' ')
+}
+
+/** Канал источника брони по ref/scope — для группировки ROI в дашборде. */
+function channelOfRef(ref: string, scope?: string[]): string {
+  const r = ref.toLowerCase()
+  if (scope?.includes('vk') || /(^|[^a-z])vk([^a-z]|$)|вк/.test(r)) return 'VK'
+  if (scope?.includes('instagram') || /insta|инст/.test(r)) return 'Instagram'
+  if (r.includes('avito') || r.includes('авито')) return 'Avito'
+  if (r === 'website_widget' || r.includes('sayt') || r.includes('сайт') || r.includes('website')) return 'Сайт'
+  return 'Другое'
 }
 
 // ---------------------------------------------------------------------------
@@ -144,6 +161,47 @@ analytics.get('/overview', async (c) => {
   const hasVkAccountMetrics = await db.socialAccountMetricSnapshot.count({ where: { businessId, source: 'VK', metricDate: { gte: since } } })
   const metrikaToken = await getMetrikaToken()
 
+  // 5. Реальные брони из ERP (нижний уровень воронки — деньги). Атрибуция по
+  //    referral_source (ссылка/канал). Пока nawode-специфично (схема booking_links/
+  //    referral_source); обобщим через DataSourceAdapter, когда появится второй ERP с бронями.
+  type RoiRef = { ref: string; label: string; channel: string; bookings: number; cancelled: number; people: number; bookedKopecks: number; paidKopecks: number }
+  let bookingRoi: {
+    available: boolean
+    totalBookings?: number; totalCancelled?: number
+    totalPaidKopecks?: number; totalBookedKopecks?: number
+    byRef?: RoiRef[]
+  } = { available: false }
+
+  const biz = await db.business.findUnique({ where: { id: businessId }, select: { erpType: true } })
+  if (biz?.erpType === 'nawode' && isNawodeDataAvailable()) {
+    const [roiRows, links] = await Promise.all([
+      getBookingRoiByRef(since.toISOString(), now.toISOString()),
+      getBookingLinks(),
+    ])
+    const linkByRef = new Map(links.map((l) => [l.ref, l]))
+    const byRef: RoiRef[] = roiRows.map((r) => {
+      const link = linkByRef.get(r.ref)
+      return {
+        ref: r.ref,
+        label: link?.label || prettyRef(r.ref),
+        channel: channelOfRef(r.ref, link?.scope),
+        bookings: r.bookings,
+        cancelled: r.cancelled,
+        people: r.people,
+        bookedKopecks: r.bookedKopecks,
+        paidKopecks: r.paidKopecks,
+      }
+    })
+    bookingRoi = {
+      available: true,
+      totalBookings: byRef.reduce((a, r) => a + r.bookings, 0),
+      totalCancelled: byRef.reduce((a, r) => a + r.cancelled, 0),
+      totalPaidKopecks: byRef.reduce((a, r) => a + r.paidKopecks, 0),
+      totalBookedKopecks: byRef.reduce((a, r) => a + r.bookedKopecks, 0),
+      byRef,
+    }
+  }
+
   return c.json({
     window: { days, from: since.toISOString(), to: now.toISOString() },
     totals: { ...totals, engagementRate },
@@ -154,6 +212,7 @@ analytics.get('/overview', async (c) => {
       conversions: totalConversions,
       bySource: [...bySourceRoi.entries()].map(([source, v]) => ({ source, ...v })),
     },
+    bookingRoi,
     posts,
     adapters: {
       vkStats: hasVkAccountMetrics > 0,   // охваты VK собираются (есть scope stats)

@@ -8,16 +8,22 @@
  * Config: NAWODE_DATABASE_URL (read-only creds). If unset, returns null gracefully.
  */
 
-import { SQL } from 'bun'
+import type { SQL } from 'bun'
 import { log } from '../utils/logger'
 
 const MAIN_LOCATION = 'loc-naberezh' // SUP SPOT Выборг (набережная)
 
+// 'bun' импортируется ЛЕНИВО (dynamic import внутри getSql): top-level `import {SQL} from 'bun'`
+// роняет vitest (резолвит импорты не через bun-runtime). Тип берём через `import type` — он
+// стирается компилятором и не вызывает рантайм-резолв. Паттерн как в datasource/nawode-erp-adapter.
 let sql: SQL | null = null
-function getSql(): SQL | null {
+async function getSql(): Promise<SQL | null> {
   const url = process.env.NAWODE_DATABASE_URL
   if (!url) return null
-  if (!sql) sql = new SQL(url, { max: 2, idleTimeout: 20 })
+  if (!sql) {
+    const bun = await import('bun')
+    sql = new bun.SQL(url, { max: 2, idleTimeout: 20 })
+  }
   return sql
 }
 
@@ -70,7 +76,7 @@ export function isNawodeDataAvailable(): boolean {
  * на сегодня и ближайшие дни.
  */
 export async function getNawodeData(daysAhead = 3): Promise<NawodeData | null> {
-  const db = getSql()
+  const db = await getSql()
   if (!db) {
     log.warn('[NawodeData] NAWODE_DATABASE_URL not set — skipping')
     return null
@@ -135,7 +141,7 @@ export async function getNawodeData(daysAhead = 3): Promise<NawodeData | null> {
 
 /** Бронирования в произвольном диапазоне дат (для контент-плана) */
 export async function getBookingsInRange(startISO: string, endISO: string): Promise<BookingDay[]> {
-  const db = getSql()
+  const db = await getSql()
   if (!db) return []
   try {
     const rows = await db<any[]>`
@@ -189,7 +195,7 @@ function deriveScope(name: string): string[] {
 
 /** Готовые ref-ссылки бронирования из НаWоде ERP (booking_links) → опции для редактора. */
 export async function getBookingLinks(baseUrl = DEFAULT_BOOKING_BASE_URL): Promise<BookingLinkOption[]> {
-  const db = getSql()
+  const db = await getSql()
   if (!db) return []
   try {
     const rows = await db<any[]>`
@@ -205,6 +211,70 @@ export async function getBookingLinks(baseUrl = DEFAULT_BOOKING_BASE_URL): Promi
       })
   } catch (err: any) {
     log.error('[NawodeData] getBookingLinks failed', { error: err.message })
+    return []
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// SMM ROI: реальные брони по источнику (referral_source) + деньги — для аналитики.
+// ─────────────────────────────────────────────────────────────────────────
+
+export interface BookingRefRoi {
+  ref: string            // referral_source брони (== booking_links.ref / utm ref)
+  bookings: number       // активные брони (не отменённые)
+  cancelled: number      // отменённые
+  people: number         // суммарно гостей по активным броням
+  bookedKopecks: number  // сумма total_price активных броней (копейки)
+  paidKopecks: number    // реально полученные деньги (settled-платежи − возвраты, копейки)
+}
+
+/**
+ * ROI по источникам броней (referral_source) за период [startISO, endISO) — нижний
+ * уровень воронки SMM («ссылка/канал → брони → ₽»). Период по created_at брони.
+ *
+ * Логика «оплачено» 1:1 с ERP (utils/payments.isSettledPayment): из выручки
+ * исключаются только онлайн-платежи ЮKassa в статусе pending/canceled; возвраты
+ * (is_refund) вычитаются. paidKopecks считается по ВСЕМ броням источника (включая
+ * позднее отменённые, но реально оплаченные) — как aggregateLinkStats в ERP.
+ * Только брони с непустым referral_source (атрибутированные).
+ */
+export async function getBookingRoiByRef(startISO: string, endISO: string): Promise<BookingRefRoi[]> {
+  const db = await getSql()
+  if (!db) return []
+  try {
+    const rows = await db<any[]>`
+      WITH paid AS (
+        SELECT p.booking_id,
+               sum(CASE WHEN p.is_refund THEN -p.amount ELSE p.amount END) AS paid_kopecks
+        FROM payments p
+        WHERE (p.method <> 'ONLINE' OR p.yookassa_status IS NULL OR p.yookassa_status NOT IN ('pending','canceled'))
+        GROUP BY p.booking_id
+      )
+      SELECT
+        b.referral_source AS ref,
+        count(*) FILTER (WHERE b.status::text NOT IN ('CANCELLED','cancelled','CANCELED'))::int AS bookings,
+        count(*) FILTER (WHERE b.status::text IN ('CANCELLED','cancelled','CANCELED'))::int AS cancelled,
+        coalesce(sum(b.group_size) FILTER (WHERE b.status::text NOT IN ('CANCELLED','cancelled','CANCELED')), 0)::int AS people,
+        coalesce(sum(b.total_price) FILTER (WHERE b.status::text NOT IN ('CANCELLED','cancelled','CANCELED')), 0)::bigint AS booked_kopecks,
+        coalesce(sum(pd.paid_kopecks), 0)::bigint AS paid_kopecks
+      FROM bookings b
+      LEFT JOIN paid pd ON pd.booking_id = b.id
+      WHERE b.created_at >= ${startISO}::timestamptz
+        AND b.created_at < ${endISO}::timestamptz
+        AND b.referral_source IS NOT NULL
+      GROUP BY b.referral_source
+      ORDER BY bookings DESC, booked_kopecks DESC
+    `
+    return (rows || []).map((r: any) => ({
+      ref: String(r.ref),
+      bookings: Number(r.bookings) || 0,
+      cancelled: Number(r.cancelled) || 0,
+      people: Number(r.people) || 0,
+      bookedKopecks: Number(r.booked_kopecks) || 0,
+      paidKopecks: Number(r.paid_kopecks) || 0,
+    }))
+  } catch (err: any) {
+    log.error('[NawodeData] getBookingRoiByRef failed', { error: err.message })
     return []
   }
 }

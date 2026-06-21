@@ -11,6 +11,7 @@ import { log } from '../../utils/logger'
 import { emitEvent } from '../../eventBus'
 import { buildBrandContext } from '../ai/prompt-builder'
 import { aiComplete } from '../ai/openrouter'
+import { getBookingRoiByRef, isNawodeDataAvailable } from '../nawode-data'
 
 const DOW = ['воскресенье', 'понедельник', 'вторник', 'среда', 'четверг', 'пятница', 'суббота']
 
@@ -23,6 +24,7 @@ interface AnalyticsContext {
   topPosts: Array<any>
   bottomPosts: Array<any>
   roiConfigured: boolean
+  bookingRoi?: Array<{ ref: string; bookings: number; cancelled: number; paidRub: number }>
 }
 
 /** Собрать агрегированный контекст для агента + снимок для дашборда. */
@@ -64,6 +66,14 @@ export async function gatherAnalyticsContext(businessId: string, days = 30): Pro
     }
   }
   const roiConfigured = traffic.length > 0
+
+  // Реальные брони из ERP (нижний уровень воронки — деньги по источнику)
+  const bizRow = await db.business.findUnique({ where: { id: businessId }, select: { erpType: true } })
+  let bookingRoi: AnalyticsContext['bookingRoi'] = undefined
+  if (bizRow?.erpType === 'nawode' && isNawodeDataAvailable()) {
+    const rows = await getBookingRoiByRef(since.toISOString(), now.toISOString())
+    if (rows.length) bookingRoi = rows.map(r => ({ ref: r.ref, bookings: r.bookings, cancelled: r.cancelled, paidRub: Math.round(r.paidKopecks / 100) }))
+  }
 
   const eng = (s: any) => (s.likes || 0) + (s.comments || 0) + (s.shares || 0) + (s.saves || 0)
   const totals = { posts: 0, reach: 0, views: 0, engagements: 0, engagementRate: null as number | null, visits: totalVisits, conversions: totalConversions }
@@ -132,6 +142,7 @@ export async function gatherAnalyticsContext(businessId: string, days = 30): Pro
     topPosts: sorted.slice(0, 5),
     bottomPosts: sorted.slice(-3).reverse(),
     roiConfigured,
+    bookingRoi,
   }
 }
 
@@ -161,6 +172,7 @@ export async function generateAnalyticsReport(
     топ_посты: ctx.topPosts,
     слабые_посты: ctx.bottomPosts,
     конверсии_метрика_подключены: ctx.roiConfigured,
+    реальные_брони_erp: ctx.bookingRoi ?? null,
   }, null, 2)
 
   const systemPrompt = `Ты — аналитик SMM-агентства. Анализируешь эффективность контента бренда за период и даёшь конкретные рекомендации для следующего цикла.
@@ -173,6 +185,7 @@ ${dataBlock}
 ПОЯСНЕНИЯ К МЕТРИКАМ:
 - reach=охват, views=просмотры, engagements=вовлечённость (лайки+комменты+репосты+сохранения), engagementRate=ER%.
 - visits/conversions — переходы на сайт и достигнутые цели (брони) из Яндекс.Метрики по utm_content=postId. Если "конверсии_метрика_подключены"=false — данных о бронях НЕТ, выводы делай по охвату/вовлечённости и явно отметь, что воронка до брони не подключена.
+- реальные_брони_erp — ФАКТИЧЕСКИЕ брони и оплаченные деньги (paidRub, ₽) из ERP по источнику (referral_source = ссылка/канал, напр. bron_vk, *_sayt). Это РЕАЛЬНЫЙ нижний уровень воронки (деньги), точнее Метрики. Атрибуция по ссылке/каналу, НЕ по конкретному посту. Если есть — делай выводы «какой канал/ссылка приносит реальные брони и доход», сопоставляй с охватом/форматами.
 - Анализируй: какие ФОРМАТЫ, ПЛОЩАДКИ и ДНИ дают охват И (если есть) брони; что не зашло.
 
 ЗАКОНОДАТЕЛЬСТВО РФ: не предлагай продвижение в Instagram (Meta признана экстремистской), нейтральный тон.

@@ -7,7 +7,7 @@ import { useSectionAccess } from '@/composables/useSectionAccess'
 import { formatNumber, formatDate } from '@/composables/useFormatters'
 import {
   Eye, Heart, Radio, MousePointerClick, Target,
-  RefreshCw, Sparkles, ExternalLink, CheckCircle2, XCircle, Info, AlertTriangle, Lightbulb,
+  RefreshCw, Sparkles, ExternalLink, CheckCircle2, XCircle, Info, AlertTriangle, Lightbulb, Wallet,
 } from 'lucide-vue-next'
 
 const toast = useToast()
@@ -40,6 +40,11 @@ interface Overview {
   totals: { posts: number; reach: number; views: number; likes: number; comments: number; shares: number; engagements: number; engagementRate: number | null }
   byPlatform: Array<{ platform: string; posts: number; reach: number; views: number; likes: number; engagements: number }>
   roi: { configured: boolean; visits: number; conversions: number; bySource: Array<{ source: string; visits: number; conversions: number }> }
+  bookingRoi: {
+    available: boolean
+    totalBookings?: number; totalCancelled?: number; totalPaidKopecks?: number; totalBookedKopecks?: number
+    byRef?: Array<{ ref: string; label: string; channel: string; bookings: number; cancelled: number; people: number; bookedKopecks: number; paidKopecks: number }>
+  }
   posts: PostRow[]
   adapters: { vkStats: boolean; metrika: boolean }
   lastCapturedAt: string | null
@@ -118,6 +123,9 @@ async function decide(id: string, decision: 'approve' | 'dismiss') {
   }
 }
 
+function formatRub(kopecks: number | undefined): string {
+  return formatNumber(Math.round((kopecks || 0) / 100)) + ' ₽'
+}
 function platformBadge(p: string): string {
   if (p === 'VK') return 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300'
   if (p === 'INSTAGRAM') return 'bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-900 dark:text-fuchsia-300'
@@ -198,6 +206,57 @@ watch([bizId, days], load)
           <div class="flex items-center gap-1.5 text-xs text-gray-500 mb-1"><Target :size="13" /> Брони</div>
           <div class="text-2xl font-bold">{{ data.roi.configured ? formatNumber(data.roi.conversions) : '—' }}</div>
         </div>
+      </div>
+
+      <!-- Брони и доход из ERP (нижний уровень воронки — реальные деньги по источнику) -->
+      <div v-if="data.bookingRoi.available" class="mb-6">
+        <div class="flex items-center gap-2 mb-3">
+          <Wallet :size="18" class="text-brand-600 dark:text-brand-400" />
+          <h2 class="text-lg font-semibold">Брони и доход <span class="text-sm font-normal text-gray-400">из ERP · по источнику</span></h2>
+        </div>
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-3">
+          <div class="bg-white dark:bg-gray-900 rounded-xl p-4 border border-gray-200 dark:border-gray-800">
+            <div class="text-xs text-gray-500 mb-1">Броней (активных)</div>
+            <div class="text-2xl font-bold">{{ data.bookingRoi.totalBookings }}</div>
+          </div>
+          <div class="bg-white dark:bg-gray-900 rounded-xl p-4 border border-gray-200 dark:border-gray-800">
+            <div class="text-xs text-gray-500 mb-1">Оплачено</div>
+            <div class="text-2xl font-bold text-green-600 dark:text-green-400">{{ formatRub(data.bookingRoi.totalPaidKopecks) }}</div>
+          </div>
+          <div class="bg-white dark:bg-gray-900 rounded-xl p-4 border border-gray-200 dark:border-gray-800">
+            <div class="text-xs text-gray-500 mb-1">Сумма броней</div>
+            <div class="text-2xl font-bold">{{ formatRub(data.bookingRoi.totalBookedKopecks) }}</div>
+          </div>
+          <div class="bg-white dark:bg-gray-900 rounded-xl p-4 border border-gray-200 dark:border-gray-800">
+            <div class="text-xs text-gray-500 mb-1">Отменено</div>
+            <div class="text-2xl font-bold text-gray-400">{{ data.bookingRoi.totalCancelled }}</div>
+          </div>
+        </div>
+        <div v-if="data.bookingRoi.byRef?.length" class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead class="text-xs text-gray-500 border-b border-gray-200 dark:border-gray-800">
+              <tr>
+                <th class="text-left font-medium px-4 py-2">Источник (ссылка)</th>
+                <th class="text-left font-medium px-3 py-2">Канал</th>
+                <th class="text-right font-medium px-3 py-2">Броней</th>
+                <th class="text-right font-medium px-3 py-2">Гостей</th>
+                <th class="text-right font-medium px-3 py-2">Оплачено</th>
+                <th class="text-right font-medium px-3 py-2">Отмен.</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="r in data.bookingRoi.byRef" :key="r.ref" class="border-b border-gray-100 dark:border-gray-800/60 hover:bg-gray-50 dark:hover:bg-gray-800/40">
+                <td class="px-4 py-2">{{ r.label }}</td>
+                <td class="px-3 py-2"><span :class="['px-2 py-0.5 rounded text-xs font-semibold', platformBadge(r.channel === 'Instagram' ? 'INSTAGRAM' : r.channel === 'VK' ? 'VK' : 'other')]">{{ r.channel }}</span></td>
+                <td class="px-3 py-2 text-right tabular-nums font-semibold">{{ r.bookings }}</td>
+                <td class="px-3 py-2 text-right tabular-nums">{{ r.people }}</td>
+                <td class="px-3 py-2 text-right tabular-nums font-semibold" :class="r.paidKopecks > 0 ? 'text-green-600 dark:text-green-400' : 'text-gray-400'">{{ formatRub(r.paidKopecks) }}</td>
+                <td class="px-3 py-2 text-right tabular-nums text-gray-400">{{ r.cancelled || '—' }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="text-xs text-gray-400 mt-2">Атрибуция по ссылке/каналу (referral_source). Привязка к конкретному посту (utm_content) — в Фазе 2.</p>
       </div>
 
       <!-- By platform -->
