@@ -19,7 +19,9 @@ import {
   buildDigestStrategistPrompt,
   buildDigestCopywriterPrompt,
   buildDigestArtDirectorPrompt,
+  buildDigestRoleStoryPrompt,
   buildAdaptPrompt,
+  type DigestStoryRole,
 } from './ai/prompt-builder'
 import { getDataSourceAdapter } from './datasource'
 import { getStrategyBlock, getSeasonHint, getRubricNames } from './ai/strategy'
@@ -59,6 +61,9 @@ interface PlatformAdaptation {
   hashtags: string[]
 }
 
+/** Роль прогона дайджеста: 'full' = легаси пачка идей (ручная кнопка); morning/day/evening = одна сторис ритма. */
+export type DigestRole = 'full' | DigestStoryRole
+
 /** Собранный контекст дня — общий вход для команды агентов и fallback single-shot. */
 interface DigestContext {
   dayName: string
@@ -68,6 +73,7 @@ interface DigestContext {
   seasonHint: string
   rubrics: string[]
   dataBlock: string
+  hotSlotsBlock: string          // «горячие» слоты (где уже есть записанные) — для слот-филла
   recentSummary: string
   recentProposals: string
   competitorBlock: string
@@ -92,10 +98,12 @@ function parseJsonLoose<T>(raw: string): T | null {
   try { return JSON.parse(cleaned) as T } catch { return null }
 }
 
-/** Проверка по расписанию (вызывается каждые 60с из scheduler) */
+/** Проверка по расписанию (вызывается каждые 60с из scheduler) — ЛЕГАСИ единый прогон (пачка идей). */
 export async function checkAndRunDailyDigest(): Promise<void> {
   const enabled = await getConfig('digest_enabled')
   if (enabled !== 'true') return
+  // Ритм-режим (3 сторис/день) владеет дайджестом — чтобы не было двойной генерации.
+  if ((await getConfig('digest_roles_enabled')) === 'true') return
 
   const timeUtc = (await getConfig('digest_time_utc')) || '04:00' // 07:00 МСК
   const [h, m] = timeUtc.split(':').map(Number)
@@ -110,27 +118,58 @@ export async function checkAndRunDailyDigest(): Promise<void> {
   await runDailyDigest().catch((e: any) => log.error('[Digest] run failed', { error: e.message }))
 }
 
-/** Сгенерировать дайджест для НаWоде-бизнесов (или конкретного). force = игнорировать дневной дедуп. */
-export async function runDailyDigest(opts?: { businessId?: string; force?: boolean }): Promise<{ created: number }> {
+/** Дефолтное время ролей (UTC): 07:00 / 13:00 / 19:00 МСК. */
+const DIGEST_ROLE_DEFAULT_TIMES: Record<DigestStoryRole, string> = { morning: '04:00', day: '10:00', evening: '16:00' }
+
+/**
+ * Ритм-движок (Ф2): 3 прогона/день по ролям (утро/день/вечер), КАЖДЫЙ генерит свою сторис
+ * по СВЕЖИМ данным на момент прогона. Opt-in `digest_roles_enabled` (иначе работает легаси).
+ * Per-slot дедуп `digest_last_run_<role>` — каждый слот раз в день.
+ */
+export async function checkAndRunDigestRoles(): Promise<void> {
+  if ((await getConfig('digest_roles_enabled')) !== 'true') return
+  const rolesCfg = (await getConfig('digest_story_roles')) || 'morning,day,evening'
+  const roles = rolesCfg.split(',').map(s => s.trim())
+    .filter((r): r is DigestStoryRole => r === 'morning' || r === 'day' || r === 'evening')
+  const now = new Date()
+  for (const role of roles) {
+    const timeUtc = (await getConfig(`digest_time_utc_${role}`)) || DIGEST_ROLE_DEFAULT_TIMES[role]
+    const [h, m] = timeUtc.split(':').map(Number)
+    if (now.getUTCHours() !== h || now.getUTCMinutes() !== m) continue
+
+    const lastKey = `digest_last_run_${role}`
+    const last = await getConfig(lastKey)
+    if (last && new Date(last).toDateString() === now.toDateString()) continue // этот слот уже сегодня
+    await setConfig(lastKey, now.toISOString())
+
+    log.info('[Digest] role run starting', { role })
+    await runDailyDigest({ role }).catch((e: any) => log.error('[Digest] role run failed', { role, error: e.message }))
+  }
+}
+
+/** Сгенерировать дайджест для НаWоде-бизнесов (или конкретного). force = игнорировать дневной дедуп.
+ *  role: 'full' (ручная кнопка — пачка идей) | morning/day/evening (одна сторис ритма). */
+export async function runDailyDigest(opts?: { businessId?: string; force?: boolean; role?: DigestRole }): Promise<{ created: number }> {
   // Бизнесы с настроенным источником данных (erpType) — generic, не литерал 'nawode'.
   const businesses = await db.business.findMany({
     where: opts?.businessId ? { id: opts.businessId } : { erpType: { not: null }, isActive: true },
     include: { platformAccounts: { where: { isActive: true } } },
   })
 
+  const role: DigestRole = opts?.role ?? 'full'
   let created = 0
   for (const biz of businesses) {
     try {
-      created += await generateDigestForBusiness(biz, opts?.force === true)
+      created += await generateDigestForBusiness(biz, opts?.force === true, role)
     } catch (err: any) {
       log.error('[Digest] business error', { business: biz.slug, error: err.message })
     }
   }
-  log.info('[Digest] done', { created })
+  log.info('[Digest] done', { created, role })
   return { created }
 }
 
-async function generateDigestForBusiness(biz: any, force: boolean): Promise<number> {
+async function generateDigestForBusiness(biz: any, force: boolean, role: DigestRole = 'full'): Promise<number> {
   // Авто-архив (Ф1.4): неразобранные proposed прошлых дней → archived (в дайджесте показываем только сегодняшние)
   const todayStart = new Date(); todayStart.setUTCHours(0, 0, 0, 0)
   const archived = await db.autoPostTask.updateMany({
@@ -139,8 +178,9 @@ async function generateDigestForBusiness(biz: any, force: boolean): Promise<numb
   })
   if (archived.count > 0) log.info('[Digest] archived stale proposals', { business: biz.slug, count: archived.count })
 
-  // Идемпотентность: не плодить дубли в один день (если не force)
-  if (!force) {
+  // Идемпотентность ЛЕГАСИ-прогона ('full'): не плодить дубли в один день (если не force).
+  // Ролевые прогоны (morning/day/evening) дедупятся per-slot в checkAndRunDigestRoles — здесь не блокируем.
+  if (role === 'full' && !force) {
     const today = new Date(); today.setUTCHours(0, 0, 0, 0)
     const existing = await db.autoPostTask.count({
       where: { businessId: biz.id, source: 'digest', createdAt: { gte: today }, status: { in: ['proposed'] } },
@@ -151,7 +191,9 @@ async function generateDigestForBusiness(biz: any, force: boolean): Promise<numb
     }
   }
 
-  const data = await getDataSourceAdapter(biz).getDailySummary(3)
+  const adapter = getDataSourceAdapter(biz)
+  const data = await adapter.getDailySummary(3)
+  const hotSlots = await adapter.getHotSlots(7).catch(() => [])
   const brandContext = await buildBrandContext(biz.id)
   const { strategyText, seasonHints } = await getStrategyBlock(biz.id)
   const platforms = [...new Set((biz.platformAccounts || []).map((p: any) => p.platform))] as string[]
@@ -209,6 +251,17 @@ async function generateDigestForBusiness(biz: any, force: boolean): Promise<numb
     dataBlock = `ПОГОДА (Выборг, набережная):\n${w}\n\nБРОНИРОВАНИЯ:\n${b}`
   }
 
+  // «Горячие» слоты (где уже есть записанные) — вход для слот-филла (утренняя/дневная сторис)
+  const todayStr = now.toISOString().slice(0, 10)
+  const hotSlotsBlock = hotSlots.length
+    ? hotSlots.slice(0, 6).map((s: any) => {
+        const when = s.date === todayStr ? 'сегодня' : s.date
+        const room = s.remaining != null ? `, осталось ~${s.remaining} мест` : ''
+        const what = s.tourName || (s.serviceType === 'RENTAL' ? 'прокат' : s.serviceType || 'слот')
+        return `- ${when} ${s.startTime || ''} ${what}: уже ${s.peopleBooked} чел.${room}`.replace(/ +/g, ' ').trim()
+      }).join('\n')
+    : 'горячих слотов нет (нет предстоящих броней — делай акцент на погоде и приглашении)'
+
   const rubrics = await getRubricNames(biz.id)
   const ctx: DigestContext = {
     dayName: dayNames[now.getDay()],
@@ -218,6 +271,7 @@ async function generateDigestForBusiness(biz: any, force: boolean): Promise<numb
     seasonHint: getSeasonHint(seasonHints, now.getMonth()),
     rubrics,
     dataBlock,
+    hotSlotsBlock,
     recentSummary,
     recentProposals,
     competitorBlock,
@@ -226,18 +280,35 @@ async function generateDigestForBusiness(biz: any, force: boolean): Promise<numb
     todayWeather: data?.weather?.[0]?.windMax != null ? windLabel(data.weather[0].windMax) : null,
   }
 
-  // Команда агентов (стратег → копирайтер → арт-директор) с fallback на single-shot Sonnet.
   let suggestions: Suggestion[] = []
-  try {
-    suggestions = await runAgentTeam(biz.id, ctx)
-  } catch (err: any) {
-    log.warn('[Digest] agent team failed → fallback to single-shot', { business: biz.slug, error: err.message })
-  }
-  if (!suggestions.length) {
-    suggestions = await runSingleShot(biz.id, ctx).catch((e: any) => {
-      log.error('[Digest] single-shot failed', { business: biz.slug, error: e.message })
-      return [] as Suggestion[]
+  if (role === 'full') {
+    // ЛЕГАСИ-прогон (ручная кнопка): команда агентов (стратег → копирайтер → арт-директор) + fallback single-shot.
+    try {
+      suggestions = await runAgentTeam(biz.id, ctx)
+    } catch (err: any) {
+      log.warn('[Digest] agent team failed → fallback to single-shot', { business: biz.slug, error: err.message })
+    }
+    if (!suggestions.length) {
+      suggestions = await runSingleShot(biz.id, ctx).catch((e: any) => {
+        log.error('[Digest] single-shot failed', { business: biz.slug, error: e.message })
+        return [] as Suggestion[]
+      })
+    }
+  } else {
+    // РИТМ-прогон: ОДНА сторис под роль (свежие данные на момент прогона).
+    const story = await runRoleStory(biz.id, ctx, role).catch((e: any) => {
+      log.warn('[Digest] role story failed', { business: biz.slug, role, error: e.message })
+      return null
     })
+    if (story) suggestions.push(story)
+    // Лента — в утреннем прогоне на feed-день (opt-in digest_feed_days, напр. "1,2,3,4,5"; 0=вс)
+    if (role === 'morning') {
+      const feedDays = ((await getConfig('digest_feed_days')) || '').split(',').map(s => s.trim()).filter(Boolean)
+      if (feedDays.includes(String(now.getUTCDay()))) {
+        const feed = await runAgentTeam(biz.id, ctx, 1).catch(() => [] as Suggestion[])
+        suggestions.push(...feed)
+      }
+    }
   }
   if (!suggestions.length) return 0
 
@@ -365,14 +436,15 @@ async function adaptForPlatforms(
     .map(r => r.value)
 }
 
-/** Цепочка ролей: стратег (1 вызов) → по каждой идее копирайтер + адаптация + арт-директор (параллельно). */
-async function runAgentTeam(businessId: string, ctx: DigestContext): Promise<Suggestion[]> {
+/** Цепочка ролей: стратег (1 вызов) → по каждой идее копирайтер + адаптация + арт-директор (параллельно).
+ *  count — сколько идей просить (3 для легаси-дайджеста, 1 для ленты в ритм-прогоне). */
+async function runAgentTeam(businessId: string, ctx: DigestContext, count = 3): Promise<Suggestion[]> {
   const { aiComplete } = await import('./ai/openrouter')
 
   // РОЛЬ 1 — Стратег: темы дня
   const stratRes = await aiComplete({
     model: 'anthropic/claude-sonnet-4',
-    systemPrompt: buildDigestStrategistPrompt({ ...ctx, count: 3 }),
+    systemPrompt: buildDigestStrategistPrompt({ ...ctx, count }),
     userPrompt: 'Предложи идеи контента на сегодня. Ответь JSON.',
     maxTokens: 1500,
     temperature: 0.9, // разнообразие: иначе одинаковый вход → одинаковые идеи каждый день
@@ -386,7 +458,7 @@ async function runAgentTeam(businessId: string, ctx: DigestContext): Promise<Sug
   // Последовательно (не параллельно) ради ДЕДУПА фото: usedMediaIds копит уже выбранные кадры.
   const suggestions: Suggestion[] = []
   const usedMediaIds = new Set<string>()
-  for (const idea of ideas.slice(0, 4)) {
+  for (const idea of ideas.slice(0, Math.max(1, count))) {
     try {
       // Ф1.6: только PHOTO/STORIES (каждый пост с фото). Любой другой формат → PHOTO.
       const format = String(idea.format || 'PHOTO').toUpperCase() === 'STORIES' ? 'STORIES' : 'PHOTO'
@@ -459,6 +531,60 @@ async function runAgentTeam(businessId: string, ctx: DigestContext): Promise<Sug
     }
   }
   return suggestions
+}
+
+/**
+ * Ритм (Ф2): ОДНА сторис под роль времени дня. Один Sonnet (стратегия + копия сразу — для сторис
+ * per-platform адаптация не нужна) → арт-директор выбирает реальное фото → дизайн-слой (satori).
+ * Данные (погода/hotSlots) уже свежие в ctx (собраны на момент прогона).
+ */
+async function runRoleStory(businessId: string, ctx: DigestContext, role: DigestStoryRole): Promise<Suggestion | null> {
+  const { aiComplete } = await import('./ai/openrouter')
+  const res = await aiComplete({
+    model: 'anthropic/claude-sonnet-4',
+    systemPrompt: buildDigestRoleStoryPrompt(role, ctx),
+    userPrompt: 'Сделай сторис на сейчас. Ответь JSON.',
+    maxTokens: 900,
+    temperature: 0.9,
+    businessId,
+    action: 'daily_digest',
+  })
+  const idea = parseJsonLoose<{ rubric?: string; theme?: string; text?: string; photoKeywords?: string[]; reasoning?: string }>(res.content || '')
+  if (!idea?.text) return null
+  const text = stripInlineHashtags(idea.text) // хэштеги в сторис не нужны; страхуемся
+
+  const channels = ctx.platforms.length ? ctx.platforms : ['VK']
+
+  // Арт-директор — реальное фото из галереи под тему сторис
+  let mediaFileId: string | null = await pickPhotoForPost(businessId, {
+    theme: idea.theme || text, format: 'STORIES', text, photoKeywords: idea.photoKeywords || [],
+  }).catch(() => null)
+
+  // STORIES → собрать дизайн-картинку (фото-фон + текст + погодный виджет + лого)
+  if (mediaFileId) {
+    const photo = await db.mediaFile.findUnique({ where: { id: mediaFileId }, select: { url: true } })
+    if (photo) {
+      const design = await renderAndSaveStoryDesign({
+        businessId, photoUrl: photo.url, title: idea.theme || text,
+        temp: ctx.todayTemp, weather: ctx.todayWeather, cta: 'Записаться · nawode.ru',
+        sourceMediaId: mediaFileId,
+      }).catch((e: any) => { log.warn('[Digest] role story design failed', { error: e.message }); return null })
+      if (design) mediaFileId = design.id
+    }
+  }
+
+  return {
+    postType: 'STORIES',
+    platforms: channels,
+    title: idea.theme ? String(idea.theme).slice(0, 80) : undefined,
+    text,
+    hashtags: [],
+    adaptations: channels.map(p => ({ platform: p, text, hashtags: [] as string[] })),
+    visualIdea: idea.theme || undefined,
+    rubric: idea.rubric,
+    reasoning: idea.reasoning || `Сторис (${role})`,
+    mediaFileId,
+  }
 }
 
 /** Fallback: один Sonnet генерит все предложения разом (прежнее поведение, без подбора фото). */

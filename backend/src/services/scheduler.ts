@@ -2,7 +2,7 @@ import { db } from '../db'
 import { log } from '../utils/logger'
 import { getPublisher } from './publishers/base'
 import { checkAndRunAutoPost } from './auto-poster'
-import { checkAndRunDailyDigest } from './daily-digest'
+import { checkAndRunDailyDigest, checkAndRunDigestRoles } from './daily-digest'
 import { checkAndRunMetricsCollection } from './metrics-poller'
 import { checkAndRunWeeklyAnalysis } from './analytics/analyst-agent'
 import { checkAndRunCompetitorCollection } from './competitor-poller'
@@ -24,9 +24,13 @@ export function startPublishScheduler(): ReturnType<typeof setInterval> {
       await checkAndRunAutoPost().catch(e =>
         log.error('[Scheduler] AutoPoster error', { error: e.message })
       )
-      // Daily morning digest check (НаWоде content agent)
+      // Daily morning digest check (НаWоде content agent) — легаси единый прогон
       await checkAndRunDailyDigest().catch(e =>
         log.error('[Scheduler] DailyDigest error', { error: e.message })
+      )
+      // Ритм-движок: 3 сторис/день по ролям (утро/день/вечер), opt-in digest_roles_enabled
+      await checkAndRunDigestRoles().catch(e =>
+        log.error('[Scheduler] DigestRoles error', { error: e.message })
       )
       // SMM metrics collection (VK/IG/Метрика) — в окна metrics_times_utc
       await checkAndRunMetricsCollection().catch(e =>

@@ -31,6 +31,7 @@ vi.mock('../datasource', () => ({
   getDataSourceAdapter: vi.fn(() => ({
     getDailySummary: vi.fn().mockResolvedValue(null),
     getBookingsInRange: vi.fn().mockResolvedValue([]),
+    getHotSlots: vi.fn().mockResolvedValue([]),
   })),
 }))
 vi.mock('../ai/strategy', () => ({
@@ -44,6 +45,7 @@ vi.mock('../ai/prompt-builder', () => ({
   buildDigestStrategistPrompt: vi.fn().mockReturnValue('STRATEGIST_PROMPT'),
   buildDigestCopywriterPrompt: vi.fn().mockReturnValue('COPYWRITER_PROMPT'),
   buildDigestArtDirectorPrompt: vi.fn().mockReturnValue('ARTDIRECTOR_PROMPT'),
+  buildDigestRoleStoryPrompt: vi.fn().mockReturnValue('ROLE_STORY_PROMPT'),
   buildAdaptPrompt: vi.fn().mockReturnValue('ADAPT_PROMPT'),
 }))
 vi.mock('../ai/openrouter', () => ({ aiComplete: vi.fn() }))
@@ -135,6 +137,27 @@ describe('runDailyDigest (Epic C — generate suggestions)', () => {
     expect(res.created).toBe(1)
     expect(mockDb.autoPostTask.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ postType: 'PHOTO', mediaFileId: 'mf-2' }) })
+    )
+  })
+
+  it('role run (day) creates ONE STORIES task from a fresh slot-fill story', async () => {
+    mockDb.business.findMany.mockResolvedValue([
+      { id: 'biz-1', slug: 'nawode', name: 'НаWоде', platformAccounts: [{ platform: 'VK' }] },
+    ])
+    mockDb.post.findMany.mockResolvedValue([])
+    mockDb.autoPostTask.create.mockResolvedValue({ id: 'task-day', businessId: 'biz-1' })
+    // Один Sonnet-вызов роли (стратегия+копия). photoKeywords [] → арт-директора не зовём.
+    vi.mocked(aiComplete).mockResolvedValueOnce({
+      content: JSON.stringify({ rubric: 'Маршруты НаWоде', theme: 'Слот-филл', text: 'Уже 3 человека на туре — присоединяйся', photoKeywords: [], hashtags: [], reasoning: 'днём' }),
+      tokensIn: 1, tokensOut: 1, cachedTokens: 0, costUsd: 0, model: 'sonnet',
+    } as any)
+
+    const res = await runDailyDigest({ businessId: 'biz-1', role: 'day', force: true })
+
+    expect(res.created).toBe(1)
+    expect(aiComplete).toHaveBeenCalledTimes(1) // одна сторис на прогон, без пачки идей
+    expect(mockDb.autoPostTask.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ source: 'digest', status: 'proposed', postType: 'STORIES' }) })
     )
   })
 
