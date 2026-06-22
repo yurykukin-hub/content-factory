@@ -137,3 +137,13 @@
 - [2026-06-04] Пресеты сторис A3: StoryTemplate businessId nullable + isSystem + textAlign/bgRadius, 5 системных пресетов (seed-story-presets.ts).
 - [2026-06-04] SMM-аналитика «на будущее» — реализовано в build-сессии (см. ADR + MEMORY Эпик B Phase 4+5).
 - [2026-06-04] Авто-импорт ERP-событий D: NAWODE_EVENTS + getEventsInRange/getBookingsInRange. Перекрыто strategy-as-data (Occasion в БД + services/ai/strategy.ts getOccasionsInRange).
+
+## Архив из «Ключевые факты» (перенесено 2026-06-22)
+- [2026-06-05] **Автономная сессия (per-business Метрика + код-ревью + сайт-уборка):**
+  - **Per-business Метрика-архитектура:** `Business.metrikaCounterId` + `metrikaGoalIds` (БД) + токен AppConfig `metrika_token_{businessId}` (СЕКРЕТ) → глобальный `metrika_oauth_token` fallback. Убран хардкод `DEFAULT_COUNTERS`. `metrika-adapter.getMetrikaToken/getMetrikaConfigForBusiness`. Migration `add_business_metrika_config`. Онбординг = поля Business, не код. НаWоде засижен (92916147 + цели 294764085/290266307). Коммиты ea02d50+e016783.
+  - **Код-ревью:** фикс **H1/H2** (collector.ts VK-via-PMP: нерезолвленные refs отбрасываются + ошибка при пустом `POSTMYPOST_API_TOKEN`). **M4** дайджест `erpType:{not:null}`. **C1 (SECURITY, pre-existing):** `GET /businesses/:id/platforms` отдаёт `accessToken` во фронт → нужна маска (`BusinessDetailView.vue:246`).
+  - **Сайт nawode.ru:** yclients убран (14 страниц) → свой ERP-виджет `erp.nawode.ru/booking.html?ref=X&serviceType={WALK|TOUR|RENTAL|LESSON}&productId=Z`. Продукты: RENTAL=cmnmf7e4o…, WALK=tour-aroma/tour-vyborg-walk/tour-sunset, TOUR=tour-belichi/tour-sila/tour-monrepo, LESSON=tour-fountain-lesson. План: `~/.claude/plans/nawode-erp-metrika-prompt.md`.
+- [2026-06-04] **Полировочная сессия:**
+  - **VK фото/стена через Postmypost:** generic `PostmypostPublisher` (IG + VK-стена); `getPublisher` гибрид (VK+неSTORIES+`config.viaPostmypost`→PMP обход scope photos; VK+STORIES→прямой VK). НаWоде `config={viaPostmypost:true,postmypostAccountId:2164096}`. PMP-токен в `.env.prod` (НЕ config). Коммиты 0299d95+a9eec46.
+  - **Аналитика:** недельный агент вкл (`analytics_agent_enabled=true`, Mon 06:00 UTC). VK-статы/Метрика gated.
+  - **Арх-долг B СНЯТ (4a0f822):** strategy-as-data (Rubric/Occasion в БД + `services/ai/strategy.ts` + сидер) + `services/datasource/` (DataSourceAdapter+NawodeErpAdapter+Null). 167 тестов.
