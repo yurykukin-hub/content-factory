@@ -20,6 +20,7 @@ import {
   buildDigestCopywriterPrompt,
   buildDigestArtDirectorPrompt,
   buildDigestRoleStoryPrompt,
+  buildDigestRecruitmentPrompt,
   buildAdaptPrompt,
   type DigestStoryRole,
 } from './ai/prompt-builder'
@@ -308,6 +309,17 @@ async function generateDigestForBusiness(biz: any, force: boolean, role: DigestR
         const feed = await runAgentTeam(biz.id, ctx, 1).catch(() => [] as Suggestion[])
         suggestions.push(...feed)
       }
+      // Набор инструкторов — еженедельно (по умолч. среда dow=3), ТОЛЬКО VK (opt-in digest_recruitment_enabled)
+      if ((await getConfig('digest_recruitment_enabled')) === 'true') {
+        const recDay = ((await getConfig('digest_recruitment_day')) || '3').trim()
+        if (String(now.getUTCDay()) === recDay) {
+          const contact = (await getConfig('digest_recruitment_contact')) || 'пишите в сообщения сообщества'
+          const rec = await runRecruitmentPost(biz.id, ctx, contact).catch((e: any) => {
+            log.warn('[Digest] recruitment failed', { business: biz.slug, error: e.message }); return null
+          })
+          if (rec) suggestions.push(rec)
+        }
+      }
     }
   }
   if (!suggestions.length) return 0
@@ -583,6 +595,49 @@ async function runRoleStory(businessId: string, ctx: DigestContext, role: Digest
     visualIdea: idea.theme || undefined,
     rubric: idea.rubric,
     reasoning: idea.reasoning || `Сторис (${role})`,
+    mediaFileId,
+  }
+}
+
+/**
+ * Набор инструкторов (еженедельно, ~среда): ВК-пост-вакансия. ТОЛЬКО VK (не Instagram — решение Юрия).
+ * PHOTO-пост (вакансия = постоянный пост, не эфемерная сторис) + фото команды из галереи.
+ */
+async function runRecruitmentPost(businessId: string, ctx: DigestContext, contact: string): Promise<Suggestion | null> {
+  const { aiComplete } = await import('./ai/openrouter')
+  const res = await aiComplete({
+    model: 'anthropic/claude-sonnet-4',
+    systemPrompt: buildDigestRecruitmentPrompt(ctx, contact),
+    userPrompt: 'Напиши пост о наборе инструкторов. Ответь JSON.',
+    maxTokens: 900,
+    temperature: 0.8,
+    businessId,
+    action: 'daily_digest',
+  })
+  const idea = parseJsonLoose<{ theme?: string; text?: string; photoKeywords?: string[]; hashtags?: string[] }>(res.content || '')
+  if (!idea?.text) return null
+  const text = stripInlineHashtags(idea.text)
+  const hashtags = (idea.hashtags || []).slice(0, 10)
+
+  // Только VK (в IG вакансии не постим)
+  const channels = ctx.platforms.filter(p => p === 'VK')
+  if (!channels.length) channels.push('VK')
+
+  const mediaFileId = await pickPhotoForPost(businessId, {
+    theme: idea.theme || 'команда НаWоде', format: 'PHOTO', text,
+    photoKeywords: idea.photoKeywords?.length ? idea.photoKeywords : ['команда', 'сап'],
+  }).catch(() => null)
+
+  return {
+    postType: 'PHOTO',
+    platforms: channels,
+    title: idea.theme ? String(idea.theme).slice(0, 80) : 'Ищем инструкторов',
+    text,
+    hashtags,
+    adaptations: channels.map(p => ({ platform: p, text, hashtags })),
+    visualIdea: 'команда на воде',
+    rubric: 'Ищем инструкторов',
+    reasoning: 'Еженедельный набор инструкторов',
     mediaFileId,
   }
 }

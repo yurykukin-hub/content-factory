@@ -5,6 +5,7 @@ import {
   buildPostPrompt,
   buildAdaptPrompt,
   buildHashtagPrompt,
+  buildDigestRecruitmentPrompt,
 } from '../prompt-builder'
 
 // ============================================================
@@ -186,5 +187,23 @@ describe('buildHashtagPrompt', () => {
   it('includes brand context', () => {
     const result = buildHashtagPrompt('VK', brandContext)
     expect(result).toContain('Test')
+  })
+})
+
+describe('buildDigestRecruitmentPrompt', () => {
+  const ctx = { dayName: 'среда', dateStr: '25 июня 2026', brandContext: '## Бренд: НаWоде', seasonHint: 'лето' }
+
+  it('targets VK only (not Instagram) and embeds the contact CTA', () => {
+    const result = buildDigestRecruitmentPrompt(ctx, 'пишите в сообщения сообщества')
+    expect(result).toContain('ВК')
+    expect(result.toLowerCase()).toContain('instagram') // как явный запрет «не Instagram»
+    expect(result).toContain('пишите в сообщения сообщества')
+  })
+
+  it('emphasizes no-experience-needed and asks for JSON without inline hashtags', () => {
+    const result = buildDigestRecruitmentPrompt(ctx, 'тел. 8-900')
+    expect(result).toContain('БЕЗ ОПЫТА')
+    expect(result).toContain('photoKeywords')
+    expect(result).toContain('БЕЗ хэштегов')
   })
 })
