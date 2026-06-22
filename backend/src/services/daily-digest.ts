@@ -195,7 +195,12 @@ async function generateDigestForBusiness(biz: any, force: boolean, role: DigestR
   const adapter = getDataSourceAdapter(biz)
   const data = await adapter.getDailySummary(3)
   const hotSlots = await adapter.getHotSlots(7).catch(() => [])
-  const brandContext = await buildBrandContext(biz.id)
+  let brandContext = await buildBrandContext(biz.id)
+  // ВАЖНЫЕ ФАКТЫ бизнеса (напр. переезд проката Тапиола→скала) — агент должен ВСЕГДА их знать,
+  // чтобы не вводить клиентов в заблуждение + периодически мягко напоминать. Только публично-безопасное.
+  // Одна точка инъекции (brandContext) → видят ВСЕ промпты (стратег/роль/копирайтер/вакансия/адаптация).
+  const keyFacts = await getConfig('digest_key_facts')
+  if (keyFacts) brandContext += `\n\n## ВАЖНЫЕ ФАКТЫ (помни всегда; можно периодически мягко напоминать клиентам):\n${keyFacts}`
   const { strategyText, seasonHints } = await getStrategyBlock(biz.id)
   const platforms = [...new Set((biz.platformAccounts || []).map((p: any) => p.platform))] as string[]
 
@@ -314,7 +319,8 @@ async function generateDigestForBusiness(biz: any, force: boolean, role: DigestR
         const recDay = ((await getConfig('digest_recruitment_day')) || '3').trim()
         if (String(now.getUTCDay()) === recDay) {
           const contact = (await getConfig('digest_recruitment_contact')) || 'пишите в сообщения сообщества'
-          const rec = await runRecruitmentPost(biz.id, ctx, contact).catch((e: any) => {
+          const recChannels = ((await getConfig('digest_recruitment_channels')) || 'VK').split(',').map(s => s.trim().toUpperCase()).filter(Boolean)
+          const rec = await runRecruitmentPost(biz.id, ctx, contact, recChannels).catch((e: any) => {
             log.warn('[Digest] recruitment failed', { business: biz.slug, error: e.message }); return null
           })
           if (rec) suggestions.push(rec)
@@ -603,7 +609,7 @@ async function runRoleStory(businessId: string, ctx: DigestContext, role: Digest
  * Набор инструкторов (еженедельно, ~среда): ВК-пост-вакансия. ТОЛЬКО VK (не Instagram — решение Юрия).
  * PHOTO-пост (вакансия = постоянный пост, не эфемерная сторис) + фото команды из галереи.
  */
-async function runRecruitmentPost(businessId: string, ctx: DigestContext, contact: string): Promise<Suggestion | null> {
+async function runRecruitmentPost(businessId: string, ctx: DigestContext, contact: string, allowedChannels: string[]): Promise<Suggestion | null> {
   const { aiComplete } = await import('./ai/openrouter')
   const res = await aiComplete({
     model: 'anthropic/claude-sonnet-4',
@@ -619,9 +625,9 @@ async function runRecruitmentPost(businessId: string, ctx: DigestContext, contac
   const text = stripInlineHashtags(idea.text)
   const hashtags = (idea.hashtags || []).slice(0, 10)
 
-  // Только VK (в IG вакансии не постим)
-  const channels = ctx.platforms.filter(p => p === 'VK')
-  if (!channels.length) channels.push('VK')
+  // Каналы вакансии (по умолчанию только VK; IG-органику можно включить конфигом digest_recruitment_channels)
+  const channels = ctx.platforms.filter(p => allowedChannels.includes(p))
+  if (!channels.length && allowedChannels.includes('VK')) channels.push('VK')
 
   const mediaFileId = await pickPhotoForPost(businessId, {
     theme: idea.theme || 'команда НаWоде', format: 'PHOTO', text,
