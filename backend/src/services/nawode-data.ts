@@ -278,3 +278,111 @@ export async function getBookingRoiByRef(startISO: string, endISO: string): Prom
     return []
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// Слот-филл: «горячие» слоты — туры/слоты, где УЖЕ есть записанные люди.
+// Промоутить такие = добивка слота (social proof + почти чистая маржа на доп. участника).
+// ─────────────────────────────────────────────────────────────────────────
+
+export interface HotSlot {
+  date: string                // YYYY-MM-DD
+  startTime: string | null    // '18:00' (как в booking.start_time)
+  tourName: string | null     // название продукта/тура (null у проката без product_id)
+  serviceType: string | null  // RENTAL | WALK | TOUR | LESSON
+  peopleBooked: number        // суммарно гостей (group_size) в слоте
+  bookingsCount: number       // число броней в слоте
+  capacity: number | null     // вместимость (best-effort из service_slots.max_clients); null — не сматчилось
+  remaining: number | null    // capacity - peopleBooked (null если capacity неизвестна)
+}
+
+const HOT_SLOT_GROUP_TYPES = new Set(['WALK', 'TOUR', 'LESSON']) // групповые форматы — приоритет для «присоединяйся»
+
+/**
+ * Pure-маппер сырых строк → HotSlot[] (map + filter + sort). Вынесен для тестируемости.
+ * Фильтр «горячий»: есть записанные (peopleBooked ≥ 1) И (вместимость неизвестна ИЛИ ещё есть места).
+ * Сортировка: ближайший день → групповые форматы → «почти заполнен» (меньше осталось).
+ *
+ * ВНИМАНИЕ к данным: в ERP нет прямой связи booking↔slot (только date+start_time+product_id),
+ * вместимость берётся из service_slots best-effort → может быть null. Поэтому подача в дайджесте =
+ * social-proof-first («уже N человек, тур точно состоится»); жёсткое «осталось M мест» — только при
+ * известном небольшом remaining.
+ */
+export function mapHotSlotRows(rows: any[]): HotSlot[] {
+  return (rows || [])
+    .map((r: any): HotSlot => {
+      const peopleBooked = Number(r.people) || 0
+      const capacity = r.capacity != null ? Number(r.capacity) : null
+      return {
+        date: String(r.date),
+        startTime: r.start_time ?? null,
+        tourName: r.tour_name ?? null,
+        serviceType: r.service_type ?? null,
+        peopleBooked,
+        bookingsCount: Number(r.bookings_cnt) || 0,
+        capacity,
+        remaining: capacity != null ? Math.max(0, capacity - peopleBooked) : null,
+      }
+    })
+    .filter(s => s.peopleBooked >= 1 && (s.capacity == null || s.peopleBooked < s.capacity))
+    .sort((a, b) => {
+      if (a.date !== b.date) return a.date < b.date ? -1 : 1 // ближайший день первым
+      const ag = HOT_SLOT_GROUP_TYPES.has((a.serviceType || '').toUpperCase()) ? 0 : 1
+      const bg = HOT_SLOT_GROUP_TYPES.has((b.serviceType || '').toUpperCase()) ? 0 : 1
+      if (ag !== bg) return ag - bg // групповые форматы приоритетнее проката
+      const ar = a.remaining ?? Number.POSITIVE_INFINITY
+      const br = b.remaining ?? Number.POSITIVE_INFINITY
+      return ar - br // «почти заполнен» первым
+    })
+}
+
+/**
+ * «Горячие» слоты на ближайшие дни: будущие брони (не отменённые/без проблем),
+ * сгруппированные по (день, время, продукт) → сколько уже записано + вместимость.
+ * Capacity — best-effort из service_slots (MAX(max_clients) по day_of_week+start_time+product,
+ * MAX чтобы дубль-строки слотов не завышали). Грейсфул []: нет ERP / ошибка.
+ */
+export async function getHotSlots(daysAhead = 14): Promise<HotSlot[]> {
+  const db = await getSql()
+  if (!db) return []
+  try {
+    const rows = await db<any[]>`
+      WITH booked AS (
+        SELECT
+          b.date::date AS d,
+          b.start_time AS st,
+          b.product_id AS pid,
+          b.service_type::text AS stype,
+          count(*)::int AS bookings_cnt,
+          coalesce(sum(b.group_size), 0)::int AS people
+        FROM bookings b
+        WHERE b.date::date BETWEEN CURRENT_DATE AND CURRENT_DATE + ${daysAhead}
+          AND b.status::text NOT IN ('CANCELLED','cancelled','CANCELED','PROBLEM')
+        GROUP BY b.date::date, b.start_time, b.product_id, b.service_type::text
+      )
+      SELECT
+        to_char(bk.d, 'YYYY-MM-DD') AS date,
+        bk.st AS start_time,
+        p.name AS tour_name,
+        coalesce(p.service_type::text, bk.stype) AS service_type,
+        bk.bookings_cnt AS bookings_cnt,
+        bk.people AS people,
+        (
+          SELECT max(s.max_clients)
+          FROM service_slots s
+          WHERE s.start_time = bk.st
+            AND s.day_of_week = extract(dow from bk.d)::int
+            AND s.is_active
+            -- product-specific слоты (тур/прогулка/урок) матчим по product_id;
+            -- прокат хранит вместимость на service_type (product_id NULL) → фолбэк по типу
+            AND (s.product_id = bk.pid OR (s.product_id IS NULL AND s.service_type::text = bk.stype))
+        )::int AS capacity
+      FROM booked bk
+      LEFT JOIN products p ON p.id = bk.pid
+      ORDER BY bk.d ASC, bk.st ASC
+    `
+    return mapHotSlotRows(rows)
+  } catch (err: any) {
+    log.error('[NawodeData] getHotSlots failed', { error: err.message })
+    return []
+  }
+}

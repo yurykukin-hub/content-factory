@@ -18,4 +18,4 @@ export function getDataSourceAdapter(business: { erpType?: string | null }): Dat
   }
 }
 
-export type { DataSourceAdapter, DailySummary, BookingDay, WeatherDay } from './types'
+export type { DataSourceAdapter, DailySummary, BookingDay, WeatherDay, HotSlot } from './types'

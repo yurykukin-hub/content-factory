@@ -7,6 +7,7 @@ import { describe, it, expect, vi } from 'vitest'
 vi.mock('../../nawode-data', () => ({
   getNawodeData: vi.fn().mockResolvedValue(null),
   getBookingsInRange: vi.fn().mockResolvedValue([]),
+  getHotSlots: vi.fn().mockResolvedValue([]),
 }))
 
 import { getDataSourceAdapter } from '../index'
@@ -28,5 +29,6 @@ describe('getDataSourceAdapter — реестр по erpType', () => {
     const a = new NullDataSourceAdapter()
     expect(await a.getDailySummary()).toBeNull()
     expect(await a.getBookingsInRange()).toEqual([])
+    expect(await a.getHotSlots()).toEqual([])
   })
 })

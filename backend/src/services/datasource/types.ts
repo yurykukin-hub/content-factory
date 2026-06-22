@@ -29,9 +29,23 @@ export interface DailySummary {
   generatedAt: string
 }
 
+/** «Горячий» слот: тур/слот, где уже есть записанные люди (для слот-филла). */
+export interface HotSlot {
+  date: string
+  startTime: string | null
+  tourName: string | null
+  serviceType: string | null
+  peopleBooked: number
+  bookingsCount: number
+  capacity: number | null
+  remaining: number | null
+}
+
 export interface DataSourceAdapter {
   /** Дневная сводка (погода + брони) на сегодня и ближайшие дни. null — источник недоступен. */
   getDailySummary(daysAhead?: number): Promise<DailySummary | null>
   /** Брони в диапазоне дат (для контент-плана). [] — недоступно. */
   getBookingsInRange(startISO: string, endISO: string): Promise<BookingDay[]>
+  /** «Горячие» слоты (где уже есть записи) для слот-филла. [] — недоступно. */
+  getHotSlots(daysAhead?: number): Promise<HotSlot[]>
 }

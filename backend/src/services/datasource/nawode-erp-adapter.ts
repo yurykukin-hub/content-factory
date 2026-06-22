@@ -1,4 +1,4 @@
-import type { DataSourceAdapter, DailySummary, BookingDay } from './types'
+import type { DataSourceAdapter, DailySummary, BookingDay, HotSlot } from './types'
 
 /**
  * NawodeErpAdapter — текущая реализация контракта для НаWоде через прямой Bun.sql
@@ -18,5 +18,10 @@ export class NawodeErpAdapter implements DataSourceAdapter {
   async getBookingsInRange(startISO: string, endISO: string): Promise<BookingDay[]> {
     const { getBookingsInRange } = await import('../nawode-data')
     return await getBookingsInRange(startISO, endISO)
+  }
+
+  async getHotSlots(daysAhead = 14): Promise<HotSlot[]> {
+    const { getHotSlots } = await import('../nawode-data')
+    return await getHotSlots(daysAhead)
   }
 }
