@@ -173,9 +173,9 @@ describe('buildHashtagPrompt', () => {
     expect(result).toContain('5-10')
   })
 
-  it('specifies 15-20 hashtags for Instagram', () => {
+  it('caps Instagram hashtags at 5 (2025 limit)', () => {
     const result = buildHashtagPrompt('INSTAGRAM', brandContext)
-    expect(result).toContain('15-20')
+    expect(result).toContain('до 5')
   })
 
   it('specifies 0 hashtags for Telegram', () => {

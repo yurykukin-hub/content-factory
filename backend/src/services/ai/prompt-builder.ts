@@ -27,7 +27,7 @@ export const PLATFORM_RULES: Record<string, string> = {
 - Начни с "крючка" (первая строка видна без раскрытия)
 - Обильные эмодзи допустимы
 - Разбивай текст пустыми строками (читаемость)
-- Хештеги: 15-20 штук, в конце через пустую строку
+- Хештеги: до 5 штук (Instagram с 2025 снижает охват за «ковёр» тегов — лучше 5 точных)
 - Можно упомянуть "ссылка в шапке профиля"
   `.trim(),
 }
@@ -171,8 +171,10 @@ ${RF_LAW_RULE}
 
 ${formatHint}
 
+ВАЖНО про хэштеги: в поле "text" НЕ пиши хэштеги и символ # — хэштеги указывай ТОЛЬКО в массиве "hashtags" (без #). Если вписать их и в текст, и в массив — при публикации будет дубль.
+
 Ответь СТРОГО JSON без markdown:
-{"text":"готовый текст поста","hashtags":["хэштег_без_решётки","..."]}`
+{"text":"готовый текст поста БЕЗ хэштегов","hashtags":["хэштег_без_решётки","..."]}`
 }
 
 export interface ArtDirectorCandidate { id: string; altText: string }
@@ -318,7 +320,7 @@ ${rules}
  * System prompt для генерации хештегов.
  */
 export function buildHashtagPrompt(platform: string, brandContext: string): string {
-  const count = platform === 'VK' ? '5-10' : platform === 'INSTAGRAM' ? '15-20' : '0'
+  const count = platform === 'VK' ? '5-10' : platform === 'INSTAGRAM' ? 'до 5' : '0'
   return `Сгенерируй хештеги для поста.
 
 ${brandContext}

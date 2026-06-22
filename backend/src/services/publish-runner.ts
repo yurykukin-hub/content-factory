@@ -6,6 +6,7 @@ import { db } from '../db'
 import { emitEvent } from '../eventBus'
 import { getPublisher } from './publishers/base'
 import { applyUtmForPublish } from './publish-utm'
+import { stripInlineHashtags } from '../utils/hashtags'
 
 export interface PublishVersionResult {
   success: boolean
@@ -39,6 +40,11 @@ export async function publishPostVersion(
   const isStories = version.post.postType === 'STORIES'
   // Для Stories overlay-текст = post.body (короткий), не version.body (AI-адаптация)
   const baseText = isStories ? version.post.body : version.body
+  // Хэштеги клеит паблишер из массива (источник правды). Если массив непустой — вырезаем инлайн-теги
+  // из текста (единый анти-дубль чокпоинт для всех путей). Массив пуст → текст не трогаем
+  // (ручной пост, где автор написал теги прямо в теле — их терять нельзя).
+  const tags = isStories ? [] : version.hashtags
+  const cleanBaseText = tags.length ? stripInlineHashtags(baseText) : baseText
 
   // UTM-метки на ссылки бренда (мост к аналитике)
   const { text: publishText, storiesOptions: effectiveStoriesOptions } = await applyUtmForPublish({
@@ -46,13 +52,13 @@ export async function publishPostVersion(
     platform: version.platformAccount.platform,
     postType: version.post.postType,
     postId: version.postId,
-    text: baseText,
+    text: cleanBaseText,
     storiesOptions: opts.storiesOptions,
   })
 
   const result = await publisher.publish({
     text: publishText,
-    hashtags: isStories ? [] : version.hashtags,
+    hashtags: tags,
     mediaFiles: mediaFiles.map(mf => ({ url: mf.url, mimeType: mf.mimeType, filename: mf.filename })),
     platformAccount: version.platformAccount,
     postType: version.post.postType,

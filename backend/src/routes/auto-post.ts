@@ -8,6 +8,7 @@ import { db } from '../db'
 import { z } from 'zod'
 import type { AuthUser } from '../middleware/auth'
 import { assertBusinessAccess } from '../middleware/resource-access'
+import { log } from '../utils/logger'
 
 export const autoPost = new Hono()
 
@@ -138,7 +139,33 @@ autoPost.post('/:id/approve-publish', async (c) => {
 
   const { publishPostVersion, schedulePostVersion } = await import('../services/publish-runner')
   const tabId = c.req.header('X-Tab-ID') || ''
-  const storiesOptions = { skipOverlay }
+
+  // VK-сторис из дайджеста (прямая публикация): вернуть нативную кнопку «Забронировать».
+  // В редакторе ссылка подставляется (applyDefaultBookingLink), а прямой путь раньше слал
+  // storiesOptions без linkUrl → кнопка пропадала (баг B). Берём дефолт-ссылку из НаWоде ERP
+  // (scope story+vk → vk → story). UTM добавится дальше в applyUtmForPublish.
+  // ERP недоступен / ссылок нет → публикуем как раньше (без кнопки), не падаем.
+  const storiesOptions: { skipOverlay: boolean; linkText?: string; linkUrl?: string } = { skipOverlay }
+  const hasVkStory = (task.postType || '').toUpperCase() === 'STORIES'
+    && chosen.some(v => v.platformAccount.platform === 'VK')
+  if (hasVkStory) {
+    try {
+      const baseUrl = (await db.appConfig.findUnique({ where: { key: 'nawode_booking_base_url' } }))?.value || undefined
+      const { getBookingLinks } = await import('../services/nawode-data')
+      const links = await getBookingLinks(baseUrl)
+      const pick = links.find(l => l.scope.includes('story') && l.scope.includes('vk'))
+        || links.find(l => l.scope.includes('vk'))
+        || links.find(l => l.scope.includes('story'))
+      if (pick) {
+        storiesOptions.linkText = 'book'
+        storiesOptions.linkUrl = pick.url
+        log.info('[AutoPost] VK story booking link attached', { ref: pick.ref })
+      }
+    } catch (e: any) {
+      log.warn('[AutoPost] booking link resolve failed', { error: e?.message })
+    }
+  }
+
   const results: { platform: string; success: boolean; externalUrl: string | null; error: string | null }[] = []
 
   for (const v of chosen) {
