@@ -430,37 +430,66 @@ async function generateDigestForBusiness(biz: any, force: boolean, role: DigestR
 // Команда агентов (Ф1): стратег → копирайтер → арт-директор.
 // ─────────────────────────────────────────────────────────────────────────
 
-/** Поиск реальных фото в галерее по ключевым словам (altText) + ПАПКАМ Светы (маршруты/продукты). */
-async function searchGalleryPhotos(businessId: string, keywords: string[], limit = 12): Promise<{ id: string; altText: string }[]> {
+/**
+ * Папка-маршрут по ТЕКСТУ поста (тема+тело), а НЕ по photoKeywords: агент кладёт в keywords
+ * «сап/скалы/вода», а название маршрута («Беличьи») — в тему. Папка матчится, если ВСЕ значимые
+ * слова её названия (≥4 букв) есть в тексте: «Беличьи скалы…»→«Беличьи», «тур Место силы»→«Место Силы».
+ * Самое длинное совпадение приоритетно (специфичнее). null — маршрут не распознан.
+ */
+async function detectRouteFolder(businessId: string, text: string): Promise<string | null> {
+  const t = (text || '').toLowerCase()
+  if (!t) return null
+  const folders = await db.mediaFolder.findMany({ where: { businessId }, select: { name: true } })
+  const matched = folders
+    .map(f => f.name)
+    .filter(name => {
+      const words = (name || '').toLowerCase().split(/\s+/).filter(w => w.length >= 4)
+      return words.length > 0 && words.every(w => t.includes(w))
+    })
+    .sort((a, b) => b.length - a.length)
+  return matched[0] || null
+}
+
+/** Поиск реальных фото в галерее: по altText, ИЛИ ЖЁСТКО из папки-маршрута (Беличьи/Монрепо/…), если она задана. */
+async function searchGalleryPhotos(businessId: string, keywords: string[], limit = 12, routeFolder?: string | null): Promise<{ id: string; altText: string }[]> {
   const kw = (keywords || []).map(k => String(k).trim().toLowerCase()).filter(Boolean)
+  const score = (alt: string | null) => kw.filter(k => (alt || '').toLowerCase().includes(k)).length
+
+  // Тема про конкретный маршрут → берём ТОЛЬКО фото из его папки (важнее keyword-совпадений по altText),
+  // ранжируя их по релевантности keywords. Так пост «Беличьи» не получит фото Монрепо.
+  if (routeFolder) {
+    const rows = await db.mediaFile.findMany({
+      where: {
+        businessId, mimeType: { startsWith: 'image/' },
+        NOT: { tags: { has: 'ai-generated' } },
+        folder: { name: { equals: routeFolder, mode: 'insensitive' as const } },
+      },
+      select: { id: true, altText: true },
+      take: 40,
+    })
+    if (rows.length) {
+      return rows
+        .map(r => ({ id: r.id, altText: r.altText || '', s: score(r.altText) }))
+        .sort((a, b) => b.s - a.s)
+        .slice(0, limit)
+        .map(({ id, altText }) => ({ id, altText }))
+    }
+    // папка пуста — падаем на обычный поиск по keywords
+  }
+
   if (!kw.length) return []
   const rows = await db.mediaFile.findMany({
     where: {
-      businessId,
-      mimeType: { startsWith: 'image/' },
-      // По altText ИЛИ по названию папки (Света раскладывает по маршрутам: Беличьи/Монрепо/Закат…),
-      // чтобы пост про конкретный маршрут брал фото именно из его папки, а не «похожее по описанию».
-      NOT: { tags: { has: 'ai-generated' } }, // только реальные фото — не AI-генерация/макеты
-      OR: [
-        { altText: { not: null }, AND: { OR: kw.map(k => ({ altText: { contains: k, mode: 'insensitive' as const } })) } },
-        { folder: { name: { in: kw, mode: 'insensitive' as const } } },
-      ],
+      businessId, mimeType: { startsWith: 'image/' }, altText: { not: null },
+      NOT: { tags: { has: 'ai-generated' } },
+      OR: kw.map(k => ({ altText: { contains: k, mode: 'insensitive' as const } })),
     },
-    select: { id: true, altText: true, folder: { select: { name: true } } },
-    take: 60,
+    select: { id: true, altText: true },
+    take: 50,
   })
-  // Папка маршрута, совпавшая с keyword (Беличьи/Монрепо/…) — жёсткий приоритет: если такие фото есть,
-  // подбираем ТОЛЬКО из них (иначе под «Беличьи» прилетало фото Монрепо). Иначе — ранжируем по altText.
-  const scored = rows.map(r => {
-    const alt = (r.altText || '').toLowerCase()
-    const folderName = (r.folder?.name || '').toLowerCase()
-    const folderMatch = !!folderName && kw.some(k => folderName === k || folderName.includes(k) || k.includes(folderName))
-    return { id: r.id, altText: r.altText || '', score: kw.filter(k => alt.includes(k)).length, folderMatch }
-  })
-  const folderMatched = scored.filter(r => r.folderMatch)
-  const pool = folderMatched.length ? folderMatched : scored
-  return pool
-    .sort((a, b) => b.score - a.score)
+  return rows
+    .map(r => ({ id: r.id, altText: r.altText || '', s: score(r.altText) }))
+    .sort((a, b) => b.s - a.s)
     .slice(0, limit)
     .map(({ id, altText }) => ({ id, altText }))
 }
@@ -495,7 +524,9 @@ async function pickPhotoForPost(
   brief: { theme: string; format: string; text: string; photoKeywords: string[] },
   excludeIds: Set<string> = new Set(),
 ): Promise<string | null> {
-  const found = await searchGalleryPhotos(businessId, brief.photoKeywords, 16)
+  // Маршрут из ТЕМЫ/ТЕКСТА поста (не из keywords) → фото жёстко из папки маршрута (Беличьи≠Монрепо)
+  const routeFolder = await detectRouteFolder(businessId, `${brief.theme} ${brief.text}`).catch(() => null)
+  const found = await searchGalleryPhotos(businessId, brief.photoKeywords, 16, routeFolder)
   let candidates = found.filter(c => !excludeIds.has(c.id)) // дедуп: не повторять недавние/уже выбранные фото
   // Дедуп исчерпал всех кандидатов под тему → лучше ПОВТОРИТЬ фото, чем оставить пост без картинки.
   if (!candidates.length && found.length) {
