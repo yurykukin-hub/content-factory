@@ -50,12 +50,8 @@ export function buildStoryDesign(o: StoryDesignOpts): any {
     children.push(el('div', { position: 'absolute', top: 64, left: 64, display: 'flex', flexDirection: 'column' }, widget))
   }
 
-  // Бренд: реальное лого (приоритет) или буква-кружок
-  if (o.logoUri) {
-    children.push({ type: 'img', props: { src: o.logoUri, style: { position: 'absolute', top: 60, right: 60, width: 190, height: 68, objectFit: 'contain' } } })
-  } else {
-    children.push(el('div', { position: 'absolute', top: 76, right: 64, display: 'flex', width: 72, height: 72, borderRadius: 36, backgroundColor: BRAND.teal, alignItems: 'center', justifyContent: 'center', fontFamily: 'Montserrat', fontWeight: 700, fontSize: 38, color: 'white' }, o.brandInitial || 'Н'))
-  }
+  // Лого НЕ рисуем: сторис идут в собственные аккаунты НаWоде (и так брендировано) — лишний шум.
+  // logoUri/brandInitial оставлены в opts для обратной совместимости (можно вернуть при желании).
 
   // Плашка действующей скидки (если есть) + заголовок + CTA внизу
   const bottom: any[] = []

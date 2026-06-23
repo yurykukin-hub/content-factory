@@ -7,7 +7,7 @@ import { useBusinessesStore } from '@/stores/businesses'
 import { useAuthStore } from '@/stores/auth'
 import { platformColor, platformBgColor, platformLabel } from '@/composables/usePlatform'
 import { formatDate } from '@/composables/useFormatters'
-import { Sunrise, Sparkles, Loader2, Check, X, Lightbulb, CalendarClock, FileEdit, Flame, RotateCcw, ChevronDown, ImagePlus, RefreshCw, Maximize2, Send, Clock, Calendar } from 'lucide-vue-next'
+import { Sunrise, Sparkles, Loader2, Check, X, Lightbulb, CalendarClock, FileEdit, Flame, RotateCcw, ChevronDown, ImagePlus, RefreshCw, Maximize2, Send, Clock, Calendar, Info } from 'lucide-vue-next'
 import MediaPickerModal from '@/components/MediaPickerModal.vue'
 import PostPreview from '@/components/posts/preview/PostPreview.vue'
 import StoriesPreview from '@/components/posts/preview/StoriesPreview.vue'
@@ -398,6 +398,11 @@ onMounted(load)
               <StoriesPreview v-if="task.postType === 'STORIES'"
                 :platform="pv.platform" :account-name="pv.accountName"
                 :text="pv.text" :media-files="previewMedia(task)" :baked="isDesigned(task)" />
+              <p v-if="task.postType === 'STORIES' && pv.platform === 'VK'"
+                class="mt-2 text-xs text-teal-600 dark:text-teal-400 flex items-start gap-1">
+                <Info :size="13" class="shrink-0 mt-0.5" />
+                <span>В VK при публикации добавится живая кнопка «Забронировать». Текст «· nawode.ru» на картинке — указатель для Instagram (там ссылка некликабельна).</span>
+              </p>
               <PostPreview v-else
                 :platform="pv.platform" :account-name="pv.accountName"
                 :text="pv.text" :hashtags="pv.hashtags"
