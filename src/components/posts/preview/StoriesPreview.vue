@@ -53,7 +53,7 @@ const isIg = () => props.platform === 'INSTAGRAM'
 
         <!-- VK: нативная кнопка «Забронировать» — ПОВЕРХ фото справа внизу (как в реальной VK-сторис) -->
         <div v-if="!isIg()" class="absolute right-2 bottom-2 z-20">
-          <div class="rounded-lg bg-white px-3 py-1.5 shadow-md"><span class="text-gray-900 text-[11px] font-semibold">Забронировать</span></div>
+          <div class="rounded-lg bg-white px-4 py-2.5 shadow-md"><span class="text-gray-900 text-xs font-semibold">Забронировать</span></div>
         </div>
       </div>
 
