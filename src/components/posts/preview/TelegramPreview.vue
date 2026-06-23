@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { Play } from 'lucide-vue-next'
+import EditableText from './EditableText.vue'
 
 interface Media { url: string; thumbUrl: string | null; mimeType: string }
 const props = defineProps<{
@@ -8,7 +9,9 @@ const props = defineProps<{
   text: string
   hashtags?: string[]
   mediaFiles?: Media[]
+  editable?: boolean
 }>()
+const emit = defineEmits<{ 'update:text': [string] }>()
 
 const media = computed(() => props.mediaFiles || [])
 const gridClass = computed(() => (media.value.length === 2 ? 'grid-cols-2' : 'grid-cols-3'))
@@ -49,7 +52,7 @@ function onImgLoad(e: Event) {
       </div>
       <div class="p-3">
         <div class="font-semibold text-sky-600 dark:text-sky-400 mb-1 truncate">{{ accountName || 'Канал' }}</div>
-        <div v-if="text" class="whitespace-pre-wrap break-words leading-relaxed">{{ text }}</div>
+        <div v-if="text || editable" class="leading-relaxed"><EditableText :text="text" :editable="editable" @update:text="emit('update:text', $event)" /></div>
         <div v-if="hashtags?.length" class="flex flex-wrap gap-x-1.5 text-sky-500 mt-1">
           <span v-for="h in hashtags" :key="h">#{{ h }}</span>
         </div>

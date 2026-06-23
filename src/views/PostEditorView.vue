@@ -13,7 +13,6 @@ import { platformNote } from '@/composables/usePlatformRegistry'
 import MediaUpload from '@/components/MediaUpload.vue'
 import MediaPickerModal from '@/components/MediaPickerModal.vue'
 import PostPreview from '@/components/posts/preview/PostPreview.vue'
-import ChannelOverrideSheet from '@/components/posts/ChannelOverrideSheet.vue'
 import {
   ArrowLeft, Send, Save, Sparkles, Loader2, ExternalLink,
   AlertCircle, Image, Images, Wand2, Info,
@@ -73,7 +72,6 @@ const expandedChannelId = ref<string | null>(null)
 interface OverrideDraft { body: string; saving: boolean; dirty: boolean }
 const overrideDrafts = ref<Record<string, OverrideDraft>>({})
 const publishingOne = ref<string | null>(null)
-const overrideSheetOpen = ref(false)
 let overrideTimer: ReturnType<typeof setTimeout> | null = null
 
 // Лёгкое обновление версий без сброса выбора/раскрытия (вместо полного loadPost)
@@ -398,28 +396,27 @@ function channelLen(channelId: string): number {
   return effectiveText(channelId).length
 }
 
-// ---- Per-channel оверрайды (bottom-sheet, Phase 4) ----
-function makeOverrideDraft(channelId: string) {
+// ---- Per-channel оверрайды (edit-in-place прямо в превью) ----
+async function toggleExpand(channelId: string) {
+  if (overrideTimer) { clearTimeout(overrideTimer); overrideTimer = null }
+  if (expandedChannelId.value === channelId) {
+    await flushOverride(channelId)
+    delete overrideDrafts.value[channelId]
+    expandedChannelId.value = null
+    return
+  }
+  const prev = expandedChannelId.value
+  if (prev) { await flushOverride(prev); delete overrideDrafts.value[prev] }
   const v = versionFor(channelId)
   overrideDrafts.value[channelId] = { body: v ? v.body : (post.value?.body || ''), saving: false, dirty: false }
-}
-function openOverrideSheet(channelId: string) {
-  if (overrideTimer) { clearTimeout(overrideTimer); overrideTimer = null }
-  makeOverrideDraft(channelId)
-  expandedChannelId.value = channelId
-  overrideSheetOpen.value = true
-}
-async function changeOverrideChannel(channelId: string) {
-  const prev = expandedChannelId.value
-  if (prev && prev !== channelId) { await flushOverride(prev); delete overrideDrafts.value[prev] }
-  makeOverrideDraft(channelId)
   expandedChannelId.value = channelId
 }
-async function closeOverrideSheet() {
-  const id = expandedChannelId.value
-  if (id) { await flushOverride(id); delete overrideDrafts.value[id] }
-  expandedChannelId.value = null
-  overrideSheetOpen.value = false
+// Текст редактируется ПРЯМО в превью «как в ленте» → пишем в черновик + автосейв
+function onPreviewEdit(channelId: string, text: string) {
+  const d = overrideDrafts.value[channelId]
+  if (!d) return
+  d.body = text
+  onOverrideInput(channelId)
 }
 
 function onOverrideInput(channelId: string) {
@@ -657,11 +654,50 @@ onMounted(loadPost)
                 <span :class="['ml-auto tabular-nums shrink-0', charCountColor(channelLen(ch.id), platformLimit(ch.platform))]">
                   {{ channelLen(ch.id) }}/{{ platformLimit(ch.platform) }}
                 </span>
-                <button @click="openOverrideSheet(ch.id)"
-                  class="flex items-center gap-1 px-1.5 py-1 rounded text-[11px] shrink-0 text-gray-400 hover:text-brand-600 dark:hover:text-brand-400 hover:bg-brand-50 dark:hover:bg-brand-950"
+                <button @click="toggleExpand(ch.id)"
+                  :class="['flex items-center gap-1 px-1.5 py-1 rounded text-[11px] shrink-0', expandedChannelId === ch.id ? 'text-brand-600 dark:text-brand-400 bg-brand-50 dark:bg-brand-950' : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300']"
                   title="Превью и текст под канал">
-                  <Settings2 :size="14" /> <span class="hidden sm:inline">Настроить</span>
+                  <Settings2 :size="14" /> <span class="hidden sm:inline">{{ expandedChannelId === ch.id ? 'Готово' : 'Текст' }}</span>
                 </button>
+              </div>
+
+              <!-- Раскрытие: превью «как в ленте» с РЕДАКТИРУЕМЫМ текстом прямо в нём (edit-in-place) -->
+              <div v-if="expandedChannelId === ch.id" class="px-3 pb-3 pt-2 border-t border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-800/30">
+                <p class="text-[10px] text-gray-400 mb-1.5">Нажми на текст в превью и редактируй прямо там · {{ platformLabel(ch.platform) }}</p>
+                <PostPreview class="mb-2" :platform="ch.platform" :account-name="ch.accountName"
+                  :text="effectiveText(ch.id)" :hashtags="effectiveHashtags(ch.id)" :media-files="post.mediaFiles" :post-type="post.postType"
+                  :editable="!['PUBLISHED','SCHEDULED'].includes(versionFor(ch.id)?.status || '')"
+                  @update:text="onPreviewEdit(ch.id, $event)" />
+
+                <!-- Статус публикации -->
+                <div v-if="versionFor(ch.id)?.publishLogs?.[0]?.status === 'FAILED'" class="p-2 rounded-lg bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 mb-2 text-xs text-red-600 dark:text-red-400 flex items-start gap-1.5">
+                  <AlertCircle :size="13" class="shrink-0 mt-0.5" /> {{ versionFor(ch.id)!.publishLogs[0].errorMessage }}
+                </div>
+                <a v-if="versionFor(ch.id)?.externalUrl" :href="versionFor(ch.id)!.externalUrl!" target="_blank" class="flex items-center gap-1 text-xs text-green-600 hover:underline mb-2"><ExternalLink :size="12" /> Открыть пост</a>
+                <div v-if="versionFor(ch.id)?.status === 'SCHEDULED'" class="flex items-center justify-between gap-2 mb-2 text-xs text-amber-600 dark:text-amber-400">
+                  <span class="flex items-center gap-1"><Clock :size="12" /> Запланировано{{ versionFor(ch.id)!.scheduledAt ? ': ' + formatDate(versionFor(ch.id)!.scheduledAt!) : '' }}</span>
+                  <button @click="cancelScheduleVersion(versionFor(ch.id)!.id)" :disabled="scheduling === versionFor(ch.id)!.id" class="px-2 py-0.5 rounded text-[11px] text-red-600 dark:text-red-400 border border-red-300 dark:border-red-700 hover:bg-red-50 dark:hover:bg-red-950 disabled:opacity-50">Отменить</button>
+                </div>
+
+                <!-- Счётчик + статус сохранения + действия -->
+                <div class="flex items-center gap-2 flex-wrap">
+                  <span :class="['text-[11px] tabular-nums', charCountColor(channelLen(ch.id), platformLimit(ch.platform))]">{{ channelLen(ch.id) }}/{{ platformLimit(ch.platform) }}</span>
+                  <span v-if="overrideDrafts[ch.id]?.saving" class="text-[11px] text-gray-400 flex items-center gap-1"><Loader2 :size="11" class="animate-spin" /> сохр.</span>
+                  <span v-if="versionFor(ch.id)" class="text-[10px] text-purple-500">свой текст</span>
+                  <button @click="adaptOnePlatform(ch.id)" :disabled="adaptingOne === ch.id"
+                    class="ml-auto flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-medium bg-purple-50 dark:bg-purple-950 text-purple-600 dark:text-purple-300 hover:bg-purple-100 dark:hover:bg-purple-900 disabled:opacity-50">
+                    <Loader2 v-if="adaptingOne === ch.id" :size="12" class="animate-spin" /><Wand2 v-else :size="12" /> Адаптировать AI
+                  </button>
+                  <button v-if="versionFor(ch.id)" @click="resetOverride(ch.id)"
+                    class="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-medium border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800">
+                    <RefreshCw :size="12" /> Сбросить
+                  </button>
+                  <button v-if="!['PUBLISHED','SCHEDULED'].includes(versionFor(ch.id)?.status || '')"
+                    @click="publishOneChannel(ch.id)" :disabled="publishingOne === ch.id || channelOverLimit(ch)"
+                    class="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-medium bg-green-50 dark:bg-green-950 text-green-700 dark:text-green-300 hover:bg-green-100 dark:hover:bg-green-900 disabled:opacity-50">
+                    <Loader2 v-if="publishingOne === ch.id" :size="12" class="animate-spin" /><Send v-else :size="12" /> {{ versionFor(ch.id)?.status === 'FAILED' ? 'Повторить' : 'Только сюда' }}
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -738,31 +774,6 @@ onMounted(loadPost)
       :business-id="post.businessId"
       @close="showMediaPicker = false"
       @selected="pickFromLibrary"
-    />
-
-    <!-- Текст под канал (bottom-sheet) -->
-    <ChannelOverrideSheet
-      v-if="post"
-      :show="overrideSheetOpen"
-      :channels="selectedChannelObjs"
-      :active-channel-id="expandedChannelId || ''"
-      :master-text="post.body"
-      :media-files="post.mediaFiles"
-      :post-type="post.postType"
-      :override-drafts="overrideDrafts"
-      :effective-text="effectiveText"
-      :effective-hashtags="effectiveHashtags"
-      :version-for="versionFor"
-      :adapting-id="adaptingOne"
-      :publishing-id="publishingOne"
-      :allow-publish-one="true"
-      @close="closeOverrideSheet"
-      @change-channel="changeOverrideChannel"
-      @input="onOverrideInput"
-      @adapt="adaptOnePlatform"
-      @reset="resetOverride"
-      @publish-one="publishOneChannel"
-      @cancel-schedule="cancelScheduleVersion"
     />
 
     <!-- AI Image Modal -->

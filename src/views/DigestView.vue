@@ -12,7 +12,6 @@ import MediaPickerModal from '@/components/MediaPickerModal.vue'
 import PostPreview from '@/components/posts/preview/PostPreview.vue'
 import StoriesPreview from '@/components/posts/preview/StoriesPreview.vue'
 import StoryDesignModal from '@/components/StoryDesignModal.vue'
-import ChannelOverrideSheet from '@/components/posts/ChannelOverrideSheet.vue'
 
 interface DigestTask {
   id: string
@@ -159,12 +158,19 @@ function makeTaskDraft(platform: string) {
   const ad = taskAds(overrideTask.value).find(a => a.platform === platform)
   taskDrafts.value[platform] = { body: ad?.text ?? (overrideTask.value?.proposedText || ''), saving: false, dirty: false }
 }
-function openTextSheet(task: DigestTask) {
+function openTextEdit(task: DigestTask) {
   overrideTask.value = task
   taskDrafts.value = {}
-  const first = (task.platforms || [])[0] || ''
-  makeTaskDraft(first)
-  overrideActiveCh.value = first
+  const p = previewPlatform(task)
+  makeTaskDraft(p)
+  overrideActiveCh.value = p
+}
+// Правка текста ПРЯМО в превью карточки (edit-in-place)
+function onTaskPreviewEdit(platform: string, text: string) {
+  if (!taskDrafts.value[platform]) makeTaskDraft(platform)
+  taskDrafts.value[platform].body = text
+  overrideActiveCh.value = platform
+  onTaskOverrideInput(platform)
 }
 function changeTaskChannel(platform: string) {
   const prev = overrideActiveCh.value
@@ -215,7 +221,7 @@ async function resetTaskOverride(platform: string) {
     toast.info('Сброшено к мастер-тексту')
   } catch { toast.error('Ошибка') }
 }
-function closeTextSheet() {
+function closeTextEdit() {
   const p = overrideActiveCh.value
   if (p) flushTaskOverride(p)
   overrideTask.value = null
@@ -376,6 +382,12 @@ function previewPlatform(task: DigestTask): string {
   return activePlatform.value[task.id] || task.previews?.[0]?.platform || task.platforms?.[0] || 'VK'
 }
 function setPreviewPlatform(taskId: string, platform: string) {
+  // В режиме правки текста — переключение таба сохраняет старый канал и готовит черновик нового
+  if (overrideTask.value?.id === taskId) {
+    if (overrideActiveCh.value && overrideActiveCh.value !== platform) flushTaskOverride(overrideActiveCh.value)
+    makeTaskDraft(platform)
+    overrideActiveCh.value = platform
+  }
   activePlatform.value = { ...activePlatform.value, [taskId]: platform }
 }
 function previewMedia(task: DigestTask) {
@@ -510,8 +522,10 @@ onMounted(load)
                 :text="pv.text" :media-files="previewMedia(task)" :baked="isDesigned(task)" />
               <PostPreview v-else
                 :platform="pv.platform" :account-name="pv.accountName"
-                :text="pv.text" :hashtags="pv.hashtags"
-                :media-files="previewMedia(task)" :post-type="task.postType || 'PHOTO'" />
+                :text="overrideTask?.id === task.id ? taskEffectiveText(pv.platform) : pv.text" :hashtags="pv.hashtags"
+                :media-files="previewMedia(task)" :post-type="task.postType || 'PHOTO'"
+                :editable="overrideTask?.id === task.id && task.postType !== 'STORIES'"
+                @update:text="onTaskPreviewEdit(pv.platform, $event)" />
               <!-- VK-подсказка про живую кнопку — ПОСЛЕ превью, чтобы не разрывать v-if/v-else выше -->
               <p v-if="task.postType === 'STORIES' && pv.platform === 'VK'"
                 class="mt-2 text-xs text-teal-600 dark:text-teal-400 flex items-start gap-1">
@@ -593,9 +607,9 @@ onMounted(load)
                 class="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-fuchsia-300 dark:border-fuchsia-700 text-xs font-medium text-fuchsia-600 dark:text-fuchsia-400 hover:bg-fuchsia-50 dark:hover:bg-fuchsia-950 disabled:opacity-50 touch-manipulation">
                 <Sparkles :size="13" /> Поправить кадр
               </button>
-              <button v-if="task.postType !== 'STORIES'" @click="openTextSheet(task)" :disabled="actingId === task.id"
+              <button v-if="task.postType !== 'STORIES'" @click="overrideTask?.id === task.id ? closeTextEdit() : openTextEdit(task)" :disabled="actingId === task.id"
                 class="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 text-xs font-medium text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50 touch-manipulation">
-                <Pencil :size="13" /> Текст
+                <Pencil :size="13" /> {{ overrideTask?.id === task.id ? 'Готово' : 'Текст' }}
               </button>
               <button @click="openEditor(task)" :disabled="actingId === task.id"
                 class="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 text-xs font-medium text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50 touch-manipulation">
@@ -609,9 +623,9 @@ onMounted(load)
           </template>
           <!-- Прочее (сторис без дизайна / посты): правка текста + редактор БЕЗ потери предложения -->
           <div v-else class="flex items-center gap-2 flex-wrap">
-            <button v-if="task.postType !== 'STORIES'" @click="openTextSheet(task)" :disabled="actingId === task.id"
+            <button v-if="task.postType !== 'STORIES'" @click="overrideTask?.id === task.id ? closeTextEdit() : openTextEdit(task)" :disabled="actingId === task.id"
               class="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 text-sm font-medium text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50 touch-manipulation">
-              <Pencil :size="15" /> Текст
+              <Pencil :size="15" /> {{ overrideTask?.id === task.id ? 'Готово' : 'Текст' }}
             </button>
             <button @click="openEditor(task)" :disabled="actingId === task.id"
               class="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-green-600 hover:bg-green-700 text-white text-sm font-medium disabled:opacity-50 touch-manipulation">
@@ -792,26 +806,5 @@ onMounted(load)
       @close="designTask = null"
     />
 
-    <!-- Правка текста под канал прямо в дайджесте (переиспользует редакторский sheet) -->
-    <ChannelOverrideSheet
-      v-if="overrideTask"
-      :show="!!overrideTask"
-      :channels="overrideChannels"
-      :active-channel-id="overrideActiveCh"
-      :master-text="overrideTask.proposedText"
-      :media-files="overrideTask.media ? [{ url: overrideTask.media.url, thumbUrl: overrideTask.media.url, mimeType: 'image/jpeg' }] : []"
-      :post-type="overrideTask.postType || 'PHOTO'"
-      :override-drafts="taskDrafts"
-      :effective-text="taskEffectiveText"
-      :effective-hashtags="taskEffectiveTags"
-      :version-for="taskVersionFor"
-      :adapting-id="null"
-      :allow-publish-one="false"
-      :allow-adapt="false"
-      @close="closeTextSheet"
-      @change-channel="changeTaskChannel"
-      @input="onTaskOverrideInput"
-      @reset="resetTaskOverride"
-    />
   </div>
 </template>

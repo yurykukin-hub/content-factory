@@ -12,7 +12,9 @@ const props = defineProps<{
   hashtags?: string[]
   mediaFiles?: Media[]
   postType?: string
+  editable?: boolean
 }>()
+defineEmits<{ 'update:text': [string] }>()
 
 const component = computed(() => {
   switch (props.platform) {
@@ -25,5 +27,5 @@ const component = computed(() => {
 </script>
 
 <template>
-  <component :is="component" :account-name="accountName" :text="text" :hashtags="hashtags" :media-files="mediaFiles" />
+  <component :is="component" :account-name="accountName" :text="text" :hashtags="hashtags" :media-files="mediaFiles" :editable="editable" @update:text="$emit('update:text', $event)" />
 </template>

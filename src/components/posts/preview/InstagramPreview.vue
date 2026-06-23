@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { Heart, MessageCircle, Send, Bookmark, Play, ChevronLeft, ChevronRight } from 'lucide-vue-next'
+import EditableText from './EditableText.vue'
 
 interface Media { url: string; thumbUrl: string | null; mimeType: string }
 const props = defineProps<{
@@ -8,7 +9,9 @@ const props = defineProps<{
   text: string
   hashtags?: string[]
   mediaFiles?: Media[]
+  editable?: boolean
 }>()
+const emit = defineEmits<{ 'update:text': [string] }>()
 
 const media = computed(() => props.mediaFiles || [])
 const isCarousel = computed(() => media.value.length > 1)
@@ -93,7 +96,10 @@ function onTouchEnd(e: TouchEvent) {
     </div>
 
     <div class="px-2.5 py-2">
-      <span v-if="text" class="break-words"><span class="font-semibold mr-1">{{ username }}</span><span class="whitespace-pre-wrap">{{ text }}</span></span>
+      <div v-if="text || editable" class="break-words">
+        <span class="font-semibold mr-1">{{ username }}</span>
+        <EditableText :text="text" :editable="editable" @update:text="emit('update:text', $event)" />
+      </div>
       <div v-if="hashtags?.length" class="text-blue-600 dark:text-blue-400 mt-1 flex flex-wrap gap-x-1.5">
         <span v-for="h in hashtags" :key="h">#{{ h }}</span>
       </div>

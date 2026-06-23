@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { Heart, MessageCircle, Repeat2, Share2, Play } from 'lucide-vue-next'
+import EditableText from './EditableText.vue'
 
 interface Media { url: string; thumbUrl: string | null; mimeType: string }
 const props = defineProps<{
@@ -8,7 +9,9 @@ const props = defineProps<{
   text: string
   hashtags?: string[]
   mediaFiles?: Media[]
+  editable?: boolean
 }>()
+const emit = defineEmits<{ 'update:text': [string] }>()
 
 const media = computed(() => props.mediaFiles || [])
 const initial = computed(() => (props.accountName || 'В').trim().charAt(0).toUpperCase())
@@ -39,7 +42,7 @@ function onImgLoad(e: Event) {
         <div class="text-xs text-gray-400">сейчас · ВКонтакте</div>
       </div>
     </div>
-    <div v-if="text" class="px-3 pb-2 whitespace-pre-wrap break-words leading-relaxed">{{ text }}</div>
+    <div v-if="text || editable" class="px-3 pb-2 leading-relaxed"><EditableText :text="text" :editable="editable" @update:text="emit('update:text', $event)" /></div>
     <div v-if="hashtags?.length" class="px-3 pb-2 flex flex-wrap gap-x-1.5 text-blue-500">
       <span v-for="h in hashtags" :key="h">#{{ h }}</span>
     </div>
