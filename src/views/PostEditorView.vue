@@ -338,6 +338,16 @@ function onMediaRemoved(id: string) {
   if (post.value) { post.value.mediaFiles = post.value.mediaFiles.filter(f => f.id !== id); toast.info('Файл удалён') }
 }
 
+function onMediaReorder(orderedIds: string[]) {
+  if (!post.value) return
+  // Оптимистично переставляем локально, затем сохраняем sortOrder (порядок = индекс) на бэке
+  const map = new Map(post.value.mediaFiles.map(f => [f.id, f]))
+  post.value.mediaFiles = orderedIds.map(id => map.get(id)).filter((f): f is MediaFile => !!f)
+  http.post(`/posts/${post.value.id}/media/reorder`, {
+    items: orderedIds.map((id, i) => ({ id, sortOrder: i })),
+  }).catch(() => toast.error('Не удалось сохранить порядок фото'))
+}
+
 // ---- Производные данные ----
 const isStories = computed(() => post.value?.postType === 'STORIES')
 const hasUnsavedChanges = computed(() => post.value && post.value.body !== originalBody.value)
@@ -592,7 +602,7 @@ onMounted(loadPost)
             <AlertCircle :size="12" /> {{ w }}
           </p>
         </div>
-        <MediaUpload :business-id="post.businessId" :post-id="post.id" :files="post.mediaFiles" @uploaded="onMediaUploaded" @removed="onMediaRemoved" />
+        <MediaUpload :business-id="post.businessId" :post-id="post.id" :files="post.mediaFiles" @uploaded="onMediaUploaded" @removed="onMediaRemoved" @reorder="onMediaReorder" />
       </div>
 
       <!-- 3. КАНАЛЫ И ПУБЛИКАЦИЯ -->

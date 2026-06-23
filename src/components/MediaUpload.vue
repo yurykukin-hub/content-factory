@@ -2,7 +2,7 @@
 import { ref, computed } from 'vue'
 import { http, TAB_ID } from '@/api/client'
 import { useToast } from '@/composables/useToast'
-import { Upload, X, Loader2, Image, Film, Music, Wand2, Eraser, Crop } from 'lucide-vue-next'
+import { Upload, X, Loader2, Image, Film, Music, Wand2, Eraser, Crop, ChevronLeft, ChevronRight } from 'lucide-vue-next'
 import ImageEditModal from '@/components/ai/ImageEditModal.vue'
 
 interface MediaFile {
@@ -23,6 +23,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   uploaded: [file: MediaFile]
   removed: [id: string]
+  reorder: [orderedIds: string[]]
 }>()
 
 const toast = useToast()
@@ -30,6 +31,26 @@ const uploading = ref(false)
 const dragOver = ref(false)
 const removingBgId = ref<string | null>(null)
 const editingFile = ref<MediaFile | null>(null)
+
+// Порядок медиа карусели: desktop — drag&drop, мобильный — стрелки ◀▶. Публикация идёт по этому порядку.
+const dragIndex = ref<number | null>(null)
+function onDragStart(idx: number) { dragIndex.value = idx }
+function onCardDrop(idx: number) {
+  const from = dragIndex.value
+  dragIndex.value = null
+  if (from === null || from === idx) return
+  const ids = props.files.map(f => f.id)
+  const [moved] = ids.splice(from, 1)
+  ids.splice(idx, 0, moved)
+  emit('reorder', ids)
+}
+function moveItem(idx: number, dir: -1 | 1) {
+  const j = idx + dir
+  if (j < 0 || j >= props.files.length) return
+  const ids = props.files.map(f => f.id)
+  ;[ids[idx], ids[j]] = [ids[j], ids[idx]]
+  emit('reorder', ids)
+}
 
 // Подгон формата (обрезка / размытый фон) — адаптация под ленту IG и др.
 const fittingFile = ref<MediaFile | null>(null)
@@ -156,23 +177,31 @@ function formatSize(bytes: number) {
     <!-- File gallery — показывает реальное соотношение (фикс. высота, ширина по кадру) -->
     <div v-if="files.length" class="flex flex-wrap gap-2 mb-3">
       <div
-        v-for="f in files"
+        v-for="(f, idx) in files"
         :key="f.id"
-        class="relative group rounded-lg overflow-hidden bg-gray-100 dark:bg-gray-800 flex items-center justify-center"
+        :draggable="files.length > 1"
+        @dragstart="onDragStart(idx)"
+        @dragover.prevent
+        @drop="onCardDrop(idx)"
+        @dragend="dragIndex = null"
+        :class="['relative group rounded-lg overflow-hidden bg-gray-100 dark:bg-gray-800 flex items-center justify-center transition-opacity',
+          files.length > 1 ? 'cursor-move' : '', dragIndex === idx ? 'opacity-40' : '']"
       >
         <img
           v-if="f.mimeType.startsWith('image/')"
           :src="f.url"
           :alt="f.filename"
           loading="lazy"
-          class="h-32 w-auto block"
+          class="h-32 w-auto block pointer-events-none"
         />
-        <div v-else class="h-32 w-32 flex flex-col items-center justify-center text-gray-400">
+        <div v-else class="h-32 w-32 flex flex-col items-center justify-center text-gray-400 pointer-events-none">
           <component :is="mediaIcon(f.mimeType)" :size="24" />
           <span class="text-[10px] mt-1 truncate max-w-full px-1">{{ f.filename }}</span>
         </div>
         <!-- Overlay buttons -->
         <div class="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors pointer-events-none" />
+        <!-- Номер кадра в карусели -->
+        <span v-if="files.length > 1" class="absolute top-1 left-1 w-5 h-5 rounded-full bg-black/60 text-white text-[10px] font-bold flex items-center justify-center z-10">{{ idx + 1 }}</span>
         <div class="absolute top-1 right-1 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
           <button v-if="f.mimeType.startsWith('image/')" @click="editingFile = f" title="Редактировать AI"
             class="p-1 rounded-full bg-purple-600/80 hover:bg-purple-600 text-white">
@@ -191,9 +220,21 @@ function formatSize(bytes: number) {
             <X :size="13" />
           </button>
         </div>
-        <span class="absolute bottom-1 left-1 text-[9px] text-white bg-black/50 px-1 rounded z-10">
+        <!-- Размер (только одиночное фото — у карусели низ занят стрелками) -->
+        <span v-if="files.length === 1" class="absolute bottom-1 left-1 text-[9px] text-white bg-black/50 px-1 rounded z-10">
           {{ formatSize(f.sizeBytes) }}
         </span>
+        <!-- Перемещение в карусели: стрелки ◀ ▶ (надёжно на мобильном) -->
+        <div v-if="files.length > 1" class="absolute inset-x-0 bottom-0 flex items-center justify-between px-1 pb-1 z-10">
+          <button @click="moveItem(idx, -1)" :disabled="idx === 0" title="Левее"
+            class="w-6 h-6 rounded-full bg-black/55 hover:bg-black/80 text-white flex items-center justify-center disabled:opacity-25 disabled:cursor-default">
+            <ChevronLeft :size="14" />
+          </button>
+          <button @click="moveItem(idx, 1)" :disabled="idx === files.length - 1" title="Правее"
+            class="w-6 h-6 rounded-full bg-black/55 hover:bg-black/80 text-white flex items-center justify-center disabled:opacity-25 disabled:cursor-default">
+            <ChevronRight :size="14" />
+          </button>
+        </div>
       </div>
     </div>
 

@@ -101,6 +101,31 @@ posts.put('/:id', async (c) => {
   return c.json(post)
 })
 
+// POST /api/posts/:id/media/reorder — порядок медиа карусели (sortOrder). Публикация идёт по sortOrder asc.
+const mediaReorderSchema = z.object({
+  items: z.array(z.object({ id: z.string(), sortOrder: z.number().int().min(0) })),
+})
+posts.post('/:id/media/reorder', async (c) => {
+  const { id } = c.req.param()
+  const user = c.get('user') as AuthUser
+  try {
+    await verifyPostAccess(user, id)
+  } catch (e: any) {
+    if (e.message === 'NOT_FOUND') return c.json({ error: 'Не найдено' }, 404)
+    if (e.message === 'FORBIDDEN') return c.json({ error: 'Нет доступа' }, 403)
+    throw e
+  }
+  const { items } = mediaReorderSchema.parse(await c.req.json())
+  await db.$transaction(items.map(item =>
+    db.mediaFile.updateMany({
+      where: { id: item.id, postId: id }, // только медиа этого поста (защита от чужих id)
+      data: { sortOrder: item.sortOrder },
+    })
+  ))
+  emitEvent({ type: 'post_updated', tabId: c.req.header('X-Tab-ID') || '', postId: id })
+  return c.json({ ok: true })
+})
+
 // POST /api/posts/:id/approve
 posts.post('/:id/approve', async (c) => {
   const { id } = c.req.param()
