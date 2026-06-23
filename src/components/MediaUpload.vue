@@ -34,6 +34,9 @@ const editingFile = ref<MediaFile | null>(null)
 
 // Порядок медиа карусели: desktop — drag&drop, мобильный — стрелки ◀▶. Публикация идёт по этому порядку.
 const dragIndex = ref<number | null>(null)
+// Нативный HTML5 drag работает только мышью; на тач-экранах (телефон) он лишь вибрирует и «вешает»
+// серую плитку без drop. На телефоне переупорядочиваем стрелками ◀▶, drag оставляем десктопу.
+const supportsDrag = typeof window !== 'undefined' && !window.matchMedia('(pointer: coarse)').matches
 function onDragStart(idx: number) { dragIndex.value = idx }
 function onCardDrop(idx: number) {
   const from = dragIndex.value
@@ -179,13 +182,13 @@ function formatSize(bytes: number) {
       <div
         v-for="(f, idx) in files"
         :key="f.id"
-        :draggable="files.length > 1"
+        :draggable="files.length > 1 && supportsDrag"
         @dragstart="onDragStart(idx)"
         @dragover.prevent
         @drop="onCardDrop(idx)"
         @dragend="dragIndex = null"
         :class="['relative group rounded-lg overflow-hidden bg-gray-100 dark:bg-gray-800 flex items-center justify-center transition-opacity',
-          files.length > 1 ? 'cursor-move' : '', dragIndex === idx ? 'opacity-40' : '']"
+          files.length > 1 && supportsDrag ? 'cursor-move' : '', dragIndex === idx ? 'opacity-40' : '']"
       >
         <img
           v-if="f.mimeType.startsWith('image/')"
