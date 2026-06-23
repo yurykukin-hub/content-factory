@@ -20,6 +20,7 @@ import {
   buildDigestCopywriterPrompt,
   buildDigestArtDirectorPrompt,
   buildDigestRoleStoryPrompt,
+  buildFlashStoryPrompt,
   buildDigestRecruitmentPrompt,
   buildAdaptPrompt,
   type DigestStoryRole,
@@ -29,6 +30,7 @@ import { getStrategyBlock, getSeasonHint, getRubricNames } from './ai/strategy'
 import { getViralCompetitorPosts } from './competitor-poller'
 import { renderAndSaveStoryDesign } from './story-design'
 import { stripInlineHashtags } from '../utils/hashtags'
+import { evaluateWeatherFlash, type FlashSignal } from './promo/weather-flash'
 
 // IG с 2025 ограничил рекомендованное число хэштегов (≤5/пост даёт лучший охват, чем «ковёр» тегов).
 const IG_HASHTAG_CAP = 5
@@ -329,6 +331,39 @@ async function generateDigestForBusiness(biz: any, force: boolean, role: DigestR
         const feed = await runAgentTeam(biz.id, ctx, 1).catch(() => [] as Suggestion[])
         suggestions.push(...feed)
       }
+      // Погодный flash (Фаза 3, этап 2): «распогодилось + свободно сегодня» → разовая скидка.
+      // Полу-ручной: предлагаем сторис + инструкцию завести скидку в ERP (в reasoning). Дедуп — общий
+      // с утренним прогоном (раз/день). Пороги/глубина — через AppConfig digest_flash_* (иначе дефолты).
+      if ((await getConfig('digest_flash_enabled')) === 'true') {
+        const num = async (k: string): Promise<number | undefined> => {
+          const v = await getConfig(k)
+          return v != null && v !== '' ? Number(v) : undefined
+        }
+        const todayWeather = data?.weather?.find(w => w.date === todayStr) || data?.weather?.[0] || null
+        const bookingsToday = data?.bookings?.find(b => b.date === todayStr)?.bookings ?? 0
+        const signal = evaluateWeatherFlash({
+          weatherToday: todayWeather,
+          bookingsToday,
+          conditions: {
+            minTemp: await num('digest_flash_min_temp'),
+            maxWind: await num('digest_flash_max_wind'),
+            maxPrecip: await num('digest_flash_max_precip'),
+            percent: await num('digest_flash_percent'),
+            maxBookings: await num('digest_flash_max_bookings'),
+          },
+        })
+        if (signal.triggered) {
+          const weatherLine = todayWeather
+            ? `${todayWeather.tempMax ?? '?'}°, ${todayWeather.label}, ${windLabel(todayWeather.windMax)}`
+            : 'тепло'
+          const flash = await runFlashStory(biz.id, ctx, signal, weatherLine).catch((e: any) => {
+            log.warn('[Digest] flash story failed', { business: biz.slug, error: e.message }); return null
+          })
+          if (flash) suggestions.push(flash)
+        } else {
+          log.info('[Digest] flash skipped', { business: biz.slug, reason: signal.reason })
+        }
+      }
       // Набор инструкторов — еженедельно (по умолч. среда dow=3), ТОЛЬКО VK (opt-in digest_recruitment_enabled)
       if ((await getConfig('digest_recruitment_enabled')) === 'true') {
         const recDay = ((await getConfig('digest_recruitment_day')) || '3').trim()
@@ -616,6 +651,64 @@ async function runRoleStory(businessId: string, ctx: DigestContext, role: Digest
     visualIdea: idea.theme || undefined,
     rubric: idea.rubric,
     reasoning: idea.reasoning || `Сторис (${role})`,
+    mediaFileId,
+  }
+}
+
+/**
+ * Погодный FLASH (Фаза 3, этап 2, ПОЛУ-РУЧНОЙ): разовая скидка «только сегодня», когда
+ * распогодилось и есть свободные места. CF лишь ПРЕДЛАГАЕТ сторис — скидку в ERP человек
+ * заводит вручную перед публикацией (reasoning содержит явную инструкцию ⚠). Глубина уже
+ * обрезана красной линией (signal.suggestedPercent). Рубрика 'акция'.
+ */
+async function runFlashStory(businessId: string, ctx: DigestContext, signal: FlashSignal, weatherLine: string): Promise<Suggestion | null> {
+  const { aiComplete } = await import('./ai/openrouter')
+  const res = await aiComplete({
+    model: 'anthropic/claude-sonnet-4',
+    systemPrompt: buildFlashStoryPrompt({
+      dayName: ctx.dayName, dateStr: ctx.dateStr, brandContext: ctx.brandContext,
+      seasonHint: ctx.seasonHint, weatherLine,
+      percent: signal.suggestedPercent, serviceLabel: signal.serviceLabel,
+    }),
+    userPrompt: 'Сделай flash-сторис на сегодня. Ответь JSON.',
+    maxTokens: 700,
+    temperature: 0.9,
+    businessId,
+    action: 'daily_digest',
+  })
+  const idea = parseJsonLoose<{ theme?: string; text?: string; photoKeywords?: string[]; reasoning?: string }>(res.content || '')
+  if (!idea?.text) return null
+  const text = stripInlineHashtags(idea.text)
+  const channels = ctx.platforms.length ? ctx.platforms : ['VK']
+
+  let mediaFileId: string | null = await pickPhotoForPost(businessId, {
+    theme: idea.theme || text, format: 'STORIES', text, photoKeywords: idea.photoKeywords || [],
+  }).catch(() => null)
+  if (mediaFileId) {
+    const photo = await db.mediaFile.findUnique({ where: { id: mediaFileId }, select: { url: true } })
+    if (photo) {
+      const design = await renderAndSaveStoryDesign({
+        businessId, photoUrl: photo.url, title: idea.theme || text,
+        temp: ctx.todayTemp, weather: ctx.todayWeather, cta: 'Записаться · nawode.ru',
+        sourceMediaId: mediaFileId,
+      }).catch((e: any) => { log.warn('[Digest] flash story design failed', { error: e.message }); return null })
+      if (design) mediaFileId = design.id
+    }
+  }
+
+  // ⚠ ПОЛУ-РУЧНОЙ: явная инструкция человеку — завести скидку в ERP ПЕРЕД публикацией.
+  const erpHint = `⚠ ДО публикации заведи в ERP разовую скидку −${signal.suggestedPercent}% на ${signal.serviceLabel} на сегодня (service_slot_overrides у нужного слота) — иначе клиент не получит цену.`
+
+  return {
+    postType: 'STORIES',
+    platforms: channels,
+    title: idea.theme ? String(idea.theme).slice(0, 80) : 'Flash-скидка',
+    text,
+    hashtags: [],
+    adaptations: channels.map(p => ({ platform: p, text, hashtags: [] as string[] })),
+    visualIdea: idea.theme || undefined,
+    rubric: 'акция',
+    reasoning: `${idea.reasoning || 'Погодный flash'} ${erpHint}`,
     mediaFileId,
   }
 }
