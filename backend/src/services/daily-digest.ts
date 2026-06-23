@@ -284,6 +284,9 @@ async function generateDigestForBusiness(biz: any, force: boolean, role: DigestR
     promoBlock = buildPromoBlock(discounts, { dateLabel: role === 'evening' ? 'на завтра' : 'на сегодня' })
   }
 
+  // Дедуп фото МЕЖДУ ДНЯМИ: кадры из предложений за 10 дней → не повторять (исходные фото дизайн-сторис тоже)
+  const recentPhotoIds = await getRecentlyUsedPhotoIds(biz.id, 10).catch(() => new Set<string>())
+
   const rubrics = await getRubricNames(biz.id)
   const ctx: DigestContext = {
     dayName: dayNames[now.getDay()],
@@ -307,7 +310,7 @@ async function generateDigestForBusiness(biz: any, force: boolean, role: DigestR
   if (role === 'full') {
     // ЛЕГАСИ-прогон (ручная кнопка): команда агентов (стратег → копирайтер → арт-директор) + fallback single-shot.
     try {
-      suggestions = await runAgentTeam(biz.id, ctx)
+      suggestions = await runAgentTeam(biz.id, ctx, 3, recentPhotoIds)
     } catch (err: any) {
       log.warn('[Digest] agent team failed → fallback to single-shot', { business: biz.slug, error: err.message })
     }
@@ -319,7 +322,7 @@ async function generateDigestForBusiness(biz: any, force: boolean, role: DigestR
     }
   } else {
     // РИТМ-прогон: ОДНА сторис под роль (свежие данные на момент прогона).
-    const story = await runRoleStory(biz.id, ctx, role).catch((e: any) => {
+    const story = await runRoleStory(biz.id, ctx, role, recentPhotoIds).catch((e: any) => {
       log.warn('[Digest] role story failed', { business: biz.slug, role, error: e.message })
       return null
     })
@@ -328,7 +331,7 @@ async function generateDigestForBusiness(biz: any, force: boolean, role: DigestR
     if (role === 'morning') {
       const feedDays = ((await getConfig('digest_feed_days')) || '').split(',').map(s => s.trim()).filter(Boolean)
       if (feedDays.includes(String(now.getUTCDay()))) {
-        const feed = await runAgentTeam(biz.id, ctx, 1).catch(() => [] as Suggestion[])
+        const feed = await runAgentTeam(biz.id, ctx, 1, recentPhotoIds).catch(() => [] as Suggestion[])
         suggestions.push(...feed)
       }
       // Погодный flash (Фаза 3, этап 2): «распогодилось + свободно сегодня» → разовая скидка.
@@ -356,7 +359,7 @@ async function generateDigestForBusiness(biz: any, force: boolean, role: DigestR
           const weatherLine = todayWeather
             ? `${todayWeather.tempMax ?? '?'}°, ${todayWeather.label}, ${windLabel(todayWeather.windMax)}`
             : 'тепло'
-          const flash = await runFlashStory(biz.id, ctx, signal, weatherLine).catch((e: any) => {
+          const flash = await runFlashStory(biz.id, ctx, signal, weatherLine, recentPhotoIds).catch((e: any) => {
             log.warn('[Digest] flash story failed', { business: biz.slug, error: e.message }); return null
           })
           if (flash) suggestions.push(flash)
@@ -449,6 +452,30 @@ async function searchGalleryPhotos(businessId: string, keywords: string[], limit
     .map(({ id, altText }) => ({ id, altText }))
 }
 
+/**
+ * Фото, уже использованные в предложениях дайджеста за последние `days` дней — чтобы НЕ
+ * повторять один кадр изо дня в день (баг: дедуп жил только в памяти одного прогона).
+ * Дизайн-сторис хранит baked-PNG в mediaFileId, а исходное фото — в sourceMediaId; возвращаем
+ * И то и другое (исключаем исходные фото из кандидатов; baked и так отсеяны тегом ai-generated).
+ */
+async function getRecentlyUsedPhotoIds(businessId: string, days = 10): Promise<Set<string>> {
+  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000)
+  const tasks = await db.autoPostTask.findMany({
+    where: { businessId, mediaFileId: { not: null }, createdAt: { gte: since } },
+    select: { mediaFileId: true },
+  })
+  const ids = tasks.map(t => t.mediaFileId).filter((x): x is string => !!x)
+  const used = new Set<string>(ids)
+  if (ids.length) {
+    const files = await db.mediaFile.findMany({
+      where: { id: { in: ids }, sourceMediaId: { not: null } },
+      select: { sourceMediaId: true },
+    })
+    for (const f of files) if (f.sourceMediaId) used.add(f.sourceMediaId) // исходное фото дизайн-сторис
+  }
+  return used
+}
+
 /** Арт-директор: выбирает лучшее фото из галереи под пост (null, если ничего не подходит). */
 async function pickPhotoForPost(
   businessId: string,
@@ -506,7 +533,7 @@ async function adaptForPlatforms(
 
 /** Цепочка ролей: стратег (1 вызов) → по каждой идее копирайтер + адаптация + арт-директор (параллельно).
  *  count — сколько идей просить (3 для легаси-дайджеста, 1 для ленты в ритм-прогоне). */
-async function runAgentTeam(businessId: string, ctx: DigestContext, count = 3): Promise<Suggestion[]> {
+async function runAgentTeam(businessId: string, ctx: DigestContext, count = 3, excludeSeed: Set<string> = new Set()): Promise<Suggestion[]> {
   const { aiComplete } = await import('./ai/openrouter')
 
   // РОЛЬ 1 — Стратег: темы дня
@@ -525,7 +552,7 @@ async function runAgentTeam(businessId: string, ctx: DigestContext, count = 3): 
   // РОЛИ 2+3 — копирайтер + адаптация + арт-директор по каждой идее.
   // Последовательно (не параллельно) ради ДЕДУПА фото: usedMediaIds копит уже выбранные кадры.
   const suggestions: Suggestion[] = []
-  const usedMediaIds = new Set<string>()
+  const usedMediaIds = excludeSeed // тот же объект — дедуп между днями (seed) + накопление в этом прогоне
   for (const idea of ideas.slice(0, Math.max(1, count))) {
     try {
       // Ф1.6: только PHOTO/STORIES (каждый пост с фото). Любой другой формат → PHOTO.
@@ -606,7 +633,7 @@ async function runAgentTeam(businessId: string, ctx: DigestContext, count = 3): 
  * per-platform адаптация не нужна) → арт-директор выбирает реальное фото → дизайн-слой (satori).
  * Данные (погода/hotSlots) уже свежие в ctx (собраны на момент прогона).
  */
-async function runRoleStory(businessId: string, ctx: DigestContext, role: DigestStoryRole): Promise<Suggestion | null> {
+async function runRoleStory(businessId: string, ctx: DigestContext, role: DigestStoryRole, excludeIds: Set<string> = new Set()): Promise<Suggestion | null> {
   const { aiComplete } = await import('./ai/openrouter')
   const res = await aiComplete({
     model: 'anthropic/claude-sonnet-4',
@@ -626,7 +653,7 @@ async function runRoleStory(businessId: string, ctx: DigestContext, role: Digest
   // Арт-директор — реальное фото из галереи под тему сторис
   let mediaFileId: string | null = await pickPhotoForPost(businessId, {
     theme: idea.theme || text, format: 'STORIES', text, photoKeywords: idea.photoKeywords || [],
-  }).catch(() => null)
+  }, excludeIds).catch(() => null)
 
   // STORIES → собрать дизайн-картинку (фото-фон + текст + погодный виджет + лого)
   if (mediaFileId) {
@@ -661,7 +688,7 @@ async function runRoleStory(businessId: string, ctx: DigestContext, role: Digest
  * заводит вручную перед публикацией (reasoning содержит явную инструкцию ⚠). Глубина уже
  * обрезана красной линией (signal.suggestedPercent). Рубрика 'акция'.
  */
-async function runFlashStory(businessId: string, ctx: DigestContext, signal: FlashSignal, weatherLine: string): Promise<Suggestion | null> {
+async function runFlashStory(businessId: string, ctx: DigestContext, signal: FlashSignal, weatherLine: string, excludeIds: Set<string> = new Set()): Promise<Suggestion | null> {
   const { aiComplete } = await import('./ai/openrouter')
   const res = await aiComplete({
     model: 'anthropic/claude-sonnet-4',
@@ -683,8 +710,9 @@ async function runFlashStory(businessId: string, ctx: DigestContext, signal: Fla
 
   let mediaFileId: string | null = await pickPhotoForPost(businessId, {
     theme: idea.theme || text, format: 'STORIES', text, photoKeywords: idea.photoKeywords || [],
-  }).catch(() => null)
+  }, excludeIds).catch(() => null)
   if (mediaFileId) {
+    excludeIds.add(mediaFileId) // исходное фото — не повторять в последующих генераторах этого прогона
     const photo = await db.mediaFile.findUnique({ where: { id: mediaFileId }, select: { url: true } })
     if (photo) {
       const design = await renderAndSaveStoryDesign({
