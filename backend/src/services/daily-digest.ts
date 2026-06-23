@@ -264,9 +264,14 @@ async function generateDigestForBusiness(biz: any, force: boolean, role: DigestR
 
   // «Горячие» слоты (где уже есть записанные) — вход для слот-филла (утренняя/дневная сторис)
   const todayStr = now.toISOString().slice(0, 10)
+  const tomorrowStr = new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
   const hotSlotsBlock = hotSlots.length
     ? hotSlots.slice(0, 6).map((s: any) => {
-        const when = s.date === todayStr ? 'сегодня' : s.date
+        // День недели вычисляем КОДОМ и даём словами — LLM ошибается, вычисляя его из ISO-даты
+        // (баг: 27.06=суббота, а агент писал «четверг»). UTC, чтобы не плавал по TZ.
+        const d = new Date(`${s.date}T00:00:00Z`)
+        const dm = `${String(d.getUTCDate()).padStart(2, '0')}.${String(d.getUTCMonth() + 1).padStart(2, '0')}`
+        const when = s.date === todayStr ? 'сегодня' : s.date === tomorrowStr ? 'завтра' : `${dayNames[d.getUTCDay()]} ${dm}`
         const room = s.remaining != null ? `, осталось ~${s.remaining} мест` : ''
         const what = s.tourName || (s.serviceType === 'RENTAL' ? 'прокат' : s.serviceType || 'слот')
         return `- ${when} ${s.startTime || ''} ${what}: уже ${s.peopleBooked} чел.${room}`.replace(/ +/g, ' ').trim()
