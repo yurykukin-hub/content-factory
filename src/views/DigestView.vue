@@ -378,8 +378,13 @@ async function onPhotoSelected(file: { id: string; url: string; thumbUrl?: strin
 
 // Превью «как в соцсети» — активная платформа per task (Ф1.5b)
 const activePlatform = ref<Record<string, string>>({})
+// Единый порядок табов превью (иначе платформы шли как создал агент — у сторис и постов по-разному)
+const PLATFORM_ORDER = ['VK', 'TELEGRAM', 'INSTAGRAM']
+function orderedPreviews(task: DigestTask) {
+  return [...(task.previews || [])].sort((a, b) => PLATFORM_ORDER.indexOf(a.platform) - PLATFORM_ORDER.indexOf(b.platform))
+}
 function previewPlatform(task: DigestTask): string {
-  return activePlatform.value[task.id] || task.previews?.[0]?.platform || task.platforms?.[0] || 'VK'
+  return activePlatform.value[task.id] || orderedPreviews(task)[0]?.platform || task.platforms?.[0] || 'VK'
 }
 function setPreviewPlatform(taskId: string, platform: string) {
   // В режиме правки текста — переключение таба сохраняет старый канал и готовит черновик нового
@@ -507,12 +512,12 @@ onMounted(load)
         <!-- Превью «как в соцсети» (Ф1.5b): табы платформ + PostPreview с адаптированным текстом -->
         <div v-if="task.previews?.length" class="mb-3">
           <div v-if="task.previews.length > 1" class="flex gap-1.5 mb-2">
-            <button v-for="pv in task.previews" :key="pv.platform" @click="setPreviewPlatform(task.id, pv.platform)"
+            <button v-for="pv in orderedPreviews(task)" :key="pv.platform" @click="setPreviewPlatform(task.id, pv.platform)"
               :class="['px-2.5 py-1 rounded-md text-xs font-medium transition-colors', previewPlatform(task) === pv.platform ? platformBgColor(pv.platform) : 'text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800']">
               {{ pv.platform }}
             </button>
           </div>
-          <template v-for="pv in task.previews" :key="pv.platform">
+          <template v-for="pv in orderedPreviews(task)" :key="pv.platform">
             <template v-if="previewPlatform(task) === pv.platform">
               <!-- STORIES — вертикальный 9:16; PHOTO — лента соцсети.
                    ВАЖНО: StoriesPreview (v-if) и PostPreview (v-else) ДОЛЖНЫ быть смежны —
@@ -543,14 +548,16 @@ onMounted(load)
           </div>
         </template>
 
-        <!-- В редактор (под превью) — открыть в полном редакторе, предложение остаётся в дайджесте -->
-        <button v-if="task.status === 'proposed'" @click="openEditor(task)" :disabled="actingId === task.id"
-          class="flex items-center gap-1.5 text-xs font-medium text-gray-500 hover:text-brand-600 dark:hover:text-brand-400 mb-3 disabled:opacity-50">
-          <FileEdit :size="13" /> В редактор
-        </button>
+        <!-- В редактор (под превью, по центру) — открыть в полном редакторе, предложение остаётся -->
+        <div v-if="task.status === 'proposed'" class="flex justify-center mb-3">
+          <button @click="openEditor(task)" :disabled="actingId === task.id"
+            class="flex items-center gap-1.5 text-xs font-medium text-gray-500 hover:text-brand-600 dark:hover:text-brand-400 disabled:opacity-50">
+            <FileEdit :size="13" /> В редактор
+          </button>
+        </div>
 
         <!-- Управление фото (Ф1.2 + лайтбокс Ф1.5c) -->
-        <div v-if="task.media || task.postType === 'PHOTO' || task.postType === 'STORIES'" class="flex items-center gap-2 flex-wrap mb-3">
+        <div v-if="task.media || task.postType === 'PHOTO' || task.postType === 'STORIES'" class="flex items-center justify-center gap-2 flex-wrap mb-3">
           <template v-if="task.media">
             <button @click="openLightbox(task.media!.url)"
               class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-gray-300 dark:border-gray-700 text-xs font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800">
