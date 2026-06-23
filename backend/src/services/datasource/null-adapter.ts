@@ -1,4 +1,4 @@
-import type { DataSourceAdapter, BookingDay, HotSlot } from './types'
+import type { DataSourceAdapter, BookingDay, HotSlot, ActiveDiscount } from './types'
 
 /** Пустой источник: бизнес без ERP-интеграции (digest/plan работают без погоды/броней). */
 export class NullDataSourceAdapter implements DataSourceAdapter {
@@ -9,6 +9,9 @@ export class NullDataSourceAdapter implements DataSourceAdapter {
     return []
   }
   async getHotSlots(): Promise<HotSlot[]> {
+    return []
+  }
+  async getActiveDiscounts(): Promise<ActiveDiscount[]> {
     return []
   }
 }

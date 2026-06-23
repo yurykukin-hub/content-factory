@@ -41,6 +41,23 @@ export interface HotSlot {
   remaining: number | null
 }
 
+export type DiscountSource = 'day_of_week' | 'slot_override' | 'promo_code'
+
+/** Действующая скидка на дату (для промо-автопостинга). Деньги в КОПЕЙКАХ. */
+export interface ActiveDiscount {
+  source: DiscountSource
+  serviceType: string | null
+  productId: string | null
+  label: string
+  basePriceKopecks: number | null
+  discountPriceKopecks: number | null
+  percentOff: number | null
+  date: string | null
+  startTime: string | null
+  code: string | null
+  note: string | null
+}
+
 export interface DataSourceAdapter {
   /** Дневная сводка (погода + брони) на сегодня и ближайшие дни. null — источник недоступен. */
   getDailySummary(daysAhead?: number): Promise<DailySummary | null>
@@ -48,4 +65,6 @@ export interface DataSourceAdapter {
   getBookingsInRange(startISO: string, endISO: string): Promise<BookingDay[]>
   /** «Горячие» слоты (где уже есть записи) для слот-филла. [] — недоступно. */
   getHotSlots(daysAhead?: number): Promise<HotSlot[]>
+  /** Действующие скидки на дату (по умолчанию сегодня). [] — недоступно/нет скидок. */
+  getActiveDiscounts(onDateISO?: string): Promise<ActiveDiscount[]>
 }

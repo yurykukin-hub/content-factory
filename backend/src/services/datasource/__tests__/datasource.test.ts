@@ -8,6 +8,7 @@ vi.mock('../../nawode-data', () => ({
   getNawodeData: vi.fn().mockResolvedValue(null),
   getBookingsInRange: vi.fn().mockResolvedValue([]),
   getHotSlots: vi.fn().mockResolvedValue([]),
+  getActiveDiscounts: vi.fn().mockResolvedValue([]),
 }))
 
 import { getDataSourceAdapter } from '../index'
@@ -30,5 +31,6 @@ describe('getDataSourceAdapter — реестр по erpType', () => {
     expect(await a.getDailySummary()).toBeNull()
     expect(await a.getBookingsInRange()).toEqual([])
     expect(await a.getHotSlots()).toEqual([])
+    expect(await a.getActiveDiscounts()).toEqual([])
   })
 })

@@ -386,3 +386,176 @@ export async function getHotSlots(daysAhead = 14): Promise<HotSlot[]> {
     return []
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// Промо: действующие скидки на дату (для промо-автопостинга, Фаза 3).
+// Источники в ERP (read-only):
+//   • price_lists.discount_days   — скидка по дням недели (price_weekday → price_discount);
+//   • service_slot_overrides.discount_price — разовые спец-цены на конкретный слот+дату (Света);
+//   • promo_codes                 — активные промокоды (среди них партнёрские/реферальные).
+// Деньги ВЕЗДЕ в КОПЕЙКАХ. Подача — human-in-the-loop (дайджест → одобрение).
+// ─────────────────────────────────────────────────────────────────────────
+
+export type DiscountSource = 'day_of_week' | 'slot_override' | 'promo_code'
+
+export interface ActiveDiscount {
+  source: DiscountSource
+  serviceType: string | null          // RENTAL | WALK | TOUR | LESSON | ...
+  productId: string | null
+  label: string                       // человекочитаемо: «Прокат в Выборге» / «Промокод ЙОГА5»
+  basePriceKopecks: number | null     // обычная цена (база), если надёжно известна
+  discountPriceKopecks: number | null // фикс-цена со скидкой (day_of_week / slot_override / FIXED-промо)
+  percentOff: number | null           // % скидки: точный (day_of_week), из PERCENT-промо, иначе null
+  date: string | null                 // конкретная дата (slot_override); null — повторяющаяся/бессрочная
+  startTime: string | null            // время слота (slot_override)
+  code: string | null                 // промокод (promo_code)
+  note: string | null                 // предупреждение для подачи (анонс по решению / причина override)
+}
+
+/** День недели даты в конвенции JS Date.getDay (0=вс..6=сб) — как в ERP (discount_days пишет JS).
+ *  UTC, чтобы не зависеть от таймзоны сервера/контейнера. */
+export function dayOfWeekOf(dateISO: string): number {
+  return new Date(`${dateISO}T00:00:00Z`).getUTCDay()
+}
+
+/** «Сегодня» в Europe/Moscow как YYYY-MM-DD (локаль sv-SE даёт ISO-формат). */
+function moscowTodayISO(): string {
+  return new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Moscow' }).format(new Date())
+}
+
+/** price_lists-строка со скидкой по дням → ActiveDiscount, если onDate попадает в discount_days. Иначе null. */
+export function mapDayDiscount(row: any, onDateISO: string): ActiveDiscount | null {
+  const days: number[] = Array.isArray(row?.discount_days) ? row.discount_days.map((d: any) => Number(d)) : []
+  const base = row?.price_weekday != null ? Number(row.price_weekday) : null
+  const disc = row?.price_discount != null ? Number(row.price_discount) : null
+  if (!days.length || base == null || disc == null) return null
+  if (!days.includes(dayOfWeekOf(onDateISO))) return null
+  if (disc >= base) return null // не скидка (цена не ниже базовой)
+  return {
+    source: 'day_of_week',
+    serviceType: row.service_type ?? null,
+    productId: row.product_id ?? null,
+    label: String(row.name || row.service_type || 'Услуга'),
+    basePriceKopecks: base,
+    discountPriceKopecks: disc,
+    percentOff: Math.round((1 - disc / base) * 100),
+    date: null,
+    startTime: null,
+    code: null,
+    note: null,
+  }
+}
+
+/** service_slot_overrides-строка (разовая спец-цена на дату/слот) → ActiveDiscount. */
+export function mapSlotOverrideDiscount(row: any): ActiveDiscount {
+  const disc = row?.discount_price != null ? Number(row.discount_price) : null
+  const stype = row?.service_type ?? null
+  return {
+    source: 'slot_override',
+    serviceType: stype,
+    productId: row?.product_id ?? null,
+    label: String(row?.product_name || stype || 'Услуга'),
+    basePriceKopecks: null,           // база ненадёжна (несколько price_lists на тип) — % не считаем
+    discountPriceKopecks: disc,
+    percentOff: null,
+    date: row?.date ?? null,
+    startTime: row?.start_time ?? null,
+    code: null,
+    note: row?.reason ? String(row.reason) : null,
+  }
+}
+
+/** promo_codes-строка (активный код) → ActiveDiscount. Помечается note: анонс — по решению. */
+export function mapPromoCodeDiscount(row: any): ActiveDiscount {
+  const type = String(row?.type || 'PERCENT')
+  const value = Number(row?.value) || 0
+  const isPercent = type === 'PERCENT'
+  return {
+    source: 'promo_code',
+    serviceType: row?.service_type ?? null,
+    productId: row?.product_id ?? null,
+    label: `Промокод ${row?.code ?? ''}`.trim(),
+    basePriceKopecks: null,
+    discountPriceKopecks: isPercent ? null : value, // FIXED: value = копейки скидки
+    percentOff: isPercent ? value : null,
+    date: null,
+    startTime: null,
+    code: row?.code ? String(row.code) : null,
+    note: 'промокод — анонсировать только по решению (возможно партнёрский/реферальный)',
+  }
+}
+
+const DISCOUNT_SOURCE_ORDER: Record<DiscountSource, number> = {
+  slot_override: 0, // разовые, привязаны к дате → самые «горящие»
+  day_of_week: 1,   // регулярные скидки дня
+  promo_code: 2,    // коды — в конце (анонс по решению)
+}
+
+/** Pure-сборка/сортировка действующих скидок из 3 источников. Вынесена для тестов. */
+export function buildActiveDiscounts(
+  raw: { dayRows?: any[]; overrideRows?: any[]; promoRows?: any[] },
+  onDateISO: string,
+): ActiveDiscount[] {
+  const out: ActiveDiscount[] = []
+  for (const r of raw.dayRows || []) {
+    const d = mapDayDiscount(r, onDateISO)
+    if (d) out.push(d)
+  }
+  for (const r of raw.overrideRows || []) out.push(mapSlotOverrideDiscount(r))
+  for (const r of raw.promoRows || []) out.push(mapPromoCodeDiscount(r))
+  return out.sort((a, b) => {
+    const so = DISCOUNT_SOURCE_ORDER[a.source] - DISCOUNT_SOURCE_ORDER[b.source]
+    if (so !== 0) return so
+    return (b.percentOff ?? -1) - (a.percentOff ?? -1) // бОльшая скидка инфоповоднее
+  })
+}
+
+/**
+ * Действующие скидки на дату onDateISO (по умолчанию — сегодня по МСК): скидки по дням
+ * недели (price_lists.discount_days) + разовые спец-цены слотов (service_slot_overrides) +
+ * активные промокоды. Грейсфул []: нет ERP / ошибка. Деньги в КОПЕЙКАХ.
+ *
+ * Для промо-автопостинга (Фаза 3). Промокоды помечены note (анонс по решению — среди них
+ * партнёрские/реферальные 5%). Защита маржи (getRedLine) — на уровне подачи, не тут.
+ */
+export async function getActiveDiscounts(onDateISO?: string): Promise<ActiveDiscount[]> {
+  const db = await getSql()
+  if (!db) return []
+  const onDate = onDateISO || moscowTodayISO()
+  try {
+    const [dayRows, overrideRows, promoRows] = await Promise.all([
+      db<any[]>`
+        SELECT id, service_type::text AS service_type, name, product_id,
+               price_weekday, price_discount, discount_days
+        FROM price_lists
+        WHERE is_active = true
+          AND price_discount IS NOT NULL
+          AND discount_days IS NOT NULL
+          AND array_length(discount_days, 1) > 0
+      `,
+      db<any[]>`
+        SELECT o.id, to_char(o.date::date, 'YYYY-MM-DD') AS date, o.discount_price, o.reason,
+               s.product_id, s.service_type::text AS service_type, s.start_time,
+               p.name AS product_name
+        FROM service_slot_overrides o
+        JOIN service_slots s ON s.id = o.slot_id
+        LEFT JOIN products p ON p.id = s.product_id
+        WHERE o.is_enabled = true
+          AND o.discount_price IS NOT NULL
+          AND o.date::date = ${onDate}::date
+      `,
+      db<any[]>`
+        SELECT id, code, type::text AS type, value, product_id, service_type::text AS service_type
+        FROM promo_codes
+        WHERE is_active = true
+          AND (valid_from IS NULL OR valid_from::date <= ${onDate}::date)
+          AND (valid_to   IS NULL OR valid_to::date   >= ${onDate}::date)
+          AND (max_uses   IS NULL OR used_count < max_uses)
+      `,
+    ])
+    return buildActiveDiscounts({ dayRows, overrideRows, promoRows }, onDate)
+  } catch (err: any) {
+    log.error('[NawodeData] getActiveDiscounts failed', { error: err.message })
+    return []
+  }
+}
