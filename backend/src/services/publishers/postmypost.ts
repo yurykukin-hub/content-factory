@@ -36,6 +36,35 @@ const PUB_STATUS_PENDING = 5
 const UPLOAD_OK = 1
 const UPLOAD_ERROR = 2
 
+// Instagram-лента: допустимое соотношение сторон (w/h) — 4:5 (0.8) … 1.91:1 (1.91).
+// Вне диапазона IG/Postmypost вписывает фото, добавляя белые поля. Кропаем к ближайшей границе.
+const IG_MIN_RATIO = 0.8       // 4:5 — самое высокое вертикальное
+const IG_MAX_RATIO = 1.91      // 1.91:1 — самое широкое горизонтальное
+const IG_CROP_POSITION = 'attention' as const // sharp smart-crop: тянет к смысловой области (люди/контраст)
+
+/**
+ * Чистая логика кропа фото под IG-ленту. Возвращает целевые размеры (px) или null (не трогать).
+ * forceRatio задан (карусель) → всегда приводим к нему; иначе кроп только если фото вне 0.8…1.91.
+ * Без апскейла: держим лимитирующую сторону, режем вторую.
+ */
+export function igFeedTargetSize(
+  w: number,
+  h: number,
+  forceRatio?: number,
+): { outW: number; outH: number } | null {
+  if (!w || !h) return null
+  const ratio = w / h
+  let target = forceRatio
+  if (target == null) {
+    if (ratio < IG_MIN_RATIO) target = IG_MIN_RATIO       // слишком высокое → 4:5
+    else if (ratio > IG_MAX_RATIO) target = IG_MAX_RATIO  // слишком широкое → 1.91:1
+    else return null                                      // уже в норме
+  }
+  return ratio > target
+    ? { outW: Math.round(h * target), outH: h }   // шире target → режем ширину
+    : { outW: w, outH: Math.round(w / target) }   // у́же target → режем высоту
+}
+
 export class PostmypostPublisher implements Publisher {
   private readonly apiBase = 'https://api.postmypost.io/v4.1'
   private readonly uploadMaxAttempts = 20
@@ -120,11 +149,17 @@ export class PostmypostPublisher implements Publisher {
       return { success: false, error: `${label}-публикация требует текст или медиа.` }
     }
 
+    // IG-лента (POST) требует w/h 0.8…1.91, иначе IG добавит белые поля. Сторис/Reels — НЕ кропаем.
+    // VK-via-PMP (isInstagram=false) — не трогаем.
+    const normalizeFeedImages = isInstagram && this.resolvePublicationType(postType) === PUB_TYPE.POST
+    // Карусель: IG требует ОДИНАКОВОЕ соотношение у всех фото → при >1 форсируем общий 4:5; при 1 — кроп по границам.
+    const carouselRatio = normalizeFeedImages && (mediaFiles?.length ?? 0) > 1 ? IG_MIN_RATIO : undefined
+
     try {
       // 1. Загрузить все медиа → file_ids
       const fileIds: number[] = []
       for (const mf of (mediaFiles ?? [])) {
-        const fileId = await this.uploadMedia(token, projectId, mf)
+        const fileId = await this.uploadMedia(token, projectId, mf, normalizeFeedImages, carouselRatio)
         if (!fileId) return { success: false, error: `Postmypost не смог загрузить медиа: ${mf.filename}` }
         fileIds.push(fileId)
       }
@@ -166,9 +201,22 @@ export class PostmypostPublisher implements Publisher {
   }
 
   /** Загрузка одного файла: init → S3 → complete → poll. Возвращает file_id или null. */
-  private async uploadMedia(token: string, projectId: number, mf: { url: string; mimeType: string; filename: string }): Promise<number | null> {
+  private async uploadMedia(
+    token: string,
+    projectId: number,
+    mf: { url: string; mimeType: string; filename: string },
+    normalizeFeed = false,
+    forceRatio?: number,
+  ): Promise<number | null> {
     const filePath = join(UPLOAD_DIR, mf.url.replace('/uploads/', ''))
-    const buf = await readFile(filePath)
+    let buf = await readFile(filePath)
+
+    // IG-лента: привести соотношение к 0.8…1.91, иначе IG/Postmypost добавит белые поля.
+    if (normalizeFeed) {
+      const norm = await this.normalizeForInstagramFeed(buf, mf.mimeType, forceRatio)
+      buf = norm.buffer
+      if (norm.changed) console.error(`[PMP] IG feed normalize: ${mf.filename} → кроп под соотношение`)
+    }
 
     // Postmypost/S3 не принимают не-ASCII имена файлов (кириллица/«·»/пробелы ломают загрузку)
     const ext = (mf.url.split('?')[0].split('.').pop() || mf.mimeType.split('/')[1] || 'jpg').toLowerCase()
@@ -220,6 +268,38 @@ export class PostmypostPublisher implements Publisher {
       await new Promise(r => setTimeout(r, this.uploadDelayMs))
     }
     return null
+  }
+
+  /**
+   * Приводит растровое фото к допустимому для IG-ленты соотношению (w/h 0.8…1.91).
+   * targetRatio задан (карусель) → форсируем именно его; иначе кроп только если фото вне границ.
+   * На любой ошибке sharp возвращает исходный буфер (changed=false) — публикацию не блокируем.
+   */
+  private async normalizeForInstagramFeed(
+    buf: Buffer<ArrayBuffer>,
+    mimeType: string,
+    targetRatio?: number,
+  ): Promise<{ buffer: Buffer<ArrayBuffer>; changed: boolean }> {
+    // Только растровые картинки; видео и GIF (анимация) — без изменений.
+    if (!mimeType.startsWith('image/') || mimeType === 'image/gif') return { buffer: buf, changed: false }
+    try {
+      const sharpLib = (await import('sharp')).default
+      // .rotate() БЕЗ аргументов запекает EXIF-ориентацию в пиксели ДО чтения размеров:
+      // телефонный портрет = landscape-пиксели + EXIF "rotate 90"; иначе w/h перепутаны → кроп уйдёт не туда.
+      const base = sharpLib(buf).rotate()
+      const meta = await base.metadata()
+      const size = igFeedTargetSize(meta.width ?? 0, meta.height ?? 0, targetRatio)
+      if (!size) return { buffer: buf, changed: false }
+
+      const isPng = mimeType === 'image/png'
+      let p = base.resize(size.outW, size.outH, { fit: 'cover', position: IG_CROP_POSITION })
+      p = isPng ? p.png() : p.jpeg({ quality: 90 })
+      // sharp типизирует toBuffer() как широкий Buffer<ArrayBufferLike>; физически это обычный non-shared буфер.
+      return { buffer: (await p.toBuffer()) as Buffer<ArrayBuffer>, changed: true }
+    } catch (err) {
+      console.error('[PMP] normalizeForInstagramFeed failed, using original:', String(err))
+      return { buffer: buf, changed: false }
+    }
   }
 
   async testConnection(account: PlatformAccount): Promise<boolean> {
