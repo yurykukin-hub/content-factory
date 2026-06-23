@@ -83,7 +83,8 @@ interface DigestContext {
   platforms: string[]
   todayTemp?: string | null      // "+21°" — для погодного виджета дизайн-сторис
   todayWeather?: string | null   // "слабый ветер"
-  promoBlock?: string            // действующие скидки из ERP (Фаза 3; '' если выключено/нет скидок)
+  promoBlock?: string            // действующие скидки из ERP для промпта (Фаза 3; '' если выключено/нет)
+  promoBadge?: string | null     // короткая плашка скидки для картинки дизайн-сторис («Прокат −10% · 900₽»)
 }
 
 /** Скорость ветра (м/с) → словесное описание. Цифры м/с люди не понимают — в тексте только словами. */
@@ -275,13 +276,15 @@ async function generateDigestForBusiness(biz: any, force: boolean, role: DigestR
   // скидки (этап 1 — без flash несуществующих). Вечерняя сторис — про завтра, остальные — про
   // сегодня. Грейсфул '' при ошибке/выключенном флаге → промпты блок не показывают.
   let promoBlock = ''
+  let promoBadge: string | null = null
   if ((await getConfig('digest_promo_enabled')) === 'true') {
     const promoDate = role === 'evening'
       ? new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
       : todayStr
     const discounts = await adapter.getActiveDiscounts(promoDate).catch(() => [])
-    const { buildPromoBlock } = await import('./promo/promo-block')
+    const { buildPromoBlock, buildPromoBadge } = await import('./promo/promo-block')
     promoBlock = buildPromoBlock(discounts, { dateLabel: role === 'evening' ? 'на завтра' : 'на сегодня' })
+    promoBadge = buildPromoBadge(discounts) // плашка скидки НА КАРТИНКУ дизайн-сторис
   }
 
   // Дедуп фото МЕЖДУ ДНЯМИ: кадры из предложений за 10 дней → не повторять (исходные фото дизайн-сторис тоже)
@@ -304,6 +307,7 @@ async function generateDigestForBusiness(biz: any, force: boolean, role: DigestR
     todayTemp: data?.weather?.[0]?.tempMax != null ? `+${Math.round(data.weather[0].tempMax)}°` : null,
     todayWeather: data?.weather?.[0]?.windMax != null ? windLabel(data.weather[0].windMax) : null,
     promoBlock,
+    promoBadge,
   }
 
   let suggestions: Suggestion[] = []
@@ -606,7 +610,7 @@ async function runAgentTeam(businessId: string, ctx: DigestContext, count = 3, e
           if (photo) {
             const design = await renderAndSaveStoryDesign({
               businessId, photoUrl: photo.url, title: idea.theme || copy.text,
-              temp: ctx.todayTemp, weather: ctx.todayWeather, cta: 'Записаться · nawode.ru',
+              temp: ctx.todayTemp, weather: ctx.todayWeather, cta: 'Записаться · nawode.ru', promo: ctx.promoBadge,
               sourceMediaId: photoId, // исходное фото — чтобы потом переоформить кадр
             }).catch((e: any) => { log.warn('[Digest] story design failed', { error: e.message }); return null })
             if (design) mediaFileId = design.id
@@ -666,7 +670,7 @@ async function runRoleStory(businessId: string, ctx: DigestContext, role: Digest
     if (photo) {
       const design = await renderAndSaveStoryDesign({
         businessId, photoUrl: photo.url, title: idea.theme || text,
-        temp: ctx.todayTemp, weather: ctx.todayWeather, cta: 'Записаться · nawode.ru',
+        temp: ctx.todayTemp, weather: ctx.todayWeather, cta: 'Записаться · nawode.ru', promo: ctx.promoBadge,
         sourceMediaId: mediaFileId,
       }).catch((e: any) => { log.warn('[Digest] role story design failed', { error: e.message }); return null })
       if (design) mediaFileId = design.id
@@ -723,6 +727,7 @@ async function runFlashStory(businessId: string, ctx: DigestContext, signal: Fla
       const design = await renderAndSaveStoryDesign({
         businessId, photoUrl: photo.url, title: idea.theme || text,
         temp: ctx.todayTemp, weather: ctx.todayWeather, cta: 'Записаться · nawode.ru',
+        promo: `Прокат −${signal.suggestedPercent}% сегодня`,
         sourceMediaId: mediaFileId,
       }).catch((e: any) => { log.warn('[Digest] flash story design failed', { error: e.message }); return null })
       if (design) mediaFileId = design.id

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildPromoBlock, formatDiscountLine } from '../promo-block'
+import { buildPromoBlock, formatDiscountLine, buildPromoBadge } from '../promo-block'
 import type { ActiveDiscount } from '../../datasource/types'
 
 const disc = (over: Partial<ActiveDiscount> = {}): ActiveDiscount => ({
@@ -64,5 +64,25 @@ describe('buildPromoBlock', () => {
   it('пустой вход → ""', () => {
     expect(buildPromoBlock([])).toBe('')
     expect(buildPromoBlock(null as any)).toBe('')
+  })
+})
+
+describe('buildPromoBadge — плашка для картинки сторис', () => {
+  it('скидка дня → «Прокат −10% · 900₽» (первое слово label + % + цена)', () => {
+    expect(buildPromoBadge([disc()])).toBe('Прокат −10% · 900₽')
+  })
+
+  it('разовая спеццена без процента → «Тур · 2000₽»', () => {
+    const o = disc({ source: 'slot_override', label: 'Тур Место силы', percentOff: null, basePriceKopecks: null, discountPriceKopecks: 200000 })
+    expect(buildPromoBadge([o])).toBe('Тур · 2000₽')
+  })
+
+  it('только промокоды → null (на картинку не выносим)', () => {
+    expect(buildPromoBadge([disc({ source: 'promo_code', label: 'Промокод ЙОГА5', code: 'ЙОГА5' })])).toBeNull()
+  })
+
+  it('пусто → null', () => {
+    expect(buildPromoBadge([])).toBeNull()
+    expect(buildPromoBadge(null as any)).toBeNull()
   })
 })

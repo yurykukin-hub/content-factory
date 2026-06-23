@@ -61,6 +61,7 @@ export interface RenderStoryOpts {
   temp?: string | null
   weather?: string | null
   cta?: string | null
+  promo?: string | null    // "Прокат −10% · 900₽" — плашка действующей скидки (Фаза 3)
   photoPosition?: string   // objectPosition '50% 30%' — вертикальный фокус кадра
   sourceMediaId?: string   // исходное фото (для переоформления с другой позицией)
 }
@@ -70,7 +71,7 @@ export async function renderAndSaveStoryDesign(o: RenderStoryOpts): Promise<Save
   const photoUri = await imageToDataUri(o.photoUrl, config.isProd, config.PORT)
   if (!photoUri) return null
   const logoUri = await getLogoUri()
-  const node = buildStoryDesign({ photoUri, title: o.title || '', temp: o.temp, weather: o.weather, cta: o.cta, logoUri, photoPosition: o.photoPosition })
+  const node = buildStoryDesign({ photoUri, title: o.title || '', temp: o.temp, weather: o.weather, cta: o.cta, promo: o.promo, logoUri, photoPosition: o.photoPosition })
   const png = await renderToPng(node, STORY_W, STORY_H)
   return savePngAsMedia(o.businessId, png, 'Сторис-дизайн', ['story-design', 'ai-generated'], o.sourceMediaId)
 }

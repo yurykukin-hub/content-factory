@@ -23,6 +23,7 @@ export interface StoryDesignOpts {
   temp?: string | null      // "+21°"
   weather?: string | null   // "тепло · слабый ветер"
   cta?: string | null       // "Записаться · nawode.ru"
+  promo?: string | null     // "Прокат −10% · 900₽" — плашка действующей скидки (Фаза 3)
   brandInitial?: string     // буква бренда в кружке (если нет лого)
   logoUri?: string          // data URI лого (приоритет над буквой)
   photoPosition?: string    // objectPosition фото '50% 50%' (вертикальный фокус кадра — чтобы объект не обрезался)
@@ -33,6 +34,7 @@ export function buildStoryDesign(o: StoryDesignOpts): any {
   const title = stripEmoji(o.title)
   const weather = o.weather ? stripEmoji(o.weather) : null
   const cta = o.cta ? stripEmoji(o.cta) : null
+  const promo = o.promo ? stripEmoji(o.promo) : null
 
   const children: any[] = [
     { type: 'img', props: { src: o.photoUri, style: { position: 'absolute', top: 0, left: 0, width: STORY_W, height: STORY_H, objectFit: 'cover', objectPosition: o.photoPosition || '50% 50%' } } },
@@ -55,8 +57,10 @@ export function buildStoryDesign(o: StoryDesignOpts): any {
     children.push(el('div', { position: 'absolute', top: 76, right: 64, display: 'flex', width: 72, height: 72, borderRadius: 36, backgroundColor: BRAND.teal, alignItems: 'center', justifyContent: 'center', fontFamily: 'Montserrat', fontWeight: 700, fontSize: 38, color: 'white' }, o.brandInitial || 'Н'))
   }
 
-  // Заголовок + CTA внизу
-  const bottom: any[] = [el('div', { display: 'flex', fontFamily: 'Montserrat', fontWeight: 700, fontSize: 78, color: 'white', lineHeight: 1.12 }, title)]
+  // Плашка действующей скидки (если есть) + заголовок + CTA внизу
+  const bottom: any[] = []
+  if (promo) bottom.push(el('div', { display: 'flex', alignSelf: 'flex-start', marginBottom: 22, paddingTop: 14, paddingBottom: 14, paddingLeft: 30, paddingRight: 30, backgroundColor: 'white', borderRadius: 14, fontFamily: 'Montserrat', fontWeight: 700, fontSize: 46, color: BRAND.teal }, promo))
+  bottom.push(el('div', { display: 'flex', fontFamily: 'Montserrat', fontWeight: 700, fontSize: 78, color: 'white', lineHeight: 1.12 }, title))
   if (cta) bottom.push(el('div', { display: 'flex', marginTop: 36, paddingTop: 22, paddingBottom: 22, paddingLeft: 44, paddingRight: 44, backgroundColor: BRAND.teal, borderRadius: 18, fontFamily: 'Montserrat', fontWeight: 700, fontSize: 38, color: 'white' }, cta))
   children.push(el('div', { position: 'absolute', bottom: 130, left: 64, width: 952, display: 'flex', flexDirection: 'column' }, bottom))
 

@@ -40,6 +40,21 @@ export function formatDiscountLine(d: ActiveDiscount): string {
 }
 
 /**
+ * Короткая плашка скидки для ДИЗАЙН-сторис (рисуется на картинке): «Прокат −10% · 900₽».
+ * Берёт первую анонсируемую (не промокод) скидку. null — нечего показать. Детерминированно из
+ * данных ERP, НЕ от AI (на картинке не должно быть галлюцинаций). Промокоды не выносим на картинку.
+ */
+export function buildPromoBadge(discounts: ActiveDiscount[]): string | null {
+  const d = (discounts || []).find(x => x.source === 'day_of_week' || x.source === 'slot_override')
+  if (!d) return null
+  const word = (d.label || '').split(/[\s,]/)[0] || 'Скидка' // «Прокат» из «Прокат в Выборге»
+  let s = word
+  if (d.percentOff != null) s += ` −${d.percentOff}%`
+  if (d.discountPriceKopecks != null) s += ` · ${Math.round(d.discountPriceKopecks / 100)}₽`
+  return s
+}
+
+/**
  * Человекочитаемый блок действующих скидок для system-промпта. '' если анонсировать нечего
  * (тогда промпт блок не показывает). includePromoCodes — включить промокоды (по умолчанию нет).
  */
