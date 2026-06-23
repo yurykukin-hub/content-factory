@@ -69,18 +69,38 @@ media.post('/upload', async (c) => {
   await Bun.write(filePath, blob)
 
   // Generate thumbnail for images — читаем с диска (sharp на одной картинке дёшев по памяти).
+  // Плюс НОРМАЛИЗУЕМ ОРИЕНТАЦИЮ самого оригинала: телефоны пишут EXIF-orientation вместо реального
+  // поворота пикселей. Соцсети и часть вьюверов EXIF игнорируют → фото «на боку». Запекаем поворот
+  // в пиксели ОДИН раз при загрузке, чтобы фото было верным везде (сетка, превью, публикация).
   let thumbUrl: string | null = null
+  let normalizedSize = blob.size
   if (mimeType.startsWith('image/')) {
     try {
       const thumbPath = join(bizDir, thumbFilename)
-      await sharp(filePath)
-        .rotate() // нормализуем EXIF-ориентацию (фото с телефона не «на боку» в превью)
-        .resize(THUMB_SIZE, THUMB_SIZE, { fit: 'cover' })
-        .webp({ quality: 80 })
-        .toFile(thumbPath)
+      const meta = await sharp(filePath).metadata()
+      // orientation 2..8 = есть EXIF-поворот. Перекодируем только jpeg/png/webp; HEIC/HEIF не трогаем
+      // (иначе JPEG-байты окажутся в .heic-файле) — для него нормализуем лишь WebP-thumbnail.
+      const reencodable = /jpeg|png|webp/.test(mimeType)
+      if (meta.orientation && meta.orientation > 1 && reencodable) {
+        const fmt = mimeType.includes('png') ? 'png' : mimeType.includes('webp') ? 'webp' : 'jpeg'
+        let pipeline = sharp(filePath).rotate() // EXIF-ориентацию → в пиксели, EXIF-тег сбрасывается
+        pipeline = fmt === 'png' ? pipeline.png() : fmt === 'webp' ? pipeline.webp({ quality: 90 }) : pipeline.jpeg({ quality: 92 })
+        const normBuf = await pipeline.toBuffer()
+        await Bun.write(filePath, normBuf) // перезапись оригинала (orientation станет 1)
+        normalizedSize = normBuf.length
+        await sharp(normBuf).resize(THUMB_SIZE, THUMB_SIZE, { fit: 'cover' }).webp({ quality: 80 }).toFile(thumbPath)
+      } else {
+        // Нет EXIF-поворота (или HEIC) — оригинал не трогаем (бережём качество JPEG и CPU),
+        // thumbnail с .rotate() нормализуется на случай EXIF в исходнике.
+        await sharp(filePath)
+          .rotate()
+          .resize(THUMB_SIZE, THUMB_SIZE, { fit: 'cover' })
+          .webp({ quality: 80 })
+          .toFile(thumbPath)
+      }
       thumbUrl = `/uploads/${businessId}/${thumbFilename}`
     } catch (e) {
-      console.error('Thumbnail generation failed:', e)
+      console.error('Image normalize/thumbnail failed:', e)
     }
   }
 
@@ -104,7 +124,7 @@ media.post('/upload', async (c) => {
         url: `/uploads/${businessId}/${filename}`,
         thumbUrl,
         mimeType,
-        sizeBytes: blob.size,
+        sizeBytes: normalizedSize,
         sortOrder: 0,
         aiModel: mimeType.startsWith('image/') ? 'describe_pending' : null,
       },
@@ -667,6 +687,34 @@ media.delete('/:id', async (c) => {
   // Delete DB record
   await db.mediaFile.delete({ where: { id } })
   return c.json({ success: true })
+})
+
+// POST /api/media/bulk-delete — массовое удаление выбранных файлов.
+// Путь статический (одна секция) → не конфликтует с POST /:id/attach|rotate (две секции).
+// Доступ проверяется ПОКАЗАТЕЛЬНО по каждому файлу: недоступные молча пропускаем, не валим всю пачку.
+media.post('/bulk-delete', async (c) => {
+  const user = c.get('user') as AuthUser
+  const { ids } = await c.req.json<{ ids: string[] }>().catch(() => ({ ids: [] as string[] }))
+  if (!Array.isArray(ids) || ids.length === 0) return c.json({ error: 'ids обязательны' }, 400)
+
+  const targets = await db.mediaFile.findMany({ where: { id: { in: ids } } })
+  let deleted = 0
+  for (const file of targets) {
+    try {
+      await verifyMediaAccess(user, file.id)
+    } catch {
+      continue // нет доступа к этому файлу — пропускаем
+    }
+    const filePath = join(UPLOAD_DIR, file.url.replace('/uploads/', ''))
+    await unlink(filePath).catch((e) => log.warn('bulk-delete: orphan file left on disk', { path: filePath, error: String(e?.message || e) }))
+    if (file.thumbUrl) {
+      const thumbPath = join(UPLOAD_DIR, file.thumbUrl.replace('/uploads/', ''))
+      await unlink(thumbPath).catch((e) => log.warn('bulk-delete: orphan thumb left on disk', { path: thumbPath, error: String(e?.message || e) }))
+    }
+    await db.mediaFile.delete({ where: { id: file.id } })
+    deleted++
+  }
+  return c.json({ success: true, deleted })
 })
 
 // GET /api/posts/:postId/media — медиафайлы поста

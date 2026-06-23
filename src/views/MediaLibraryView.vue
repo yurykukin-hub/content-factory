@@ -9,6 +9,7 @@ import {
   Grid3X3, Link, ExternalLink, Wand2,
   FolderPlus, Folder, FolderOpen, ChevronRight, Home, Sparkles,
   Pencil, Grid2X2, LayoutGrid, Check, ArrowRightLeft, RotateCcw, RotateCw,
+  ArrowDownNarrowWide, ArrowUpNarrowWide, Eye,
 } from 'lucide-vue-next'
 import ImageEditModal from '@/components/ai/ImageEditModal.vue'
 import DesignLayerEditor from '@/components/shared/DesignLayerEditor.vue'
@@ -140,15 +141,55 @@ const cardSize = ref<CardSize>(
 )
 watch(cardSize, (v) => localStorage.setItem('media-card-size', v))
 
+// --- Сортировка (клиентская): natural sort по имени, единый механизм для 4 критериев (план §1).
+// Серверную отвергли: natural sort требует ICU-collation, а она ломает ILIKE-поиск по имени.
+type SortKey = 'date' | 'name' | 'size' | 'type'
+type SortDir = 'asc' | 'desc'
+const sortKey = ref<SortKey>((localStorage.getItem('media-sort-key') as SortKey) || 'date')
+const sortDir = ref<SortDir>((localStorage.getItem('media-sort-dir') as SortDir) || 'desc')
+watch(sortKey, (v) => localStorage.setItem('media-sort-key', v))
+watch(sortDir, (v) => localStorage.setItem('media-sort-dir', v))
+// Дефолт (дата ↓) совпадает с серверным orderBy createdAt desc → пересортировка не нужна
+const isDefaultSort = computed(() => sortKey.value === 'date' && sortDir.value === 'desc')
+
+function typeRank(f: MediaFile) {
+  return isImage(f.mimeType, f.filename) ? 0 : isVideo(f.mimeType, f.filename) ? 1 : 2
+}
+function compareFiles(a: MediaFile, b: MediaFile): number {
+  let r = 0
+  switch (sortKey.value) {
+    case 'name': r = a.filename.localeCompare(b.filename, undefined, { numeric: true, sensitivity: 'base' }); break
+    case 'size': r = a.sizeBytes - b.sizeBytes; break
+    case 'type': r = typeRank(a) - typeRank(b) || a.filename.localeCompare(b.filename, undefined, { numeric: true }); break
+    case 'date':
+    default: r = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(); break
+  }
+  if (r === 0) r = a.id < b.id ? -1 : a.id > b.id ? 1 : 0 // стабильный детерминированный tie-break
+  return sortDir.value === 'asc' ? r : -r
+}
+// Отображаемый порядок. Индекс из displayedFiles — основа Shift-диапазона (§6).
+const displayedFiles = computed(() => isDefaultSort.value ? files.value : [...files.value].sort(compareFiles))
+
+// При не-дефолтной сортировке догружаем весь текущий вид (папка/фильтр), иначе сортировка
+// вводит в заблуждение (отсортирована только 1-я страница). Предохранитель ~1000 файлов.
+async function loadAllRemaining(maxPages = 25) {
+  let guard = 0
+  while (hasMore.value && !loadingMore.value && guard++ < maxPages) {
+    await loadMore()
+  }
+}
+
 // Folder create/rename dialog
 const showFolderDialog = ref(false)
 const folderDialogMode = ref<'create' | 'rename'>('create')
 const folderDialogName = ref('')
 const renamingFolderId = ref<string | null>(null)
 
-// Select mode + move
+// Multi-select: выделение доступно ВСЕГДА (без режима «Выбрать»). Shift — диапазон, Ctrl/⌘ — точечно.
 const selectedFiles = ref<Set<string>>(new Set())
-const selectMode = ref(false)
+const lastSelectedIndex = ref<number | null>(null) // якорь Shift-диапазона (индекс по displayedFiles)
+const hasSelection = computed(() => selectedFiles.value.size > 0)
+const isTouch = typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches
 const showMoveDialog = ref(false)
 const moveTargetFolderId = ref<string | null>(null)
 const moveFolders = ref<MediaFolder[]>([])
@@ -267,20 +308,20 @@ async function loadAll() {
 
 function navigateToFolder(folderId: string | null) {
   currentFolderId.value = folderId
-  selectedFiles.value.clear()
-  selectMode.value = false
+  clearSelection()
   loadFiles()
   loadFolders()
   loadBreadcrumbs()
 }
 
-async function uploadFile(e: Event) {
-  const input = e.target as HTMLInputElement
-  if (!input.files?.length || !businesses.currentBusiness) return
+// Общий путь загрузки (input + drag-drop): фильтр только медиа + worker-pool (concurrency 3), per-file ошибки.
+async function handleFiles(fileList: FileList | File[], folderId: string | null) {
+  if (!businesses.currentBusiness) return
   const bizId = businesses.currentBusiness.id
-  const folderId = currentFolderId.value
-  const fileArr = Array.from(input.files)
-  input.value = '' // сразу сбрасываем — иначе повторный выбор тех же файлов не сработает
+  const fileArr = Array.from(fileList).filter(f =>
+    f.type.startsWith('image/') || f.type.startsWith('video/') || isImage(f.type, f.name) || isVideo(f.type, f.name))
+  if (!fileArr.length) { toast.error('Можно загружать только фото и видео'); return }
+
   uploading.value = true
   failedUploads.value = []
   uploadProgress.value = { done: 0, total: fileArr.length }
@@ -306,8 +347,8 @@ async function uploadFile(e: Event) {
       onProgress: (done, total) => { uploadProgress.value = { done, total } },
       onResult: (r) => {
         if (r.ok && r.data) {
-          // Оптимистичная вставка: файл сразу виден в начале сетки (бэк сортирует createdAt desc).
-          // Только если мы в той же папке и без активного поиска/фильтра.
+          // Оптимистичная вставка: файл сразу виден в начале сетки (бэк сортирует createdAt desc;
+          // при активной клиентской сортировке displayedFiles переразложит сам).
           if (!isSearching.value && (folderId || null) === (currentFolderId.value || null)) {
             files.value.unshift(r.data)
           }
@@ -332,12 +373,45 @@ async function uploadFile(e: Event) {
   await loadFiles()
 }
 
+// Тонкая обёртка для скрытого <input type=file>
+function onInputChange(e: Event) {
+  const input = e.target as HTMLInputElement
+  if (!input.files?.length) return
+  const folderId = currentFolderId.value
+  const list = Array.from(input.files) // материализуем ДО сброса value
+  input.value = '' // сброс — иначе повторный выбор тех же файлов не сработает
+  handleFiles(list, folderId)
+}
+
+// --- Drag-and-drop загрузка извне (§2). Счётчик глубины — чтобы оверлей не мигал на дочерних элементах.
+const dragDepth = ref(0)
+const isDraggingFiles = ref(false)
+// Отличаем перетаскивание ФАЙЛОВ из ОС от внутренних взаимодействий (выделение §6 без нативного drag).
+function dragHasFiles(e: DragEvent) { return Array.from(e.dataTransfer?.types || []).includes('Files') }
+function onDragEnter(e: DragEvent) {
+  if (!dragHasFiles(e) || !canEditSection('media')) return
+  e.preventDefault(); dragDepth.value++; isDraggingFiles.value = true
+}
+function onDragOver(e: DragEvent) {
+  if (!dragHasFiles(e) || !canEditSection('media')) return
+  e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'
+}
+function onDragLeave(e: DragEvent) {
+  if (!dragHasFiles(e)) return
+  if (--dragDepth.value <= 0) { dragDepth.value = 0; isDraggingFiles.value = false }
+}
+function onRootDrop(e: DragEvent) {
+  if (!dragHasFiles(e) || !canEditSection('media')) return
+  e.preventDefault(); dragDepth.value = 0; isDraggingFiles.value = false
+  if (e.dataTransfer?.files?.length) handleFiles(e.dataTransfer.files, currentFolderId.value)
+}
+
 async function deleteFile(id: string) {
   if (!confirm('Удалить файл?')) return
   try {
     await http.delete(`/media/${id}`)
     files.value = files.value.filter(f => f.id !== id)
-    selectedFiles.value.delete(id)
+    if (selectedFiles.value.has(id)) { const s = new Set(selectedFiles.value); s.delete(id); selectedFiles.value = s }
     toast.success('Файл удалён')
   } catch (e: any) {
     toast.error('Ошибка удаления')
@@ -427,18 +501,60 @@ async function deleteFolder(folder: MediaFolder) {
   }
 }
 
-// --- Select & Move ---
-function toggleSelectFile(id: string) {
-  if (selectedFiles.value.has(id)) {
-    selectedFiles.value.delete(id)
+// --- Multi-select (§6): клик с модификаторами + тач-чекбоксы. Set ПЕРЕПРИСВАИВАЕМ (не мутируем
+// на месте) — иначе computed hasSelection/displayedFiles не пересчитываются.
+function clearSelection() {
+  selectedFiles.value = new Set()
+  lastSelectedIndex.value = null
+}
+
+// Клик по карточке. index — позиция в displayedFiles (учитывает сортировку для Shift-диапазона).
+function onCardClick(file: MediaFile, index: number, e: MouseEvent) {
+  const ctrl = e.ctrlKey || e.metaKey
+  if (e.shiftKey && lastSelectedIndex.value !== null) {
+    const lo = Math.min(lastSelectedIndex.value, index)
+    const hi = Math.max(lastSelectedIndex.value, index)
+    const next = new Set(selectedFiles.value)
+    for (let k = lo; k <= hi; k++) { const f = displayedFiles.value[k]; if (f) next.add(f.id) }
+    selectedFiles.value = next
+    return
+  }
+  if (ctrl) {
+    const next = new Set(selectedFiles.value)
+    next.has(file.id) ? next.delete(file.id) : next.add(file.id)
+    selectedFiles.value = next
+    lastSelectedIndex.value = index
+    return
+  }
+  // Обычный клик: есть выделение → схлопнуть до одного; нет → открыть превью (привычка «клик = превью»)
+  if (hasSelection.value) {
+    selectedFiles.value = new Set([file.id])
+    lastSelectedIndex.value = index
   } else {
-    selectedFiles.value.add(id)
+    previewFile.value = file
   }
 }
 
-function toggleSelectMode() {
-  selectMode.value = !selectMode.value
-  if (!selectMode.value) selectedFiles.value.clear()
+// Тап/клик по чекбоксу-уголку (тач + hover на десктопе): toggle отдельного файла.
+function toggleViaCheckbox(file: MediaFile, index: number) {
+  const next = new Set(selectedFiles.value)
+  next.has(file.id) ? next.delete(file.id) : next.add(file.id)
+  selectedFiles.value = next
+  lastSelectedIndex.value = index
+}
+
+async function deleteSelected() {
+  const ids = [...selectedFiles.value]
+  if (!ids.length || !confirm(`Удалить ${ids.length} файл(ов)? Действие необратимо.`)) return
+  try {
+    const res = await http.post<{ success: boolean; deleted: number }>('/media/bulk-delete', { ids })
+    const sel = selectedFiles.value
+    files.value = files.value.filter(f => !sel.has(f.id))
+    clearSelection()
+    toast.success(`Удалено ${res.deleted}`)
+  } catch (e: any) {
+    toast.error(e.message || 'Ошибка удаления')
+  }
 }
 
 async function openMoveDialog() {
@@ -452,14 +568,14 @@ async function openMoveDialog() {
 
 async function moveFiles() {
   if (selectedFiles.value.size === 0) return
+  const count = selectedFiles.value.size
   try {
     await http.post('/media/move', {
       fileIds: [...selectedFiles.value],
       folderId: moveTargetFolderId.value,
     })
-    toast.success(`Перемещено ${selectedFiles.value.size} файлов`)
-    selectedFiles.value.clear()
-    selectMode.value = false
+    toast.success(`Перемещено ${count} файлов`)
+    clearSelection()
     showMoveDialog.value = false
     loadFiles()
     loadFolders()
@@ -538,11 +654,18 @@ function connectSSE() {
   }
 }
 
-onMounted(() => { loadAll(); connectSSE() })
+// Esc: закрыть превью, иначе снять выделение
+function onGlobalKeydown(e: KeyboardEvent) {
+  if (e.key !== 'Escape') return
+  if (previewFile.value) previewFile.value = null
+  else if (hasSelection.value) clearSelection()
+}
+onMounted(() => { loadAll(); connectSSE(); window.addEventListener('keydown', onGlobalKeydown) })
 onUnmounted(() => {
   sseSource?.close()
   if (sseReconnectTimer) clearTimeout(sseReconnectTimer)
   if (filterDebounce) clearTimeout(filterDebounce)
+  window.removeEventListener('keydown', onGlobalKeydown)
 })
 watch(() => businesses.currentBusiness?.id, () => {
   currentFolderId.value = null
@@ -556,10 +679,24 @@ watch([typeFilter, tagFilter, showUnattached], () => {
   if (filterDebounce) clearTimeout(filterDebounce)
   filterDebounce = setTimeout(loadFiles, 250)
 })
+// Смена сортировки: сбрасываем якорь Shift (индексы устарели) + при не-дефолтной догружаем весь вид
+watch([sortKey, sortDir], () => {
+  lastSelectedIndex.value = null
+  if (!isDefaultSort.value && hasMore.value) loadAllRemaining()
+})
 </script>
 
 <template>
-  <div>
+  <div class="relative" @dragenter="onDragEnter" @dragover="onDragOver" @dragleave="onDragLeave" @drop="onRootDrop">
+    <!-- Drag-and-drop оверлей загрузки (§2). pointer-events-none — чтобы не перехватить сам drop. -->
+    <div v-if="isDraggingFiles" class="fixed inset-0 z-40 flex items-center justify-center bg-brand-600/20 backdrop-blur-sm border-4 border-dashed border-brand-500 pointer-events-none">
+      <div class="bg-white dark:bg-gray-900 rounded-2xl px-8 py-6 shadow-2xl flex flex-col items-center gap-3">
+        <Upload :size="40" class="text-brand-500" />
+        <p class="text-lg font-semibold">Отпустите файлы для загрузки</p>
+        <p class="text-sm text-gray-500">{{ currentFolderId ? 'в текущую папку' : 'в корень медиатеки' }}</p>
+      </div>
+    </div>
+
     <!-- Header row -->
     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
       <div class="flex items-center gap-3">
@@ -583,24 +720,23 @@ watch([typeFilter, tagFilter, showUnattached], () => {
           </button>
         </div>
 
-        <!-- Select mode -->
-        <button @click="toggleSelectMode"
-          :class="[
-            'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors',
-            selectMode
-              ? 'bg-brand-100 dark:bg-brand-900/30 text-brand-700 dark:text-brand-300'
-              : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
-          ]">
-          <Check :size="14" />
-          <span class="hidden sm:inline">{{ selectMode ? `${selectedFiles.size} выбрано` : 'Выбрать' }}</span>
-        </button>
-
-        <!-- Move selected -->
-        <button v-if="selectMode && selectedFiles.size > 0" @click="openMoveDialog"
-          class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 hover:bg-amber-200 dark:hover:bg-amber-700/30 transition-colors">
-          <ArrowRightLeft :size="14" />
-          <span class="hidden sm:inline">Переместить</span>
-        </button>
+        <!-- Сортировка (§1) -->
+        <div class="flex items-center gap-1">
+          <select v-model="sortKey"
+            class="px-2 py-1.5 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-xs font-medium text-gray-600 dark:text-gray-300"
+            title="Сортировка">
+            <option value="date">По дате</option>
+            <option value="name">По имени</option>
+            <option value="size">По размеру</option>
+            <option value="type">По типу</option>
+          </select>
+          <button @click="sortDir = sortDir === 'asc' ? 'desc' : 'asc'"
+            class="p-1.5 rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+            :title="sortDir === 'asc' ? 'По возрастанию' : 'По убыванию'">
+            <ArrowDownNarrowWide v-if="sortDir === 'desc'" :size="16" />
+            <ArrowUpNarrowWide v-else :size="16" />
+          </button>
+        </div>
 
         <!-- Create folder -->
         <button @click="openCreateFolder"
@@ -614,7 +750,7 @@ watch([typeFilter, tagFilter, showUnattached], () => {
           <Loader2 v-if="uploading" :size="16" class="animate-spin" />
           <Upload v-else :size="16" />
           <span class="hidden sm:inline">{{ uploadProgress ? `${uploadProgress.done} / ${uploadProgress.total}` : 'Загрузить' }}</span>
-          <input type="file" accept="image/*,video/*" multiple class="hidden" @change="uploadFile" :disabled="uploading" />
+          <input type="file" accept="image/*,video/*" multiple class="hidden" @change="onInputChange" :disabled="uploading" />
         </label>
       </div>
     </div>
@@ -628,6 +764,23 @@ watch([typeFilter, tagFilter, showUnattached], () => {
       </div>
       <button @click="failedUploads = []" class="shrink-0 text-red-400 hover:text-red-600" title="Скрыть">
         <X :size="14" />
+      </button>
+    </div>
+
+    <!-- Selection action bar (§6) -->
+    <div v-if="hasSelection" class="flex flex-wrap items-center gap-2 mb-3 p-2 rounded-lg bg-brand-50 dark:bg-brand-950/40 border border-brand-200 dark:border-brand-800">
+      <span class="text-sm font-medium text-brand-700 dark:text-brand-300 px-1">{{ selectedFiles.size }} выбрано</span>
+      <button @click="openMoveDialog"
+        class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 hover:bg-amber-200 dark:hover:bg-amber-700/30 transition-colors">
+        <ArrowRightLeft :size="14" /> Переместить
+      </button>
+      <button @click="deleteSelected"
+        class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors">
+        <Trash2 :size="14" /> Удалить выбранные
+      </button>
+      <button @click="clearSelection"
+        class="px-3 py-1.5 rounded-lg text-sm font-medium text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
+        Снять выделение
       </button>
     </div>
 
@@ -740,16 +893,17 @@ watch([typeFilter, tagFilter, showUnattached], () => {
       </div>
 
       <!-- Files grid -->
-      <div v-if="files.length > 0" :class="gridClass">
-        <div v-for="file in files" :key="file.id"
+      <div v-if="files.length > 0" :class="gridClass" @click.self="clearSelection">
+        <div v-for="(file, index) in displayedFiles" :key="file.id"
           :style="cardContainStyle"
           :class="[
-            'group relative bg-white dark:bg-gray-900 rounded-xl border overflow-hidden transition-colors',
-            selectMode && selectedFiles.has(file.id)
+            'group relative bg-white dark:bg-gray-900 rounded-xl border overflow-hidden transition-colors cursor-pointer select-none',
+            selectedFiles.has(file.id)
               ? 'border-brand-500 dark:border-brand-400 ring-2 ring-brand-200 dark:ring-brand-800'
               : 'border-gray-200 dark:border-gray-800 hover:border-brand-300 dark:hover:border-brand-700'
           ]"
-          @click="selectMode ? toggleSelectFile(file.id) : (previewFile = file)">
+          @click="onCardClick(file, index, $event)"
+          @dblclick.stop="previewFile = file">
 
           <!-- Thumbnail -->
           <div class="aspect-square bg-gray-100 dark:bg-gray-800 relative">
@@ -771,8 +925,10 @@ watch([typeFilter, tagFilter, showUnattached], () => {
               <Video :size="32" class="text-gray-400" />
             </div>
 
-            <!-- Select checkbox -->
-            <div v-if="selectMode" class="absolute top-1.5 left-1.5 z-10">
+            <!-- Select checkbox: тач — всегда виден; десктоп — на hover или когда выбран (§6) -->
+            <div class="absolute top-1.5 left-1.5 z-20"
+              :class="(isTouch || selectedFiles.has(file.id)) ? 'block' : 'hidden sm:group-hover:block'"
+              @click.stop="toggleViaCheckbox(file, index)">
               <div :class="[
                 'w-5 h-5 rounded-md border-2 flex items-center justify-center transition-colors cursor-pointer',
                 selectedFiles.has(file.id)
@@ -783,9 +939,14 @@ watch([typeFilter, tagFilter, showUnattached], () => {
               </div>
             </div>
 
+            <!-- Eye: открыть превью даже при активном выделении (тач — всегда, десктоп — на hover) -->
+            <button @click.stop="previewFile = file" title="Открыть"
+              class="absolute top-1.5 right-1.5 z-20 w-6 h-6 rounded-full bg-black/55 hover:bg-black/75 text-white flex items-center justify-center opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+              <Eye :size="14" />
+            </button>
 
-            <!-- Post badge -->
-            <div v-if="file.post && !selectMode" class="absolute top-1.5 left-1.5">
+            <!-- Post badge (скрыт при выделении, чтобы не мешать чекбоксу) -->
+            <div v-if="file.post && !selectedFiles.has(file.id)" class="absolute top-1.5 left-1.5 sm:group-hover:opacity-0 transition-opacity">
               <router-link :to="`/posts/${file.post.id}`"
                 class="flex items-center gap-0.5 px-1.5 py-0.5 bg-brand-600/80 text-white rounded text-[9px] font-medium hover:bg-brand-700">
                 <Link :size="10" /> Пост
@@ -801,7 +962,7 @@ watch([typeFilter, tagFilter, showUnattached], () => {
             </div>
 
             <!-- Type badge -->
-            <div v-if="!isSmall" class="absolute top-1.5 right-1.5 px-1.5 py-0.5 bg-black/50 text-white rounded text-[9px]">
+            <div v-if="!isSmall" class="absolute bottom-1.5 right-1.5 px-1.5 py-0.5 bg-black/50 text-white rounded text-[9px]">
               {{ displayType(file.mimeType, file.filename) }}
             </div>
           </div>
@@ -860,17 +1021,22 @@ watch([typeFilter, tagFilter, showUnattached], () => {
     <!-- Preview Modal -->
     <Teleport to="body">
       <div v-if="previewFile" class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" @click.self="previewFile = null">
-        <div class="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
-          <!-- Image preview -->
-          <img v-if="isImage(previewFile.mimeType, previewFile.filename)"
-            :src="previewFile.url"
-            :alt="previewFile.altText || previewFile.filename"
-            class="w-full max-h-[50vh] object-contain bg-black rounded-t-2xl" />
-          <!-- Video preview -->
-          <video v-else-if="isVideo(previewFile.mimeType, previewFile.filename)"
-            :src="previewFile.url"
-            controls autoplay loop playsinline
-            class="w-full max-h-[50vh] bg-black rounded-t-2xl" />
+        <div class="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-4xl max-h-[92vh] overflow-y-auto md:flex md:max-h-[88vh] md:overflow-hidden">
+          <!-- Media pane (на десктопе — слева, крупно; на мобиле — сверху) -->
+          <div class="md:flex-1 md:min-w-0 md:flex md:items-center md:justify-center bg-black md:rounded-l-2xl">
+            <!-- Image preview -->
+            <img v-if="isImage(previewFile.mimeType, previewFile.filename)"
+              :src="previewFile.url"
+              :alt="previewFile.altText || previewFile.filename"
+              class="w-full md:w-auto max-h-[55vh] md:max-h-[88vh] object-contain mx-auto rounded-t-2xl md:rounded-none md:rounded-l-2xl" />
+            <!-- Video preview -->
+            <video v-else-if="isVideo(previewFile.mimeType, previewFile.filename)"
+              :src="previewFile.url"
+              controls autoplay loop playsinline
+              class="w-full md:w-auto max-h-[55vh] md:max-h-[88vh] mx-auto bg-black rounded-t-2xl md:rounded-none md:rounded-l-2xl" />
+          </div>
+          <!-- Info pane (на десктопе — справа, скролл) -->
+          <div class="md:w-80 md:shrink-0 md:overflow-y-auto">
           <!-- Info -->
           <div class="p-4">
             <div class="flex items-center justify-between mb-1">
@@ -933,6 +1099,8 @@ watch([typeFilter, tagFilter, showUnattached], () => {
               Закрыть
             </button>
           </div>
+          </div>
+          <!-- /info pane -->
         </div>
       </div>
     </Teleport>

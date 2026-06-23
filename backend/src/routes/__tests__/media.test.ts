@@ -137,3 +137,50 @@ describe('GET /api/media/library/:bizId — counts', () => {
     expect(json.totalCount).toBeUndefined()
   })
 })
+
+// ============================================================
+// POST /api/media/bulk-delete
+// ============================================================
+
+function bulkDeleteReq(ids: unknown, token: string) {
+  return app.request('/api/media/bulk-delete', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Cookie: `token=${token}`, 'X-Tab-ID': 'test' },
+    body: JSON.stringify({ ids }),
+  })
+}
+
+describe('POST /api/media/bulk-delete', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('rejects empty ids (400)', async () => {
+    const token = await makeToken('ADMIN')
+    const res = await bulkDeleteReq([], token)
+    expect(res.status).toBe(400)
+  })
+
+  it('requires authentication (401 without token)', async () => {
+    const res = await app.request('/api/media/bulk-delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Tab-ID': 'test' },
+      body: JSON.stringify({ ids: ['m1'] }),
+    })
+    expect(res.status).toBe(401)
+  })
+
+  it('deletes accessible files and reports count', async () => {
+    const token = await makeToken('ADMIN')
+    // findMany возвращает целевые файлы; verifyMediaAccess внутри делает findUnique → businessId (ADMIN проходит)
+    mockDb.mediaFile.findMany.mockResolvedValue([
+      { id: 'm1', businessId: 'biz-1', url: '/uploads/biz-1/a.jpg', thumbUrl: '/uploads/biz-1/a_thumb.webp' },
+      { id: 'm2', businessId: 'biz-1', url: '/uploads/biz-1/b.jpg', thumbUrl: null },
+    ])
+    mockDb.mediaFile.findUnique.mockResolvedValue({ businessId: 'biz-1' })
+    const res = await bulkDeleteReq(['m1', 'm2'], token)
+    expect(res.status).toBe(200)
+    const json = await res.json()
+    expect(json.success).toBe(true)
+    expect(json.deleted).toBe(2)
+    expect(mockDb.mediaFile.delete).toHaveBeenCalledTimes(2)
+  })
+})
