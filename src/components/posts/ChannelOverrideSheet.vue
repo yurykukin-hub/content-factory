@@ -28,6 +28,8 @@ const props = defineProps<{
   publishingId?: string | null
   /** Дайджест может скрыть per-канальную публикацию (там публикация общая). */
   allowPublishOne?: boolean
+  /** Скрыть кнопку AI-адаптации (в дайджесте per-task adapt пока не нужен). */
+  allowAdapt?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -111,7 +113,7 @@ function fmtDate(d: string) { try { return new Date(d).toLocaleString('ru-RU', {
 
         <!-- Действия (sticky низ) -->
         <div class="flex items-center gap-2 px-4 py-3 border-t border-gray-100 dark:border-gray-800 shrink-0 flex-wrap">
-          <button @click="emit('adapt', activeChannelId)" :disabled="adaptingId === activeChannelId || locked"
+          <button v-if="allowAdapt !== false" @click="emit('adapt', activeChannelId)" :disabled="adaptingId === activeChannelId || locked"
             class="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium bg-purple-50 dark:bg-purple-950 text-purple-600 dark:text-purple-300 hover:bg-purple-100 dark:hover:bg-purple-900 disabled:opacity-50 transition-colors">
             <Loader2 v-if="adaptingId === activeChannelId" :size="13" class="animate-spin" /><Wand2 v-else :size="13" /> Адаптировать AI
           </button>

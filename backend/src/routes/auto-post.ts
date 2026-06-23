@@ -282,19 +282,44 @@ autoPost.patch('/:id', async (c) => {
   const task = await db.autoPostTask.findUnique({ where: { id: c.req.param('id') } })
   if (!task) return c.json({ error: 'Task not found' }, 404)
 
-  const parsed = z.object({ mediaFileId: z.string().nullable() }).safeParse(await c.req.json().catch(() => ({})))
+  const parsed = z.object({
+    mediaFileId: z.string().nullable().optional(),
+    proposedText: z.string().optional(),
+    proposedTags: z.array(z.string()).optional(),
+    adaptations: z.array(z.object({ platform: z.string(), text: z.string(), hashtags: z.array(z.string()).optional() })).optional(),
+  }).safeParse(await c.req.json().catch(() => ({})))
   if (!parsed.success) return c.json({ error: 'Invalid body' }, 400)
+  const { mediaFileId, proposedText, proposedTags, adaptations } = parsed.data
 
   // Фото должно принадлежать тому же бизнесу
-  if (parsed.data.mediaFileId) {
-    const mf = await db.mediaFile.findUnique({ where: { id: parsed.data.mediaFileId }, select: { businessId: true } })
+  if (mediaFileId) {
+    const mf = await db.mediaFile.findUnique({ where: { id: mediaFileId }, select: { businessId: true } })
     if (!mf || mf.businessId !== task.businessId) return c.json({ error: 'Media not found in this business' }, 400)
   }
 
-  const updated = await db.autoPostTask.update({
-    where: { id: task.id },
-    data: { mediaFileId: parsed.data.mediaFileId },
-  })
+  const data: any = {}
+  if (mediaFileId !== undefined) data.mediaFileId = mediaFileId
+  if (proposedText !== undefined) data.proposedText = proposedText
+  if (proposedTags !== undefined) data.proposedTags = proposedTags
+  if (adaptations !== undefined) data.adaptations = adaptations as any
+  const updated = await db.autoPostTask.update({ where: { id: task.id }, data })
+
+  // Если задача уже связана с черновиком («В редактор») — синхронизируем текст в Post,
+  // иначе GET (он приоритезирует контент Post) покажет старое. Правок мало — безопасно.
+  if (task.postId && (proposedText !== undefined || adaptations !== undefined)) {
+    if (proposedText !== undefined) {
+      await db.post.update({ where: { id: task.postId }, data: { body: proposedText, ...(proposedTags !== undefined ? { hashtags: proposedTags } : {}) } }).catch(() => {})
+    }
+    for (const a of (adaptations || [])) {
+      const pa = await db.platformAccount.findFirst({ where: { businessId: task.businessId, platform: a.platform, isActive: true } })
+      if (!pa) continue
+      await db.postVersion.upsert({
+        where: { postId_platformAccountId: { postId: task.postId, platformAccountId: pa.id } },
+        create: { postId: task.postId, platformAccountId: pa.id, body: a.text, hashtags: a.hashtags || [] },
+        update: { body: a.text, hashtags: a.hashtags || [] },
+      }).catch(() => {})
+    }
+  }
   return c.json(updated)
 })
 

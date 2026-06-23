@@ -7,11 +7,12 @@ import { useBusinessesStore } from '@/stores/businesses'
 import { useAuthStore } from '@/stores/auth'
 import { platformColor, platformBgColor, platformLabel } from '@/composables/usePlatform'
 import { formatDate } from '@/composables/useFormatters'
-import { Sunrise, Sparkles, Loader2, Check, X, Lightbulb, CalendarClock, FileEdit, Flame, RotateCcw, ChevronDown, ImagePlus, RefreshCw, Maximize2, Send, Clock, Calendar, Info } from 'lucide-vue-next'
+import { Sunrise, Sparkles, Loader2, Check, X, Lightbulb, CalendarClock, FileEdit, Flame, RotateCcw, ChevronDown, ImagePlus, RefreshCw, Maximize2, Send, Clock, Calendar, Info, Pencil } from 'lucide-vue-next'
 import MediaPickerModal from '@/components/MediaPickerModal.vue'
 import PostPreview from '@/components/posts/preview/PostPreview.vue'
 import StoriesPreview from '@/components/posts/preview/StoriesPreview.vue'
 import StoryDesignModal from '@/components/StoryDesignModal.vue'
+import ChannelOverrideSheet from '@/components/posts/ChannelOverrideSheet.vue'
 
 interface DigestTask {
   id: string
@@ -124,6 +125,101 @@ async function generate() {
   } finally {
     generating.value = false
   }
+}
+
+// ---- Правка текста под канал прямо в дайджесте (переиспользует редакторский ChannelOverrideSheet) ----
+const overrideTask = ref<DigestTask | null>(null)
+const overrideActiveCh = ref<string>('')
+const taskDrafts = ref<Record<string, { body: string; saving: boolean; dirty: boolean }>>({})
+let taskOverrideTimer: ReturnType<typeof setTimeout> | null = null
+
+const overrideChannels = computed(() => {
+  const t = overrideTask.value
+  if (!t) return []
+  return (t.platforms || []).map(p => ({ id: p, platform: p, accountName: t.previews?.find(pv => pv.platform === p)?.accountName || p }))
+})
+function taskAds(task: DigestTask | null): { platform: string; text: string; hashtags?: string[] }[] {
+  return Array.isArray(task?.adaptations) ? (task!.adaptations as any[]) : []
+}
+function taskEffectiveText(platform: string): string {
+  const d = taskDrafts.value[platform]
+  if (d) return d.body
+  const ad = taskAds(overrideTask.value).find(a => a.platform === platform)
+  return ad?.text ?? (overrideTask.value?.proposedText || '')
+}
+function taskEffectiveTags(platform: string): string[] {
+  const ad = taskAds(overrideTask.value).find(a => a.platform === platform)
+  return ad?.hashtags ?? (overrideTask.value?.proposedTags || [])
+}
+function taskVersionFor(platform: string): any {
+  const ad = taskAds(overrideTask.value).find(a => a.platform === platform)
+  return ad ? { body: ad.text, status: '' } : undefined
+}
+function makeTaskDraft(platform: string) {
+  const ad = taskAds(overrideTask.value).find(a => a.platform === platform)
+  taskDrafts.value[platform] = { body: ad?.text ?? (overrideTask.value?.proposedText || ''), saving: false, dirty: false }
+}
+function openTextSheet(task: DigestTask) {
+  overrideTask.value = task
+  taskDrafts.value = {}
+  const first = (task.platforms || [])[0] || ''
+  makeTaskDraft(first)
+  overrideActiveCh.value = first
+}
+function changeTaskChannel(platform: string) {
+  const prev = overrideActiveCh.value
+  if (prev && prev !== platform) flushTaskOverride(prev)
+  makeTaskDraft(platform)
+  overrideActiveCh.value = platform
+}
+function onTaskOverrideInput(platform: string) {
+  const d = taskDrafts.value[platform]; if (!d) return
+  d.dirty = true
+  if (taskOverrideTimer) clearTimeout(taskOverrideTimer)
+  taskOverrideTimer = setTimeout(() => saveTaskOverride(platform), 1000)
+}
+function refreshTaskPreviews(task: DigestTask) {
+  const ads = taskAds(task)
+  task.previews = (task.platforms || []).map(p => {
+    const ad = ads.find(a => a.platform === p)
+    const ex = task.previews?.find(pv => pv.platform === p)
+    return { platform: p, accountName: ex?.accountName || p, text: ad?.text || task.proposedText, hashtags: ad?.hashtags ?? task.proposedTags }
+  })
+}
+async function saveTaskOverride(platform: string) {
+  const d = taskDrafts.value[platform]; const task = overrideTask.value
+  if (!d || !d.dirty || !task) return
+  d.saving = true
+  try {
+    const adaptations = taskAds(task).filter(a => a.platform !== platform)
+    adaptations.push({ platform, text: d.body, hashtags: taskEffectiveTags(platform) })
+    await http.patch(`/auto-posts/${task.id}`, { adaptations })
+    task.adaptations = adaptations as any
+    refreshTaskPreviews(task)
+    d.dirty = false
+  } catch { toast.error('Не удалось сохранить текст') }
+  finally { d.saving = false }
+}
+function flushTaskOverride(platform: string) {
+  const d = taskDrafts.value[platform]
+  if (d?.dirty) saveTaskOverride(platform)
+}
+async function resetTaskOverride(platform: string) {
+  const task = overrideTask.value; if (!task) return
+  const adaptations = taskAds(task).filter(a => a.platform !== platform)
+  try {
+    await http.patch(`/auto-posts/${task.id}`, { adaptations })
+    task.adaptations = adaptations as any
+    makeTaskDraft(platform)
+    refreshTaskPreviews(task)
+    toast.info('Сброшено к мастер-тексту')
+  } catch { toast.error('Ошибка') }
+}
+function closeTextSheet() {
+  const p = overrideActiveCh.value
+  if (p) flushTaskOverride(p)
+  overrideTask.value = null
+  taskDrafts.value = {}
 }
 
 async function approve(task: DigestTask) {
@@ -497,6 +593,10 @@ onMounted(load)
                 class="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-fuchsia-300 dark:border-fuchsia-700 text-xs font-medium text-fuchsia-600 dark:text-fuchsia-400 hover:bg-fuchsia-50 dark:hover:bg-fuchsia-950 disabled:opacity-50 touch-manipulation">
                 <Sparkles :size="13" /> Поправить кадр
               </button>
+              <button v-if="task.postType !== 'STORIES'" @click="openTextSheet(task)" :disabled="actingId === task.id"
+                class="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 text-xs font-medium text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50 touch-manipulation">
+                <Pencil :size="13" /> Текст
+              </button>
               <button @click="openEditor(task)" :disabled="actingId === task.id"
                 class="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 text-xs font-medium text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50 touch-manipulation">
                 <FileEdit :size="13" /> В редактор
@@ -686,6 +786,28 @@ onMounted(load)
       cta="Записаться · nawode.ru"
       @done="onDesignDone"
       @close="designTask = null"
+    />
+
+    <!-- Правка текста под канал прямо в дайджесте (переиспользует редакторский sheet) -->
+    <ChannelOverrideSheet
+      v-if="overrideTask"
+      :show="!!overrideTask"
+      :channels="overrideChannels"
+      :active-channel-id="overrideActiveCh"
+      :master-text="overrideTask.proposedText"
+      :media-files="overrideTask.media ? [{ url: overrideTask.media.url, thumbUrl: overrideTask.media.url, mimeType: 'image/jpeg' }] : []"
+      :post-type="overrideTask.postType || 'PHOTO'"
+      :override-drafts="taskDrafts"
+      :effective-text="taskEffectiveText"
+      :effective-hashtags="taskEffectiveTags"
+      :version-for="taskVersionFor"
+      :adapting-id="null"
+      :allow-publish-one="false"
+      :allow-adapt="false"
+      @close="closeTextSheet"
+      @change-channel="changeTaskChannel"
+      @input="onTaskOverrideInput"
+      @reset="resetTaskOverride"
     />
   </div>
 </template>
