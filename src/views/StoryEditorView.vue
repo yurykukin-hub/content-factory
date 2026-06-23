@@ -38,6 +38,13 @@ interface PublishResultItem {
 
 const route = useRoute()
 const router = useRouter()
+// Возврат «Назад» — туда, откуда пришли (дайджест / истории)
+const backTo = computed(() => {
+  switch (route.query.from) {
+    case 'digest': return { path: '/digest', label: 'Назад в дайджест' }
+    default: return { path: '/posts', label: 'Назад к историям' }
+  }
+})
 const auth = useAuthStore()
 const businesses = useBusinessesStore()
 const toast = useToast()
@@ -1155,8 +1162,8 @@ onUnmounted(() => {
 
 <template>
   <div>
-    <button @click="router.push('/posts')" class="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 mb-4">
-      <ArrowLeft :size="16" /> Назад к историям
+    <button @click="router.push(backTo.path)" class="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 mb-4">
+      <ArrowLeft :size="16" /> {{ backTo.label }}
     </button>
 
     <div v-if="loading" class="text-gray-500 py-8 text-center">Загрузка...</div>

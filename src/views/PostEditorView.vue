@@ -38,6 +38,14 @@ interface Post {
 
 const route = useRoute()
 const router = useRouter()
+// Возврат «Назад» — туда, откуда пришли (дайджест / контент-план / список контента)
+const backTo = computed(() => {
+  switch (route.query.from) {
+    case 'digest': return { path: '/digest', label: 'Назад в дайджест' }
+    case 'plans': return { path: '/content-plans', label: 'Назад к плану' }
+    default: return { path: '/posts', label: 'Назад к контенту' }
+  }
+})
 const toast = useToast()
 
 const post = ref<Post | null>(null)
@@ -512,8 +520,8 @@ onMounted(loadPost)
 
 <template>
   <div class="max-w-3xl mx-auto">
-    <button @click="router.push('/posts')" class="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 mb-4">
-      <ArrowLeft :size="16" /> Назад к контенту
+    <button @click="router.push(backTo.path)" class="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 mb-4">
+      <ArrowLeft :size="16" /> {{ backTo.label }}
     </button>
 
     <div v-if="loading" class="text-gray-500 py-8 text-center">Загрузка...</div>

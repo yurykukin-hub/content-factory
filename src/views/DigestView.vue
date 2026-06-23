@@ -239,7 +239,7 @@ async function approve(task: DigestTask) {
 
 function openDraft(task: DigestTask) {
   if (!task.postId) return
-  router.push(task.postType === 'STORIES' ? `/stories/${task.postId}` : `/posts/${task.postId}`)
+  router.push({ path: task.postType === 'STORIES' ? `/stories/${task.postId}` : `/posts/${task.postId}`, query: { from: 'digest' } })
 }
 
 // «В редактор»: открыть в полном редакторе БЕЗ потребления — предложение ОСТАЁТСЯ в дайджесте.
@@ -252,7 +252,7 @@ async function openEditor(task: DigestTask) {
       task.postId = res.postId
       task.postType = res.postType || task.postType
     }
-    router.push(task.postType === 'STORIES' ? `/stories/${task.postId}` : `/posts/${task.postId}`)
+    router.push({ path: task.postType === 'STORIES' ? `/stories/${task.postId}` : `/posts/${task.postId}`, query: { from: 'digest' } })
   } catch (e: any) {
     toast.error('Ошибка: ' + (e.message || e))
   } finally {
