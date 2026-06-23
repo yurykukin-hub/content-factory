@@ -81,6 +81,7 @@ interface DigestContext {
   platforms: string[]
   todayTemp?: string | null      // "+21°" — для погодного виджета дизайн-сторис
   todayWeather?: string | null   // "слабый ветер"
+  promoBlock?: string            // действующие скидки из ERP (Фаза 3; '' если выключено/нет скидок)
 }
 
 /** Скорость ветра (м/с) → словесное описание. Цифры м/с люди не понимают — в тексте только словами. */
@@ -268,6 +269,19 @@ async function generateDigestForBusiness(biz: any, force: boolean, role: DigestR
       }).join('\n')
     : 'горячих слотов нет (нет предстоящих броней — делай акцент на погоде и приглашении)'
 
+  // Промо (Фаза 3, opt-in digest_promo_enabled): анонсируем ТОЛЬКО реально заведённые в ERP
+  // скидки (этап 1 — без flash несуществующих). Вечерняя сторис — про завтра, остальные — про
+  // сегодня. Грейсфул '' при ошибке/выключенном флаге → промпты блок не показывают.
+  let promoBlock = ''
+  if ((await getConfig('digest_promo_enabled')) === 'true') {
+    const promoDate = role === 'evening'
+      ? new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+      : todayStr
+    const discounts = await adapter.getActiveDiscounts(promoDate).catch(() => [])
+    const { buildPromoBlock } = await import('./promo/promo-block')
+    promoBlock = buildPromoBlock(discounts, { dateLabel: role === 'evening' ? 'на завтра' : 'на сегодня' })
+  }
+
   const rubrics = await getRubricNames(biz.id)
   const ctx: DigestContext = {
     dayName: dayNames[now.getDay()],
@@ -284,6 +298,7 @@ async function generateDigestForBusiness(biz: any, force: boolean, role: DigestR
     platforms,
     todayTemp: data?.weather?.[0]?.tempMax != null ? `+${Math.round(data.weather[0].tempMax)}°` : null,
     todayWeather: data?.weather?.[0]?.windMax != null ? windLabel(data.weather[0].windMax) : null,
+    promoBlock,
   }
 
   let suggestions: Suggestion[] = []
