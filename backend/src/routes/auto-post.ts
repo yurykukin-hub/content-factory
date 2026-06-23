@@ -56,19 +56,39 @@ autoPost.get('/', async (c) => {
     accounts.forEach(a => acctMap.set(`${a.businessId}:${a.platform}`, a.accountName))
   }
 
-  // previews: per-platform {platform, accountName, text, hashtags} — адаптированный текст или fallback на мастер
+  // Связанные черновики (задача открывалась «В редактор») — показываем АКТУАЛЬНЫЙ контент из Post,
+  // чтобы правки были видны в дайджесте (предложение «висит изменённым»).
+  const postIds = [...new Set(tasks.map(t => t.postId).filter(Boolean))] as string[]
+  const postMap = new Map<string, any>()
+  if (postIds.length) {
+    const posts = await db.post.findMany({
+      where: { id: { in: postIds } },
+      select: {
+        id: true, body: true, hashtags: true,
+        mediaFiles: { orderBy: { sortOrder: 'asc' }, take: 1, select: { id: true, url: true, thumbUrl: true, altText: true, tags: true } },
+        versions: { select: { body: true, hashtags: true, platformAccount: { select: { platform: true, accountName: true } } } },
+      },
+    })
+    posts.forEach(p => postMap.set(p.id, p))
+  }
+
+  // previews: per-platform {platform, accountName, text, hashtags}.
+  // Приоритет: версия связанного Post (актуальные правки из редактора) → адаптация задачи → мастер-текст.
   const enriched = tasks.map(t => {
+    const linkedPost = t.postId ? postMap.get(t.postId) : null
     const adaptations = Array.isArray(t.adaptations) ? (t.adaptations as any[]) : []
     const previews = (t.platforms || []).map((platform: string) => {
+      const pv = linkedPost?.versions?.find((v: any) => v.platformAccount?.platform === platform)
       const ad = adaptations.find((a: any) => a?.platform === platform)
       return {
         platform,
-        accountName: acctMap.get(`${t.businessId}:${platform}`) || platform,
-        text: ad?.text || t.proposedText,
-        hashtags: ad?.hashtags ?? t.proposedTags,
+        accountName: acctMap.get(`${t.businessId}:${platform}`) || pv?.platformAccount?.accountName || platform,
+        text: pv?.body || ad?.text || linkedPost?.body || t.proposedText,
+        hashtags: pv?.hashtags ?? ad?.hashtags ?? linkedPost?.hashtags ?? t.proposedTags,
       }
     })
-    return { ...t, media: t.mediaFileId ? mediaMap.get(t.mediaFileId) ?? null : null, previews }
+    const media = linkedPost?.mediaFiles?.[0] || (t.mediaFileId ? mediaMap.get(t.mediaFileId) ?? null : null)
+    return { ...t, media, previews }
   })
 
   return c.json(enriched)
@@ -91,6 +111,22 @@ autoPost.post('/:id/approve', async (c) => {
   const { handleCallbackQuery } = await import('../services/telegram-approval')
   await handleCallbackQuery({ data: `approve:${task.id}`, message: null, id: '' })
   return c.json({ ok: true })
+})
+
+// POST /api/auto-posts/:id/open-editor — открыть задачу в полном редакторе БЕЗ «потребления».
+// Создаёт черновик Post (если ещё нет), но предложение ОСТАЁТСЯ в дайджесте (proposed) —
+// после возврата правки видны прямо в карточке (текст/фото GET берёт из связанного Post).
+autoPost.post('/:id/open-editor', async (c) => {
+  const task = await db.autoPostTask.findUnique({ where: { id: c.req.param('id') } })
+  if (!task) return c.json({ error: 'Task not found' }, 404)
+  if (task.source !== 'digest') return c.json({ error: 'Only digest tasks' }, 400)
+  if (task.postId) {
+    const post = await db.post.findUnique({ where: { id: task.postId }, select: { postType: true } })
+    if (post) return c.json({ ok: true, postId: task.postId, postType: post.postType })
+  }
+  const { approveDigestTask } = await import('../services/daily-digest')
+  const res = await approveDigestTask(task, { keepProposed: true })
+  return c.json({ ok: true, ...res })
 })
 
 // POST /api/auto-posts/:id/approve-publish — одобрить + сразу опубликовать/запланировать (минуя редактор).

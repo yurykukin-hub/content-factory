@@ -146,10 +146,22 @@ function openDraft(task: DigestTask) {
   router.push(task.postType === 'STORIES' ? `/stories/${task.postId}` : `/posts/${task.postId}`)
 }
 
-// «В редактор»: одобрить (создать черновик) → перейти в редактор для доработки
-async function approveAndOpen(task: DigestTask) {
-  if (task.status !== 'approved') await approve(task)
-  openDraft(task)
+// «В редактор»: открыть в полном редакторе БЕЗ потребления — предложение ОСТАЁТСЯ в дайджесте.
+// Бэкенд создаёт черновик Post (keepProposed); правки потом видны прямо в карточке (GET берёт из Post).
+async function openEditor(task: DigestTask) {
+  actingId.value = task.id
+  try {
+    if (!task.postId) {
+      const res = await http.post<{ postId: string; postType: string }>(`/auto-posts/${task.id}/open-editor`, {})
+      task.postId = res.postId
+      task.postType = res.postType || task.postType
+    }
+    router.push(task.postType === 'STORIES' ? `/stories/${task.postId}` : `/posts/${task.postId}`)
+  } catch (e: any) {
+    toast.error('Ошибка: ' + (e.message || e))
+  } finally {
+    actingId.value = null
+  }
 }
 
 function toggleSchedule(taskId: string) {
@@ -485,7 +497,7 @@ onMounted(load)
                 class="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-fuchsia-300 dark:border-fuchsia-700 text-xs font-medium text-fuchsia-600 dark:text-fuchsia-400 hover:bg-fuchsia-50 dark:hover:bg-fuchsia-950 disabled:opacity-50 touch-manipulation">
                 <Sparkles :size="13" /> Поправить кадр
               </button>
-              <button @click="approveAndOpen(task)" :disabled="actingId === task.id"
+              <button @click="openEditor(task)" :disabled="actingId === task.id"
                 class="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 text-xs font-medium text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50 touch-manipulation">
                 <FileEdit :size="13" /> В редактор
               </button>
@@ -629,7 +641,7 @@ onMounted(load)
           </div>
           <!-- Выбор каналов: одна сторис в каждый выбранный канал отдельно -->
           <div class="px-4 pb-1">
-            <div class="text-xs text-gray-500 mb-2 text-center">{{ isStoriesTask(confirmTask) ? 'Сторис' : 'Пост' }} опубликуется в каждый выбранный канал:</div>
+            <div class="text-xs text-gray-500 mb-2 text-center">Выбери каналы — {{ isStoriesTask(confirmTask) ? 'сторис' : 'пост' }} уйдёт только в отмеченные (сними галочку, чтобы исключить):</div>
             <div class="space-y-1.5">
               <button v-for="p in confirmTask.platforms" :key="p" @click="!publishingConfirm && togglePubPlatform(p)"
                 class="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg border transition-colors text-left touch-manipulation"
