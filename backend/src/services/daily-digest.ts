@@ -336,7 +336,7 @@ async function generateDigestForBusiness(biz: any, force: boolean, role: DigestR
     if (role === 'morning') {
       const feedDays = ((await getConfig('digest_feed_days')) || '').split(',').map(s => s.trim()).filter(Boolean)
       if (feedDays.includes(String(now.getUTCDay()))) {
-        const feed = await runAgentTeam(biz.id, ctx, 1, recentPhotoIds).catch(() => [] as Suggestion[])
+        const feed = await runAgentTeam(biz.id, ctx, 1, recentPhotoIds, true).catch(() => [] as Suggestion[]) // feedMode: пост в ленту (PHOTO, не сторис)
         suggestions.push(...feed)
       }
       // Погодный flash (Фаза 3, этап 2): «распогодилось + свободно сегодня» → разовая скидка.
@@ -543,13 +543,13 @@ async function adaptForPlatforms(
 
 /** Цепочка ролей: стратег (1 вызов) → по каждой идее копирайтер + адаптация + арт-директор (параллельно).
  *  count — сколько идей просить (3 для легаси-дайджеста, 1 для ленты в ритм-прогоне). */
-async function runAgentTeam(businessId: string, ctx: DigestContext, count = 3, excludeSeed: Set<string> = new Set()): Promise<Suggestion[]> {
+async function runAgentTeam(businessId: string, ctx: DigestContext, count = 3, excludeSeed: Set<string> = new Set(), feedMode = false): Promise<Suggestion[]> {
   const { aiComplete } = await import('./ai/openrouter')
 
   // РОЛЬ 1 — Стратег: темы дня
   const stratRes = await aiComplete({
     model: 'anthropic/claude-sonnet-4',
-    systemPrompt: buildDigestStrategistPrompt({ ...ctx, count }),
+    systemPrompt: buildDigestStrategistPrompt({ ...ctx, count, feedMode }),
     userPrompt: 'Предложи идеи контента на сегодня. Ответь JSON.',
     maxTokens: 1500,
     temperature: 0.9, // разнообразие: иначе одинаковый вход → одинаковые идеи каждый день
@@ -566,7 +566,8 @@ async function runAgentTeam(businessId: string, ctx: DigestContext, count = 3, e
   for (const idea of ideas.slice(0, Math.max(1, count))) {
     try {
       // Ф1.6: только PHOTO/STORIES (каждый пост с фото). Любой другой формат → PHOTO.
-      const format = String(idea.format || 'PHOTO').toUpperCase() === 'STORIES' ? 'STORIES' : 'PHOTO'
+      // feedMode (лента): ВСЕГДА PHOTO — сторис идёт отдельным слотом, не дублируем (детерминированно, не доверяя промпту).
+      const format = feedMode ? 'PHOTO' : (String(idea.format || 'PHOTO').toUpperCase() === 'STORIES' ? 'STORIES' : 'PHOTO')
       // Каналы: channels[] ∩ доступные; fallback — первый доступный (back-compat со старым полем channel)
       const requested: string[] = Array.isArray(idea.channels) ? idea.channels : (idea.channel ? [idea.channel] : [])
       let channels = requested.filter((c: string) => ctx.platforms.includes(c))
