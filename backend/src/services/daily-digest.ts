@@ -30,6 +30,7 @@ import { getStrategyBlock, getSeasonHint, getRubricNames } from './ai/strategy'
 import { getViralCompetitorPosts } from './competitor-poller'
 import { renderAndSaveStoryDesign } from './story-design'
 import { stripInlineHashtags } from '../utils/hashtags'
+import { cleanStoryTitle } from '../utils/story-title'
 import { evaluateWeatherFlash, type FlashSignal } from './promo/weather-flash'
 
 // IG с 2025 ограничил рекомендованное число хэштегов (≤5/пост даёт лучший охват, чем «ковёр» тегов).
@@ -396,7 +397,7 @@ async function generateDigestForBusiness(biz: any, force: boolean, role: DigestR
         source: 'digest',
         status: 'proposed',
         postType: (s.postType || 'TEXT').toUpperCase(),
-        title: s.title || null,
+        title: s.title ? cleanStoryTitle(s.title) : null, // чистим заголовок для ВСЕХ генераторов (роль/лента/flash)
         proposedText: s.text || '',
         proposedTags: s.hashtags || [],
         adaptations: (s.adaptations && s.adaptations.length ? s.adaptations : undefined) as any,

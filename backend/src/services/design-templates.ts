@@ -3,6 +3,7 @@
  * Бренд НаWоде: teal #217D8C, шрифты Montserrat/Cormorant (из src/assets/fonts).
  */
 import { el } from './html-render'
+import { cleanStoryTitle } from '../utils/story-title'
 
 export const STORY_W = 1080
 export const STORY_H = 1920
@@ -14,19 +15,6 @@ function stripEmoji(s: string): string {
   return (s || '')
     .replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}\u{FE00}-\u{FE0F}\u{1F1E6}-\u{1F1FF}\u{200D}\u{20E3}\u{2122}\u{2139}]/gu, '')
     .replace(/\s{2,}/g, ' ')
-    .trim()
-}
-
-/**
- * Убирает конкретную температуру («+20°C», «20°», «−5 °C») из заголовка сторис — она уже
- * показана в погодном виджете, дубль с другим числом выглядит как ошибка. Чистит остатки
- * (двойные пробелы, висячие тире по краям). Промпт это не гарантирует — агент упрямо пишет °.
- */
-function stripTemperature(s: string): string {
-  return (s || '')
-    .replace(/[+\-−]?\s?\d{1,2}\s?°\s?[CСcс]?/g, '') // +20°C · 20° · −5 °C
-    .replace(/\s{2,}/g, ' ')
-    .replace(/^[\s—–-]+|[\s—–-]+$/g, '') // висячие тире/пробелы по краям
     .trim()
 }
 
@@ -44,7 +32,7 @@ export interface StoryDesignOpts {
 
 /** Сторис 9:16: фото-фон + погодный виджет + заголовок-оверлей + CTA. Эмодзи убираются (satori их не рисует). */
 export function buildStoryDesign(o: StoryDesignOpts): any {
-  const title = stripTemperature(stripEmoji(o.title)) // температуру с заголовка убираем — она в виджете
+  const title = cleanStoryTitle(stripEmoji(o.title)) // чистим температуру/день/«температура» — единая утилита
   const weather = o.weather ? stripEmoji(o.weather) : null
   const cta = o.cta ? stripEmoji(o.cta) : null
   const promo = o.promo ? stripEmoji(o.promo) : null
