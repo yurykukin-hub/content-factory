@@ -483,7 +483,12 @@ async function pickPhotoForPost(
   excludeIds: Set<string> = new Set(),
 ): Promise<string | null> {
   const found = await searchGalleryPhotos(businessId, brief.photoKeywords, 16)
-  const candidates = found.filter(c => !excludeIds.has(c.id)) // дедуп: не повторять фото, уже выбранные в этом дайджесте
+  let candidates = found.filter(c => !excludeIds.has(c.id)) // дедуп: не повторять недавние/уже выбранные фото
+  // Дедуп исчерпал всех кандидатов под тему → лучше ПОВТОРИТЬ фото, чем оставить пост без картинки.
+  if (!candidates.length && found.length) {
+    log.info('[Digest] dedup exhausted candidates — allowing reuse', { businessId, keywords: brief.photoKeywords })
+    candidates = found
+  }
   if (!candidates.length) return null
   if (candidates.length === 1) return candidates[0].id
 
