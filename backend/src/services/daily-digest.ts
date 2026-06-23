@@ -430,7 +430,7 @@ async function generateDigestForBusiness(biz: any, force: boolean, role: DigestR
 // Команда агентов (Ф1): стратег → копирайтер → арт-директор.
 // ─────────────────────────────────────────────────────────────────────────
 
-/** Поиск реальных фото в галерее по ключевым словам (по altText из Ф0). */
+/** Поиск реальных фото в галерее по ключевым словам (altText) + ПАПКАМ Светы (маршруты/продукты). */
 async function searchGalleryPhotos(businessId: string, keywords: string[], limit = 12): Promise<{ id: string; altText: string }[]> {
   const kw = (keywords || []).map(k => String(k).trim().toLowerCase()).filter(Boolean)
   if (!kw.length) return []
@@ -438,20 +438,28 @@ async function searchGalleryPhotos(businessId: string, keywords: string[], limit
     where: {
       businessId,
       mimeType: { startsWith: 'image/' },
-      altText: { not: null },
+      // По altText ИЛИ по названию папки (Света раскладывает по маршрутам: Беличьи/Монрепо/Закат…),
+      // чтобы пост про конкретный маршрут брал фото именно из его папки, а не «похожее по описанию».
       NOT: { tags: { has: 'ai-generated' } }, // только реальные фото — не AI-генерация/макеты
-      OR: kw.map(k => ({ altText: { contains: k, mode: 'insensitive' as const } })),
+      OR: [
+        { altText: { not: null }, AND: { OR: kw.map(k => ({ altText: { contains: k, mode: 'insensitive' as const } })) } },
+        { folder: { name: { in: kw, mode: 'insensitive' as const } } },
+      ],
     },
-    select: { id: true, altText: true },
-    take: 50, // больше кандидатов — ранжируем ниже по релевантности
+    select: { id: true, altText: true, folder: { select: { name: true } } },
+    take: 60,
   })
-  // Ранжируем по числу совпавших ключевых слов: фото с бОльшим пересечением релевантнее
-  // (иначе keyword «рассвет» притягивал сап-йогу под тему «замок»).
-  return rows
-    .map(r => {
-      const alt = (r.altText || '').toLowerCase()
-      return { id: r.id, altText: r.altText || '', score: kw.filter(k => alt.includes(k)).length }
-    })
+  // Папка маршрута, совпавшая с keyword (Беличьи/Монрепо/…) — жёсткий приоритет: если такие фото есть,
+  // подбираем ТОЛЬКО из них (иначе под «Беличьи» прилетало фото Монрепо). Иначе — ранжируем по altText.
+  const scored = rows.map(r => {
+    const alt = (r.altText || '').toLowerCase()
+    const folderName = (r.folder?.name || '').toLowerCase()
+    const folderMatch = !!folderName && kw.some(k => folderName === k || folderName.includes(k) || k.includes(folderName))
+    return { id: r.id, altText: r.altText || '', score: kw.filter(k => alt.includes(k)).length, folderMatch }
+  })
+  const folderMatched = scored.filter(r => r.folderMatch)
+  const pool = folderMatched.length ? folderMatched : scored
+  return pool
     .sort((a, b) => b.score - a.score)
     .slice(0, limit)
     .map(({ id, altText }) => ({ id, altText }))

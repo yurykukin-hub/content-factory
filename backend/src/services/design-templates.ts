@@ -48,7 +48,8 @@ export function buildStoryDesign(o: StoryDesignOpts): any {
     const widget: any[] = []
     if (o.temp) widget.push(el('div', { display: 'flex', fontFamily: 'Cormorant', fontWeight: 700, fontSize: 130, color: 'white', lineHeight: 1 }, o.temp))
     if (weather) widget.push(el('div', { display: 'flex', fontFamily: 'Montserrat', fontWeight: 600, fontSize: 36, color: 'white', marginTop: 6 }, weather))
-    children.push(el('div', { position: 'absolute', top: 64, left: 64, display: 'flex', flexDirection: 'column' }, widget))
+    // top:230 — ниже шапки соцсети (аватар/название/время занимают верхние ~200px), чтобы виджет не залезал под UI
+    children.push(el('div', { position: 'absolute', top: 230, left: 64, display: 'flex', flexDirection: 'column' }, widget))
   }
 
   // Лого НЕ рисуем: сторис идут в собственные аккаунты НаWоде (и так брендировано) — лишний шум.
