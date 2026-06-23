@@ -283,7 +283,10 @@ async function generateDigestForBusiness(biz: any, force: boolean, role: DigestR
   // сегодня. Грейсфул '' при ошибке/выключенном флаге → промпты блок не показывают.
   let promoBlock = ''
   let promoBadge: string | null = null
-  if ((await getConfig('digest_promo_enabled')) === 'true') {
+  // День = слот-филл (берёт горячий слот, часто на ДРУГОЙ день/продукт — суббота, прокат на скале),
+  // а скидка действует на свой день/продукт (вт/пт прокат Выборг) → НЕ суём скидку в дневную, иначе
+  // агент приклеит «−10%» к субботнему слоту на скале (баг). Скидки — в утренней (про сегодня) и ленте.
+  if (role !== 'day' && (await getConfig('digest_promo_enabled')) === 'true') {
     const promoDate = role === 'evening'
       ? new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
       : todayStr
@@ -565,6 +568,8 @@ async function adaptForPlatforms(
 ): Promise<PlatformAdaptation[]> {
   if (!platforms.length) return []
   const { aiComplete } = await import('./ai/openrouter')
+  // VK-лента: кликабельная ссылка на бронь в текст (в IG ссылки некликабельны → направляем в шапку профиля промптом)
+  const vkBookingUrl = platforms.includes('VK') ? ((await getConfig('vk_post_booking_url')) || '').trim() : ''
   const results = await Promise.allSettled(platforms.map(async (platform): Promise<PlatformAdaptation> => {
     const res = await aiComplete({
       model: config.models.haiku,
@@ -575,7 +580,10 @@ async function adaptForPlatforms(
       action: 'daily_digest',
     })
     // Вырезаем инлайн-теги: источник правды = массив hashtags (иначе паблишер задублирует, см. utils/hashtags)
-    const text = stripInlineHashtags((res.content || '').trim() || masterText)
+    let text = stripInlineHashtags((res.content || '').trim() || masterText)
+    if (platform === 'VK' && vkBookingUrl && !text.includes(vkBookingUrl)) {
+      text = `${text}\n\nЗабронировать: ${vkBookingUrl}` // совпадает с publish-runner → дубля не будет (idempotent)
+    }
     // TG: хэштеги не работают для discovery; IG: кап ≤5 (лимит 2025); VK: мастер-теги
     const hashtags = platform === 'TELEGRAM' ? [] : platform === 'INSTAGRAM' ? masterTags.slice(0, IG_HASHTAG_CAP) : masterTags
     return { platform, text, hashtags }
