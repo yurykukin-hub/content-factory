@@ -4,7 +4,7 @@
  * Grid layout with lightbox preview, download, edit actions.
  */
 import { ref, computed } from 'vue'
-import { Camera, Download, Pencil, Eraser, Heart, Loader2, ChevronDown, X, ZoomIn } from 'lucide-vue-next'
+import { Camera, Download, Pencil, Heart, Loader2, ChevronDown, X, ZoomIn } from 'lucide-vue-next'
 import { useRates } from '../../composables/useRates'
 
 interface ImageResult {
@@ -35,7 +35,6 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   edit: [imageUrl: string]
-  removeBg: [imageUrl: string]
   download: [resultUrl: string]
   toggleFavorite: [resultUrl: string]
 }>()
@@ -142,11 +141,6 @@ function downloadImage(url: string) {
                 title="Редактировать">
                 <Pencil :size="16" />
               </button>
-              <button @click.stop="emit('removeBg', img.resultUrl)"
-                class="p-2 rounded-full bg-white/90 dark:bg-gray-800/90 text-gray-700 dark:text-gray-300 hover:bg-white transition-colors"
-                title="Удалить фон">
-                <Eraser :size="16" />
-              </button>
             </div>
 
             <!-- Favorite badge -->
@@ -226,10 +220,6 @@ function downloadImage(url: string) {
             <button @click="emit('edit', lightboxUrl!); closeLightbox()"
               class="px-3 py-1.5 rounded-lg bg-white/90 dark:bg-gray-800/90 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-white transition-colors flex items-center gap-1.5">
               <Pencil :size="14" /> Редактировать
-            </button>
-            <button @click="emit('removeBg', lightboxUrl!); closeLightbox()"
-              class="px-3 py-1.5 rounded-lg bg-white/90 dark:bg-gray-800/90 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-white transition-colors flex items-center gap-1.5">
-              <Eraser :size="14" /> Удалить фон
             </button>
           </div>
         </div>

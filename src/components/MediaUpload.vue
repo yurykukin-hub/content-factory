@@ -2,7 +2,7 @@
 import { ref, computed } from 'vue'
 import { http, TAB_ID } from '@/api/client'
 import { useToast } from '@/composables/useToast'
-import { Upload, X, Loader2, Image, Film, Music, Wand2, Eraser, Crop, ChevronLeft, ChevronRight } from 'lucide-vue-next'
+import { Upload, X, Loader2, Image, Film, Music, Wand2, Crop, ChevronLeft, ChevronRight, MoreHorizontal } from 'lucide-vue-next'
 import ImageEditModal from '@/components/ai/ImageEditModal.vue'
 
 interface MediaFile {
@@ -29,8 +29,30 @@ const emit = defineEmits<{
 const toast = useToast()
 const uploading = ref(false)
 const dragOver = ref(false)
-const removingBgId = ref<string | null>(null)
 const editingFile = ref<MediaFile | null>(null)
+
+function isImage(f: MediaFile) { return f.mimeType.startsWith('image/') }
+function isVideo(f: MediaFile) { return f.mimeType.startsWith('video/') }
+
+// Просмотр (lightbox) + контекстное меню действий (всегда доступно на тач)
+const previewFile = ref<MediaFile | null>(null)
+const menuFile = ref<MediaFile | null>(null)
+const menuPos = ref({ top: 0, left: 0 })
+function openPreview(f: MediaFile) { previewFile.value = f }
+function openMenu(f: MediaFile, e: MouseEvent) {
+  const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
+  menuPos.value = { top: r.bottom + 4, left: Math.max(8, r.right - 168) }
+  menuFile.value = f
+}
+function fromMenu(action: 'edit' | 'fit' | 'open' | 'remove') {
+  const f = menuFile.value
+  menuFile.value = null
+  if (!f) return
+  if (action === 'edit') editingFile.value = f
+  else if (action === 'fit') fittingFile.value = f
+  else if (action === 'open') previewFile.value = f
+  else if (action === 'remove') removeFile(f.id)
+}
 
 // Порядок медиа карусели: desktop — drag&drop, мобильный — стрелки ◀▶. Публикация идёт по этому порядку.
 const dragIndex = ref<number | null>(null)
@@ -88,22 +110,6 @@ async function applyFit() {
   } finally {
     fitLoading.value = false
   }
-}
-
-async function removeBg(file: MediaFile) {
-  if (removingBgId.value) return
-  if (!confirm('Удалить фон с изображения?')) return
-  removingBgId.value = file.id
-  try {
-    const result = await http.post<{ mediaFile: MediaFile }>('/ai/remove-background', {
-      businessId: props.businessId,
-      mediaId: file.id,
-      postId: props.postId,
-    })
-    emit('uploaded', result.mediaFile)
-    toast.success('Фон удалён')
-  } catch (e: any) { toast.error('Ошибка: ' + (e.message || e)) }
-  finally { removingBgId.value = null }
 }
 
 function onEdited(file: MediaFile) {
@@ -177,7 +183,7 @@ function formatSize(bytes: number) {
 
 <template>
   <div>
-    <!-- File gallery — показывает реальное соотношение (фикс. высота, ширина по кадру) -->
+    <!-- File gallery — клик по фото открывает просмотр; действия — меню «⋯» (видно и на тач) -->
     <div v-if="files.length" class="flex flex-wrap gap-2 mb-3">
       <div
         v-for="(f, idx) in files"
@@ -187,11 +193,12 @@ function formatSize(bytes: number) {
         @dragover.prevent
         @drop="onCardDrop(idx)"
         @dragend="dragIndex = null"
-        :class="['relative group rounded-lg overflow-hidden bg-gray-100 dark:bg-gray-800 flex items-center justify-center transition-opacity',
+        @click="openPreview(f)"
+        :class="['relative group rounded-lg overflow-hidden bg-gray-100 dark:bg-gray-800 flex items-center justify-center transition-opacity cursor-pointer',
           files.length > 1 && supportsDrag ? 'cursor-move' : '', dragIndex === idx ? 'opacity-40' : '']"
       >
         <img
-          v-if="f.mimeType.startsWith('image/')"
+          v-if="isImage(f)"
           :src="f.url"
           :alt="f.filename"
           loading="lazy"
@@ -201,39 +208,25 @@ function formatSize(bytes: number) {
           <component :is="mediaIcon(f.mimeType)" :size="24" />
           <span class="text-[10px] mt-1 truncate max-w-full px-1">{{ f.filename }}</span>
         </div>
-        <!-- Overlay buttons -->
-        <div class="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors pointer-events-none" />
+        <div class="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors pointer-events-none" />
         <!-- Номер кадра в карусели -->
         <span v-if="files.length > 1" class="absolute top-1 left-1 w-5 h-5 rounded-full bg-black/60 text-white text-[10px] font-bold flex items-center justify-center z-10">{{ idx + 1 }}</span>
-        <div class="absolute top-1 right-1 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
-          <button v-if="f.mimeType.startsWith('image/')" @click="editingFile = f" title="Редактировать AI"
-            class="p-1 rounded-full bg-purple-600/80 hover:bg-purple-600 text-white">
-            <Wand2 :size="13" />
-          </button>
-          <button v-if="f.mimeType.startsWith('image/')" @click="fittingFile = f" title="Подогнать формат (обрезка / поля)"
-            class="p-1 rounded-full bg-blue-600/80 hover:bg-blue-600 text-white">
-            <Crop :size="13" />
-          </button>
-          <button v-if="f.mimeType.startsWith('image/')" @click="removeBg(f)" :disabled="removingBgId === f.id" title="Убрать фон"
-            class="p-1 rounded-full bg-purple-600/80 hover:bg-purple-600 text-white disabled:opacity-50">
-            <Loader2 v-if="removingBgId === f.id" :size="13" class="animate-spin" /><Eraser v-else :size="13" />
-          </button>
-          <button @click="removeFile(f.id)" title="Удалить"
-            class="p-1 rounded-full bg-black/50 hover:bg-red-600/80 text-white">
-            <X :size="13" />
-          </button>
-        </div>
+        <!-- Меню действий: всегда видно на мобильном, hover на десктопе -->
+        <button @click.stop="openMenu(f, $event)" title="Действия"
+          class="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/55 hover:bg-black/75 text-white flex items-center justify-center z-10 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+          <MoreHorizontal :size="14" />
+        </button>
         <!-- Размер (только одиночное фото — у карусели низ занят стрелками) -->
         <span v-if="files.length === 1" class="absolute bottom-1 left-1 text-[9px] text-white bg-black/50 px-1 rounded z-10">
           {{ formatSize(f.sizeBytes) }}
         </span>
         <!-- Перемещение в карусели: стрелки ◀ ▶ (надёжно на мобильном) -->
         <div v-if="files.length > 1" class="absolute inset-x-0 bottom-0 flex items-center justify-between px-1 pb-1 z-10">
-          <button @click="moveItem(idx, -1)" :disabled="idx === 0" title="Левее"
+          <button @click.stop="moveItem(idx, -1)" :disabled="idx === 0" title="Левее"
             class="w-6 h-6 rounded-full bg-black/55 hover:bg-black/80 text-white flex items-center justify-center disabled:opacity-25 disabled:cursor-default">
             <ChevronLeft :size="14" />
           </button>
-          <button @click="moveItem(idx, 1)" :disabled="idx === files.length - 1" title="Правее"
+          <button @click.stop="moveItem(idx, 1)" :disabled="idx === files.length - 1" title="Правее"
             class="w-6 h-6 rounded-full bg-black/55 hover:bg-black/80 text-white flex items-center justify-center disabled:opacity-25 disabled:cursor-default">
             <ChevronRight :size="14" />
           </button>
@@ -283,8 +276,66 @@ function formatSize(bytes: number) {
       @edited="onEdited"
     />
 
+    <!-- Контекстное меню действий над фото -->
+    <Teleport to="body">
+      <div v-if="menuFile" class="fixed inset-0 z-[55]" @click="menuFile = null">
+        <div class="absolute bg-white dark:bg-gray-900 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 py-1 min-w-[160px]"
+          :style="{ top: menuPos.top + 'px', left: menuPos.left + 'px' }" @click.stop>
+          <button @click="fromMenu('open')" class="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 text-left">
+            <Image :size="15" class="text-gray-400" /> Открыть
+          </button>
+          <button v-if="isImage(menuFile)" @click="fromMenu('edit')" class="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 text-left">
+            <Wand2 :size="15" class="text-purple-500" /> AI-редактор
+          </button>
+          <button v-if="isImage(menuFile)" @click="fromMenu('fit')" class="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 text-left">
+            <Crop :size="15" class="text-blue-500" /> Подогнать формат
+          </button>
+          <div class="my-1 border-t border-gray-100 dark:border-gray-800"></div>
+          <button @click="fromMenu('remove')" class="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950 text-left">
+            <X :size="15" /> Открепить
+          </button>
+        </div>
+      </div>
+    </Teleport>
+
+    <!-- Просмотр фото/видео (lightbox) -->
+    <Teleport to="body">
+      <div v-if="previewFile" class="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 p-4" @click.self="previewFile = null">
+        <div class="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-sm max-h-[90vh] overflow-y-auto">
+          <img v-if="isImage(previewFile)" :src="previewFile.url" class="w-full max-h-[58vh] object-contain bg-black rounded-t-2xl" />
+          <video v-else-if="isVideo(previewFile)" :src="previewFile.url" controls class="w-full max-h-[58vh] bg-black rounded-t-2xl" />
+          <div v-else class="p-8 flex flex-col items-center text-gray-400">
+            <component :is="mediaIcon(previewFile.mimeType)" :size="40" />
+          </div>
+          <div class="p-4 space-y-3">
+            <p class="text-xs text-gray-500 truncate">{{ previewFile.filename }}</p>
+            <div v-if="isImage(previewFile)" class="flex flex-wrap gap-2">
+              <button @click="editingFile = previewFile; previewFile = null"
+                class="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium bg-purple-50 dark:bg-purple-950 text-purple-600 dark:text-purple-400 hover:bg-purple-100 dark:hover:bg-purple-900 transition-colors">
+                <Wand2 :size="13" /> AI-редактор
+              </button>
+              <button @click="fittingFile = previewFile; previewFile = null"
+                class="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium bg-blue-50 dark:bg-blue-950 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900 transition-colors">
+                <Crop :size="13" /> Подогнать формат
+              </button>
+            </div>
+            <div class="flex gap-2">
+              <button @click="removeFile(previewFile.id); previewFile = null"
+                class="flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-medium bg-red-50 dark:bg-red-950 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900 transition-colors">
+                <X :size="13" /> Открепить
+              </button>
+              <button @click="previewFile = null"
+                class="flex-1 px-3 py-2.5 rounded-xl bg-gray-100 dark:bg-gray-800 text-xs font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">
+                Закрыть
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
     <!-- Format fit modal (обрезка / размытый фон, на выбор) -->
-    <div v-if="fittingFile" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" @click.self="fittingFile = null">
+    <div v-if="fittingFile" class="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4" @click.self="fittingFile = null">
       <div class="bg-white dark:bg-gray-900 rounded-2xl p-5 w-full max-w-sm shadow-xl">
         <h3 class="text-base font-bold mb-3 flex items-center gap-2"><Crop :size="18" class="text-blue-500" /> Подгон формата</h3>
 

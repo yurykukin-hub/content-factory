@@ -870,7 +870,6 @@ onDeactivated(() => {
         :generating="generating"
         :batch-size="batchSize"
         @edit="(url: string) => toast.info('Редактирование: ' + url.split('/').pop())"
-        @remove-bg="(url: string) => toast.info('Удаление фона: ' + url.split('/').pop())"
         @toggle-favorite="onToggleFavorite"
       />
     </div>

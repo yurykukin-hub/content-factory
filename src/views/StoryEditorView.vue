@@ -9,7 +9,7 @@ import { formatDate } from '@/composables/useFormatters'
 import { useRates } from '@/composables/useRates'
 import {
   ArrowLeft, Upload, Sparkles, Loader2, Send, CheckCircle,
-  ExternalLink, AlertCircle, Image, Images, Link, Trash2, ZoomIn, ZoomOut, Wand2, Eraser,
+  ExternalLink, AlertCircle, Image, Images, Link, Trash2, ZoomIn, ZoomOut, Wand2,
   ChevronLeft, ChevronRight, ChevronDown, Calendar, Clock, Video, X, Music, FileText
 } from 'lucide-vue-next'
 import ImageEditModal from '@/components/ai/ImageEditModal.vue'
@@ -193,7 +193,6 @@ const imageTemplates = ref<{ id: string; name: string; emoji: string; prompt: st
 const aiSuggestions = ref<{ name: string; emoji: string; prompt: string }[]>([])
 const suggestingTemplates = ref(false)
 
-const removingBg = ref(false)
 const showEditModal = ref(false)
 const editingImage = ref(false) // background image generation in progress
 
@@ -253,23 +252,6 @@ async function onEditSubmitted(data: { prompt: string; model: string; mediaId: s
   finally { editingImage.value = false }
 }
 const showMediaPicker = ref(false)
-
-async function doRemoveBg() {
-  if (!post.value || !photo.value || removingBg.value) return
-  if (!confirm('Удалить фон с изображения?')) return
-  removingBg.value = true
-  try {
-    const result = await http.post<{ mediaFile: MediaFile }>('/ai/remove-background', {
-      businessId: post.value.businessId,
-      mediaId: photo.value.id,
-      postId: post.value.id,
-    })
-    post.value.mediaFiles = [result.mediaFile]
-    loadImage(result.mediaFile.url)
-    toast.success('Фон удалён')
-  } catch (e: any) { toast.error('Ошибка: ' + (e.message || e)) }
-  finally { removingBg.value = false }
-}
 
 function onImageEdited(newFile: MediaFile) {
   if (!post.value) return
@@ -1248,10 +1230,6 @@ onUnmounted(() => {
             <button v-if="photo" @click="showEditModal = true" title="Редактировать AI"
               class="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300 text-xs font-medium hover:bg-purple-200">
               <Wand2 :size="14" />
-            </button>
-            <button v-if="photo" @click="doRemoveBg" :disabled="removingBg" title="Убрать фон"
-              class="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300 text-xs font-medium hover:bg-purple-200 disabled:opacity-50">
-              <Loader2 v-if="removingBg" :size="14" class="animate-spin" /><Eraser v-else :size="14" />
             </button>
           </div>
         </div>

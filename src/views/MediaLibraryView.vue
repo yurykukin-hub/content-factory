@@ -6,7 +6,7 @@ import { useToast } from '@/composables/useToast'
 import { formatDate } from '@/composables/useFormatters'
 import {
   Image, Video, Upload, Search, Tag, X, Loader2, Trash2,
-  Grid3X3, Link, ExternalLink, Wand2, Eraser,
+  Grid3X3, Link, ExternalLink, Wand2,
   FolderPlus, Folder, FolderOpen, ChevronRight, Home, Sparkles,
   Pencil, Grid2X2, LayoutGrid, Check, ArrowRightLeft, RotateCcw, RotateCw,
 } from 'lucide-vue-next'
@@ -57,7 +57,6 @@ const loading = ref(true)
 const loadingMore = ref(false)
 const hasMore = ref(false)
 const uploading = ref(false)
-const removingBgId = ref<string | null>(null)
 const editingFile = ref<MediaFile | null>(null)
 const designFile = ref<MediaFile | null>(null)
 const previewFile = ref<MediaFile | null>(null)
@@ -343,21 +342,6 @@ async function deleteFile(id: string) {
   } catch (e: any) {
     toast.error('Ошибка удаления')
   }
-}
-
-async function removeBg(file: MediaFile) {
-  if (removingBgId.value) return
-  if (!confirm('Удалить фон с изображения?')) return
-  removingBgId.value = file.id
-  try {
-    const result = await http.post<{ mediaFile: MediaFile }>('/ai/remove-background', {
-      businessId: file.businessId,
-      mediaId: file.id,
-    })
-    files.value.unshift(result.mediaFile as any)
-    toast.success('Фон удалён')
-  } catch (e: any) { toast.error('Ошибка: ' + (e.message || e)) }
-  finally { removingBgId.value = null }
 }
 
 function onEdited(newFile: any) {
@@ -931,10 +915,6 @@ watch([typeFilter, tagFilter, showUnattached], () => {
               <button v-if="isImage(previewFile.mimeType, previewFile.filename)" @click="editingFile = previewFile; previewFile = null"
                 class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-purple-100 dark:bg-purple-900/50 text-purple-600 dark:text-purple-400 hover:bg-purple-200 dark:hover:bg-purple-800 transition-colors">
                 <Wand2 :size="12" /> AI-редактор
-              </button>
-              <button v-if="isImage(previewFile.mimeType, previewFile.filename)" @click="removeBg(previewFile!); previewFile = null"
-                class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">
-                <Eraser :size="12" /> Убрать фон
               </button>
               <a :href="previewFile.url" :download="previewFile.filename"
                 class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">
