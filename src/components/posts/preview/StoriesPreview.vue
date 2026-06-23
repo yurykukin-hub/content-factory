@@ -1,8 +1,10 @@
 <script setup lang="ts">
-// Превью STORIES «как в соцсети» — фото 9:16 с верхним UI ПОВЕРХ (прогресс+аватар),
-// а нижний интерфейс (поле/кнопка + иконки) — ПОД фото на тёмной полосе (как в реальной сторис).
-// baked=true → дизайн уже вшит в картинку (satori): текст-оверлей не дублируем.
-import { X, Heart, Send } from 'lucide-vue-next'
+// Превью STORIES «как в соцсети». Раскладка повторяет реальные сторис:
+//  IG  — фото 9:16, под ним полоса: поле «Отправить сообщение» + иконки.
+//  VK  — фото 9:16 с нативной кнопкой «Забронировать» ПОВЕРХ фото справа внизу,
+//        под фото полоса: просмотры + иконки.
+// Верх (прогресс+аватар) — поверх фото. baked=true → текст-оверлей не дублируем (вшит в картинку).
+import { X, Heart, Send, Eye, Share2 } from 'lucide-vue-next'
 interface Media { url: string; thumbUrl: string | null; mimeType: string }
 const props = defineProps<{
   accountName: string
@@ -48,11 +50,17 @@ const isIg = () => props.platform === 'INSTAGRAM'
             <p class="text-white text-[12px] font-semibold leading-snug whitespace-pre-wrap break-words" style="text-shadow:0 1px 4px rgba(0,0,0,0.8)">{{ text }}</p>
           </div>
         </template>
+
+        <!-- VK: нативная кнопка «Забронировать» — ПОВЕРХ фото справа внизу (как в реальной VK-сторис) -->
+        <div v-if="!isIg()" class="absolute right-2 bottom-2 z-20">
+          <div class="rounded-lg bg-white px-3 py-1.5 shadow-md"><span class="text-gray-900 text-[11px] font-semibold">Забронировать</span></div>
+        </div>
       </div>
 
-      <!-- Нижний интерфейс — ПОД фото на тёмной полосе (как в реальной сторис) -->
+      <!-- Нижняя полоса ПОД фото -->
       <div class="flex items-center gap-2 px-2.5 py-2.5">
         <template v-if="isIg()">
+          <!-- IG: поле «Отправить сообщение» + иконки -->
           <div class="flex-1 rounded-full border border-white/40 px-3 py-1.5">
             <span class="text-white/55 text-[10px]">Отправить сообщение</span>
           </div>
@@ -60,11 +68,10 @@ const isIg = () => props.platform === 'INSTAGRAM'
           <Send :size="18" class="text-white shrink-0" />
         </template>
         <template v-else>
-          <div class="flex-1 rounded-lg bg-white px-3 py-1.5 text-center">
-            <span class="text-gray-900 text-[11px] font-semibold">Забронировать</span>
-          </div>
-          <Heart :size="18" class="text-white shrink-0" />
-          <Send :size="18" class="text-white shrink-0" />
+          <!-- VK: просмотры слева, иконки справа -->
+          <div class="flex items-center gap-1 text-white/70 text-[11px]"><Eye :size="15" /> 1</div>
+          <Send :size="17" class="text-white shrink-0 ml-auto" />
+          <Share2 :size="17" class="text-white shrink-0" />
         </template>
       </div>
     </div>
