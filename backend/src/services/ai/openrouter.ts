@@ -19,7 +19,8 @@ export async function getApiKey(): Promise<string> {
 /** Approximate pricing per 1M tokens (input/output) */
 const MODEL_PRICING: Record<string, { input: number; output: number }> = {
   'anthropic/claude-haiku-4.5': { input: 1.00, output: 5.00 },
-  'anthropic/claude-sonnet-4': { input: 3.00, output: 15.00 },
+  'anthropic/claude-sonnet-4.6': { input: 3.00, output: 15.00 }, // актуальный Sonnet
+  'anthropic/claude-sonnet-4': { input: 3.00, output: 15.00 }, // legacy (для старых логов)
   'google/gemini-2.0-flash-001': { input: 0.10, output: 0.40 },
   'google/gemini-2.5-flash-lite': { input: 0.10, output: 0.40 },
   'google/gemini-2.5-flash': { input: 0.30, output: 2.50 },

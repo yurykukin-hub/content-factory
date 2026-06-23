@@ -587,7 +587,7 @@ async function runAgentTeam(businessId: string, ctx: DigestContext, count = 3, e
 
   // РОЛЬ 1 — Стратег: темы дня
   const stratRes = await aiComplete({
-    model: 'anthropic/claude-sonnet-4',
+    model: config.models.sonnet,
     systemPrompt: buildDigestStrategistPrompt({ ...ctx, count, feedMode }),
     userPrompt: 'Предложи идеи контента на сегодня. Ответь JSON.',
     maxTokens: 1500,
@@ -615,7 +615,7 @@ async function runAgentTeam(businessId: string, ctx: DigestContext, count = 3, e
 
       // РОЛЬ 2 — Копирайтер: мастер-текст (ориентир — первый канал)
       const copyRes = await aiComplete({
-        model: 'anthropic/claude-sonnet-4',
+        model: config.models.sonnet,
         systemPrompt: buildDigestCopywriterPrompt(
           { rubric: idea.rubric, theme: idea.theme, format, channel: primary, keyMessage: idea.keyMessage },
           ctx.brandContext, ctx.recentSummary,
@@ -686,7 +686,7 @@ async function runAgentTeam(businessId: string, ctx: DigestContext, count = 3, e
 async function runRoleStory(businessId: string, ctx: DigestContext, role: DigestStoryRole, excludeIds: Set<string> = new Set()): Promise<Suggestion | null> {
   const { aiComplete } = await import('./ai/openrouter')
   const res = await aiComplete({
-    model: 'anthropic/claude-sonnet-4',
+    model: config.models.sonnet,
     systemPrompt: buildDigestRoleStoryPrompt(role, ctx),
     userPrompt: 'Сделай сторис на сейчас. Ответь JSON.',
     maxTokens: 900,
@@ -741,7 +741,7 @@ async function runRoleStory(businessId: string, ctx: DigestContext, role: Digest
 async function runFlashStory(businessId: string, ctx: DigestContext, signal: FlashSignal, weatherLine: string, excludeIds: Set<string> = new Set()): Promise<Suggestion | null> {
   const { aiComplete } = await import('./ai/openrouter')
   const res = await aiComplete({
-    model: 'anthropic/claude-sonnet-4',
+    model: config.models.sonnet,
     systemPrompt: buildFlashStoryPrompt({
       dayName: ctx.dayName, dateStr: ctx.dateStr, brandContext: ctx.brandContext,
       seasonHint: ctx.seasonHint, weatherLine,
@@ -799,7 +799,7 @@ async function runFlashStory(businessId: string, ctx: DigestContext, signal: Fla
 async function runRecruitmentPost(businessId: string, ctx: DigestContext, contact: string, allowedChannels: string[]): Promise<Suggestion | null> {
   const { aiComplete } = await import('./ai/openrouter')
   const res = await aiComplete({
-    model: 'anthropic/claude-sonnet-4',
+    model: config.models.sonnet,
     systemPrompt: buildDigestRecruitmentPrompt(ctx, contact),
     userPrompt: 'Напиши пост о наборе инструкторов. Ответь JSON.',
     maxTokens: 900,
@@ -865,7 +865,7 @@ ${ctx.competitorBlock ? `\nЗАЛЕТЕВШИЕ ПОСТЫ КОНКУРЕНТО�
 {"suggestions":[{"postType":"STORIES|TEXT|PHOTO","platforms":["VK"],"title":"короткий заголовок","text":"готовый текст поста","hashtags":["хэштег_без_решётки"],"visualIdea":"идея визуала","rubric":"название рубрики","reasoning":"почему сегодня"}]}`
 
   const res = await aiComplete({
-    model: 'anthropic/claude-sonnet-4',
+    model: config.models.sonnet,
     systemPrompt,
     userPrompt: 'Сгенерируй предложения контента на сегодня в формате JSON.',
     maxTokens: 2500,

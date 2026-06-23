@@ -196,7 +196,7 @@ ${dataBlock}
 {"summary":"2-4 предложения: что зашло / что не зашло за период","findings":[{"type":"win|loss|insight","title":"коротко","detail":"1-2 предложения с цифрами","metric":"reach|er|conversions|time|format"}],"recommendations":[{"area":"format|time|frequency|topic|platform|funnel","action":"что сделать","reason":"почему (из данных)"}]}`
 
   const result = await aiComplete({
-    model: 'anthropic/claude-sonnet-4',
+    model: 'anthropic/claude-sonnet-4.6', // актуальный Sonnet (та же цена $3/$15)
     systemPrompt,
     userPrompt: 'Сделай разбор и рекомендации в формате JSON.',
     maxTokens: 2500,
@@ -224,7 +224,7 @@ ${dataBlock}
       metricsJson: {
         totals: ctx.totals, byPlatform: ctx.byPlatform, byFormat: ctx.byFormat, byDow: ctx.byDow,
       } as any,
-      model: 'anthropic/claude-sonnet-4',
+      model: 'anthropic/claude-sonnet-4.6', // актуальный Sonnet (та же цена $3/$15)
       generatedBy: opts.userId ? 'manual' : 'agent',
     },
   })

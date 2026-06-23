@@ -24,7 +24,7 @@ export const config = {
   // AI models
   models: {
     haiku: 'anthropic/claude-haiku-4.5', // 3.5-haiku снят с Bedrock (EOL → 404) 2026-06-20; 4.5 — актуальный Haiku
-    sonnet: 'anthropic/claude-sonnet-4',
+    sonnet: 'anthropic/claude-sonnet-4.6', // 4.6 — актуальный Sonnet, та же цена $3/$15 (был claude-sonnet-4, deprecated 15.06.2026)
     vision: 'google/gemini-2.5-flash-lite', // captioning галереи: быстрее/дешевле flash при том же качестве (тест Ф0.1, 19.06.2026)
     visionFallback: 'google/gemini-2.5-flash', // запасная (НЕ qwen — зацикливается)
     imageGen: 'google/gemini-2.5-flash-image',

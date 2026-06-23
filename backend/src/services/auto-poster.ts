@@ -256,7 +256,7 @@ ${recentTopics || 'нет постов'}
 {"text": "текст поста", "hashtags": ["тег1", "тег2"], "reasoning": "почему выбрано это фото (1 предложение)"}`
 
   const result = await aiComplete({
-    model: 'anthropic/claude-sonnet-4',
+    model: 'anthropic/claude-sonnet-4.6', // актуальный Sonnet (та же цена $3/$15)
     systemPrompt,
     userPrompt: 'Сгенерируй пост для этого фото.',
     maxTokens: 500,
