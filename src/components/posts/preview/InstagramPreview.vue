@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { Heart, MessageCircle, Send, Bookmark, Play } from 'lucide-vue-next'
 
 interface Media { url: string; thumbUrl: string | null; mimeType: string }
@@ -15,6 +15,20 @@ const cover = computed(() => media.value[0])
 const username = computed(() => (props.accountName || 'instagram').replace(/^@/, ''))
 const initial = computed(() => username.value.charAt(0).toUpperCase())
 function isVideo(m: Media) { return m.mimeType?.startsWith('video/') }
+
+// IG-лента допускает соотношение 4:5 (0.8) … 1.91:1; бэкенд кропает фото к этим границам
+// (publishers/postmypost.ts) → превью показываем В ТОМ ЖЕ формате, что реально опубликуется,
+// а не квадратом. Соотношение берём из натуральных размеров (thumb квадратный — не годится).
+const IG_MIN = 0.8, IG_MAX = 1.91
+const coverRatio = ref(0.8) // дефолт 4:5 (контент чаще вертикальный); уточняем после загрузки
+// Фото грузим оригиналом (точное соотношение); видео — thumb (кроп видео не трогает).
+const coverSrc = computed(() => cover.value && isVideo(cover.value) ? (cover.value.thumbUrl || cover.value.url) : cover.value?.url)
+function onCoverLoad(e: Event) {
+  const img = e.target as HTMLImageElement
+  if (img.naturalWidth && img.naturalHeight) {
+    coverRatio.value = Math.min(IG_MAX, Math.max(IG_MIN, img.naturalWidth / img.naturalHeight))
+  }
+}
 </script>
 
 <template>
@@ -26,13 +40,13 @@ function isVideo(m: Media) { return m.mimeType?.startsWith('video/') }
       <div class="font-semibold truncate">{{ username }}</div>
     </div>
 
-    <div v-if="cover" class="relative aspect-square bg-gray-100 dark:bg-gray-800">
-      <img :src="cover.thumbUrl || cover.url" class="w-full h-full object-cover" />
+    <div v-if="cover" class="relative bg-gray-100 dark:bg-gray-800" :style="{ aspectRatio: String(coverRatio) }">
+      <img :src="coverSrc" @load="onCoverLoad" class="w-full h-full object-cover" />
       <div v-if="isVideo(cover)" class="absolute inset-0 flex items-center justify-center bg-black/15">
         <div class="w-10 h-10 rounded-full bg-black/50 flex items-center justify-center"><Play :size="20" class="text-white ml-0.5" /></div>
       </div>
     </div>
-    <div v-else class="aspect-square bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-xs text-gray-400 text-center px-6">
+    <div v-else class="aspect-[4/5] bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-xs text-gray-400 text-center px-6">
       Instagram требует фото или видео
     </div>
 
