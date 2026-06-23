@@ -563,6 +563,10 @@ onMounted(load)
               class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-xs font-medium disabled:opacity-50">
               <Loader2 v-if="actingId === task.id" :size="13" class="animate-spin" /><Sparkles v-else :size="13" /> Оформить дизайн
             </button>
+            <button v-if="task.status === 'proposed' && isDesigned(task)" @click="openDesignModal(task)" :disabled="actingId === task.id"
+              class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-fuchsia-300 dark:border-fuchsia-700 text-xs font-medium text-fuchsia-600 dark:text-fuchsia-400 hover:bg-fuchsia-50 dark:hover:bg-fuchsia-950 disabled:opacity-50">
+              <Sparkles :size="13" /> Поправить кадр
+            </button>
           </template>
           <button v-else-if="task.status === 'proposed'" @click="openPicker(task)"
             class="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-dashed border-gray-300 dark:border-gray-700 text-sm text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
@@ -605,12 +609,8 @@ onMounted(load)
                 <Loader2 v-if="actingId === task.id" :size="14" class="animate-spin" /><Clock v-else :size="14" /> Запланировать
               </button>
             </div>
-            <!-- Вторичное: Поправить кадр (только дизайн-сторис) / В редактор / Отклонить -->
+            <!-- Вторичное: В редактор / Отклонить -->
             <div class="flex items-center gap-2 mt-2 flex-wrap">
-              <button v-if="isDesigned(task)" @click="openDesignModal(task)" :disabled="actingId === task.id"
-                class="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-fuchsia-300 dark:border-fuchsia-700 text-xs font-medium text-fuchsia-600 dark:text-fuchsia-400 hover:bg-fuchsia-50 dark:hover:bg-fuchsia-950 disabled:opacity-50 touch-manipulation">
-                <Sparkles :size="13" /> Поправить кадр
-              </button>
               <button @click="openEditor(task)" :disabled="actingId === task.id"
                 class="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 text-xs font-medium text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50 touch-manipulation">
                 <FileEdit :size="13" /> В редактор
