@@ -394,19 +394,22 @@ onMounted(load)
           </div>
           <template v-for="pv in task.previews" :key="pv.platform">
             <template v-if="previewPlatform(task) === pv.platform">
-              <!-- STORIES — вертикальный 9:16; PHOTO — лента соцсети -->
+              <!-- STORIES — вертикальный 9:16; PHOTO — лента соцсети.
+                   ВАЖНО: StoriesPreview (v-if) и PostPreview (v-else) ДОЛЖНЫ быть смежны —
+                   любой элемент между ними разорвёт v-if/v-else (тогда PostPreview протечёт в STORIES). -->
               <StoriesPreview v-if="task.postType === 'STORIES'"
                 :platform="pv.platform" :account-name="pv.accountName"
                 :text="pv.text" :media-files="previewMedia(task)" :baked="isDesigned(task)" />
+              <PostPreview v-else
+                :platform="pv.platform" :account-name="pv.accountName"
+                :text="pv.text" :hashtags="pv.hashtags"
+                :media-files="previewMedia(task)" :post-type="task.postType || 'PHOTO'" />
+              <!-- VK-подсказка про живую кнопку — ПОСЛЕ превью, чтобы не разрывать v-if/v-else выше -->
               <p v-if="task.postType === 'STORIES' && pv.platform === 'VK'"
                 class="mt-2 text-xs text-teal-600 dark:text-teal-400 flex items-start gap-1">
                 <Info :size="13" class="shrink-0 mt-0.5" />
                 <span>В VK при публикации добавится живая кнопка «Забронировать». Текст «· nawode.ru» на картинке — указатель для Instagram (там ссылка некликабельна).</span>
               </p>
-              <PostPreview v-else
-                :platform="pv.platform" :account-name="pv.accountName"
-                :text="pv.text" :hashtags="pv.hashtags"
-                :media-files="previewMedia(task)" :post-type="task.postType || 'PHOTO'" />
             </template>
           </template>
         </div>
