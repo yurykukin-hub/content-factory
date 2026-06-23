@@ -17,6 +17,19 @@ function stripEmoji(s: string): string {
     .trim()
 }
 
+/**
+ * Убирает конкретную температуру («+20°C», «20°», «−5 °C») из заголовка сторис — она уже
+ * показана в погодном виджете, дубль с другим числом выглядит как ошибка. Чистит остатки
+ * (двойные пробелы, висячие тире по краям). Промпт это не гарантирует — агент упрямо пишет °.
+ */
+function stripTemperature(s: string): string {
+  return (s || '')
+    .replace(/[+\-−]?\s?\d{1,2}\s?°\s?[CСcс]?/g, '') // +20°C · 20° · −5 °C
+    .replace(/\s{2,}/g, ' ')
+    .replace(/^[\s—–-]+|[\s—–-]+$/g, '') // висячие тире/пробелы по краям
+    .trim()
+}
+
 export interface StoryDesignOpts {
   photoUri: string          // data URI фото-фона
   title: string             // заголовок-оверлей (короткий, для сторис)
@@ -31,7 +44,7 @@ export interface StoryDesignOpts {
 
 /** Сторис 9:16: фото-фон + погодный виджет + заголовок-оверлей + CTA. Эмодзи убираются (satori их не рисует). */
 export function buildStoryDesign(o: StoryDesignOpts): any {
-  const title = stripEmoji(o.title)
+  const title = stripTemperature(stripEmoji(o.title)) // температуру с заголовка убираем — она в виджете
   const weather = o.weather ? stripEmoji(o.weather) : null
   const cta = o.cta ? stripEmoji(o.cta) : null
   const promo = o.promo ? stripEmoji(o.promo) : null
