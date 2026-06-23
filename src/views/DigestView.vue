@@ -543,6 +543,12 @@ onMounted(load)
           </div>
         </template>
 
+        <!-- В редактор (под превью) — открыть в полном редакторе, предложение остаётся в дайджесте -->
+        <button v-if="task.status === 'proposed'" @click="openEditor(task)" :disabled="actingId === task.id"
+          class="flex items-center gap-1.5 text-xs font-medium text-gray-500 hover:text-brand-600 dark:hover:text-brand-400 mb-3 disabled:opacity-50">
+          <FileEdit :size="13" /> В редактор
+        </button>
+
         <!-- Управление фото (Ф1.2 + лайтбокс Ф1.5c) -->
         <div v-if="task.media || task.postType === 'PHOTO' || task.postType === 'STORIES'" class="flex items-center gap-2 flex-wrap mb-3">
           <template v-if="task.media">
@@ -609,32 +615,12 @@ onMounted(load)
                 <Loader2 v-if="actingId === task.id" :size="14" class="animate-spin" /><Clock v-else :size="14" /> Запланировать
               </button>
             </div>
-            <!-- Вторичное: В редактор / Отклонить -->
-            <div class="flex items-center gap-2 mt-2 flex-wrap">
-              <button @click="openEditor(task)" :disabled="actingId === task.id"
-                class="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 text-xs font-medium text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50 touch-manipulation">
-                <FileEdit :size="13" /> В редактор
-              </button>
-              <button @click="reject(task)" :disabled="actingId === task.id"
-                class="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 text-xs font-medium text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50 touch-manipulation">
-                <X :size="13" /> Отклонить
-              </button>
-            </div>
           </template>
-          <!-- Прочее (сторис без дизайна / посты): правка текста + редактор БЕЗ потери предложения -->
-          <div v-else class="flex items-center gap-2 flex-wrap">
-            <button v-if="task.postType !== 'STORIES'" @click="overrideTask?.id === task.id ? closeTextEdit() : openTextEdit(task)" :disabled="actingId === task.id"
+          <!-- Прочее (посты без фото): только правка текста (В редактор — под превью выше) -->
+          <div v-else-if="task.postType !== 'STORIES'" class="flex items-center gap-2 flex-wrap">
+            <button @click="overrideTask?.id === task.id ? closeTextEdit() : openTextEdit(task)" :disabled="actingId === task.id"
               class="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 text-sm font-medium text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50 touch-manipulation">
               <Pencil :size="15" /> {{ overrideTask?.id === task.id ? 'Готово' : 'Текст' }}
-            </button>
-            <button @click="openEditor(task)" :disabled="actingId === task.id"
-              class="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-green-600 hover:bg-green-700 text-white text-sm font-medium disabled:opacity-50 touch-manipulation">
-              <Loader2 v-if="actingId === task.id" :size="15" class="animate-spin" /><FileEdit v-else :size="15" />
-              В редактор
-            </button>
-            <button @click="reject(task)" :disabled="actingId === task.id"
-              class="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 text-sm font-medium text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50">
-              <X :size="15" /> Отклонить
             </button>
           </div>
         </div>
