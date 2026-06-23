@@ -47,7 +47,7 @@ export async function publishPostVersion(
   const cleanBaseText = tags.length ? stripInlineHashtags(baseText) : baseText
 
   // UTM-метки на ссылки бренда (мост к аналитике)
-  const { text: publishText, storiesOptions: effectiveStoriesOptions } = await applyUtmForPublish({
+  const { text: utmText, storiesOptions: effectiveStoriesOptions } = await applyUtmForPublish({
     businessId: version.post.businessId,
     platform: version.platformAccount.platform,
     postType: version.post.postType,
@@ -55,6 +55,19 @@ export async function publishPostVersion(
     text: cleanBaseText,
     storiesOptions: opts.storiesOptions,
   })
+
+  // VK-ПОСТ (лента, не сторис): ссылка на бронирование в текст — VK делает URL кликабельным.
+  // (В сторис ссылка — нативная кнопка через storiesOptions, не в тексте.) URL из AppConfig
+  // vk_post_booking_url (напр. https://erp.nawode.ru/booking.html?ref=bron_vk_fotopost).
+  // Добавляем ПОСЛЕ UTM, чтобы ref-ссылку не переметило. Идемпотентно.
+  let publishText = utmText
+  if (version.platformAccount.platform === 'VK' && !isStories) {
+    const cfg = await db.appConfig.findUnique({ where: { key: 'vk_post_booking_url' } })
+    const bookingUrl = cfg?.value?.trim()
+    if (bookingUrl && !publishText.includes(bookingUrl)) {
+      publishText = `${publishText}\n\nЗабронировать: ${bookingUrl}`.trim()
+    }
+  }
 
   const result = await publisher.publish({
     text: publishText,
