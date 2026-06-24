@@ -930,7 +930,7 @@ watch([sortKey, sortDir], () => {
           :class="[
             'group relative bg-white dark:bg-gray-900 rounded-xl border overflow-hidden transition-colors cursor-pointer select-none',
             selectedFiles.has(file.id)
-              ? 'border-brand-500 dark:border-brand-400 ring-2 ring-brand-200 dark:ring-brand-800'
+              ? 'border-brand-500 dark:border-brand-400 ring-4 ring-brand-400 dark:ring-brand-500'
               : 'border-gray-200 dark:border-gray-800 hover:border-brand-300 dark:hover:border-brand-700'
           ]"
           @click="onCardClick(file, index, $event)"
@@ -959,9 +959,8 @@ watch([sortKey, sortDir], () => {
               <Video :size="32" class="text-gray-400" />
             </div>
 
-            <!-- Select checkbox: тач — всегда виден; десктоп — на hover или когда выбран (§6) -->
-            <div class="absolute top-1.5 left-1.5 z-20"
-              :class="(isTouch || selectedFiles.has(file.id)) ? 'block' : 'hidden sm:group-hover:block'"
+            <!-- Select checkbox: ТОЛЬКО на тач (там выделяют тапом). На десктопе индикатор выделения — рамка карточки. -->
+            <div v-if="isTouch" class="absolute top-1.5 left-1.5 z-20"
               @click.stop="toggleViaCheckbox(file, index)">
               <div :class="[
                 'w-5 h-5 rounded-md border-2 flex items-center justify-center transition-colors cursor-pointer',
@@ -979,8 +978,8 @@ watch([sortKey, sortDir], () => {
               <Eye :size="14" />
             </button>
 
-            <!-- Post badge (скрыт при выделении, чтобы не мешать чекбоксу) -->
-            <div v-if="file.post && !selectedFiles.has(file.id)" class="absolute top-1.5 left-1.5 sm:group-hover:opacity-0 transition-opacity">
+            <!-- Post badge (скрыт при выделении) -->
+            <div v-if="file.post && !selectedFiles.has(file.id)" class="absolute top-1.5 left-1.5">
               <router-link :to="`/posts/${file.post.id}`"
                 class="flex items-center gap-0.5 px-1.5 py-0.5 bg-brand-600/80 text-white rounded text-[9px] font-medium hover:bg-brand-700">
                 <Link :size="10" /> Пост
