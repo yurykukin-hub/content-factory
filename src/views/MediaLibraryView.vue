@@ -789,22 +789,31 @@ watch([sortKey, sortDir], () => {
       </button>
     </div>
 
-    <!-- Selection action bar (§6) -->
-    <div v-if="hasSelection" class="sticky top-0 z-30 flex flex-wrap items-center gap-2 mb-3 p-2 rounded-lg bg-brand-50/95 dark:bg-brand-950/90 backdrop-blur border border-brand-200 dark:border-brand-800 shadow-sm">
-      <span class="text-sm font-medium text-brand-700 dark:text-brand-300 px-1">{{ selectedFiles.size }} выбрано</span>
-      <button @click="openMoveDialog"
-        class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 hover:bg-amber-200 dark:hover:bg-amber-700/30 transition-colors">
-        <ArrowRightLeft :size="14" /> Переместить
-      </button>
-      <button @click="deleteSelected"
-        class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors">
-        <Trash2 :size="14" /> Удалить выбранные
-      </button>
-      <button @click="clearSelection"
-        class="px-3 py-1.5 rounded-lg text-sm font-medium text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
-        Снять выделение
-      </button>
-    </div>
+    <!-- Selection action bar (§6): плавающий поп-ап сверху по центру (Teleport + fixed).
+         Не зависит от скролл-контейнера (sticky тут не работал: скроллится body, а не <main>),
+         виден всегда — и на мобиле, и на десктопе. Это и есть «поп-ап, висящий сверху». -->
+    <Teleport to="body">
+      <Transition
+        enter-active-class="transition duration-150 ease-out" enter-from-class="opacity-0 -translate-y-2"
+        leave-active-class="transition duration-150 ease-in" leave-to-class="opacity-0 -translate-y-2">
+        <div v-if="hasSelection"
+          class="fixed top-16 md:top-20 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2 px-3 py-2 rounded-2xl bg-white/95 dark:bg-gray-900/95 backdrop-blur border border-gray-200 dark:border-gray-700 shadow-2xl max-w-[calc(100vw-1.5rem)]">
+          <span class="text-sm font-semibold text-brand-700 dark:text-brand-300 px-1 whitespace-nowrap">{{ selectedFiles.size }} выбрано</span>
+          <button @click="openMoveDialog"
+            class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 hover:bg-amber-200 dark:hover:bg-amber-700/30 transition-colors whitespace-nowrap">
+            <ArrowRightLeft :size="14" /> <span class="hidden sm:inline">Переместить</span>
+          </button>
+          <button @click="deleteSelected"
+            class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors whitespace-nowrap">
+            <Trash2 :size="14" /> <span class="hidden sm:inline">Удалить</span>
+          </button>
+          <button @click="clearSelection" title="Снять выделение"
+            class="px-2.5 py-1.5 rounded-lg text-sm font-medium text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
+            <X :size="16" />
+          </button>
+        </div>
+      </Transition>
+    </Teleport>
 
     <!-- Breadcrumbs -->
     <div class="flex items-center gap-1 mb-3 text-sm overflow-x-auto">
