@@ -249,6 +249,11 @@ async function loadFiles() {
     hasMore.value = res.hasMore
     if (res.totalCount !== undefined) totalCount.value = res.totalCount
     if (res.counts) serverCounts.value = res.counts
+    // Не-дефолтная сортировка применяется ко ВСЕМУ виду → догружаем остаток сразу (и при заходе
+    // с сохранённой в localStorage сортировкой, не только при её смене). Иначе постраничная
+    // подгрузка (сервер отдаёт createdAt desc) вставляла бы элементы в начало при сортировке
+    // по возрастанию — «подгрузка сверху».
+    if (!isDefaultSort.value && hasMore.value) await loadAllRemaining()
   } catch (e: any) {
     toast.error('Ошибка загрузки медиа')
   } finally {
@@ -684,8 +689,21 @@ function onGlobalKeydown(e: KeyboardEvent) {
   if (previewFile.value) previewFile.value = null
   else if (hasSelection.value) clearSelection()
 }
-onMounted(() => { loadAll(); connectSSE(); window.addEventListener('keydown', onGlobalKeydown) })
+// Бесконечный скролл: IntersectionObserver на сентинел в конце списка (rootMargin — подгрузка заранее).
+const loadMoreSentinel = ref<HTMLElement | null>(null)
+let infiniteObserver: IntersectionObserver | null = null
+watch(loadMoreSentinel, (el, prev) => {
+  if (prev && infiniteObserver) infiniteObserver.unobserve(prev)
+  if (el && infiniteObserver) infiniteObserver.observe(el)
+})
+onMounted(() => {
+  infiniteObserver = new IntersectionObserver((entries) => {
+    if (entries[0]?.isIntersecting && hasMore.value && !loadingMore.value && !loading.value) loadMore()
+  }, { rootMargin: '400px' })
+  loadAll(); connectSSE(); window.addEventListener('keydown', onGlobalKeydown)
+})
 onUnmounted(() => {
+  infiniteObserver?.disconnect()
   sseSource?.close()
   if (sseReconnectTimer) clearTimeout(sseReconnectTimer)
   if (filterDebounce) clearTimeout(filterDebounce)
@@ -1045,13 +1063,10 @@ watch([sortKey, sortDir], () => {
         </div>
       </div>
 
-      <!-- Load more -->
-      <div v-if="hasMore" class="flex justify-center mt-6">
-        <button @click="loadMore" :disabled="loadingMore"
-          class="flex items-center gap-2 px-6 py-2.5 rounded-xl text-sm font-medium bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-50 transition-colors">
-          <Loader2 v-if="loadingMore" :size="16" class="animate-spin" />
-          {{ loadingMore ? 'Загрузка...' : `Показать ещё` }}
-        </button>
+      <!-- Авто-подгрузка при прокрутке (бесконечный скролл). Сентинел отслеживает IntersectionObserver. -->
+      <div v-if="hasMore" ref="loadMoreSentinel" class="flex justify-center items-center gap-2 py-6 text-gray-400 text-xs">
+        <Loader2 v-if="loadingMore" :size="18" class="animate-spin" />
+        <span>{{ loadingMore ? 'Загрузка…' : 'Прокрутите вниз — подгрузится автоматически' }}</span>
       </div>
     </template>
 
