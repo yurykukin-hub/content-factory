@@ -508,31 +508,53 @@ function clearSelection() {
   lastSelectedIndex.value = null
 }
 
+// Long-press на тач — вход в выделение (lpFired гасит последующий синтетический click).
+let lpTimer: ReturnType<typeof setTimeout> | null = null
+let lpFired = false
+function onCardTouchStart(file: MediaFile, index: number) {
+  if (!isTouch) return
+  lpFired = false
+  lpTimer = setTimeout(() => {
+    lpFired = true
+    toggleViaCheckbox(file, index)
+    try { navigator.vibrate?.(15) } catch {}
+  }, 500)
+}
+function onCardTouchEnd() { if (lpTimer) { clearTimeout(lpTimer); lpTimer = null } }
+
 // Клик по карточке. index — позиция в displayedFiles (учитывает сортировку для Shift-диапазона).
 function onCardClick(file: MediaFile, index: number, e: MouseEvent) {
-  const ctrl = e.ctrlKey || e.metaKey
-  if (e.shiftKey && lastSelectedIndex.value !== null) {
-    const lo = Math.min(lastSelectedIndex.value, index)
-    const hi = Math.max(lastSelectedIndex.value, index)
-    const next = new Set(selectedFiles.value)
-    for (let k = lo; k <= hi; k++) { const f = displayedFiles.value[k]; if (f) next.add(f.id) }
-    selectedFiles.value = next
+  // Тач: тап = превью (нет выделения) / toggle (есть выделение). Long-press входит в выделение отдельно.
+  if (isTouch) {
+    if (lpFired) { lpFired = false; return } // это был long-press — синтетический клик игнорируем
+    if (hasSelection.value) toggleViaCheckbox(file, index)
+    else previewFile.value = file
     return
   }
-  if (ctrl) {
+  // Десктоп — модель Проводника: одиночный клик ВЫДЕЛЯЕТ (превью = двойной клик / кнопка-глаз).
+  if (e.shiftKey) {
+    if (lastSelectedIndex.value === null) {
+      selectedFiles.value = new Set([file.id])
+      lastSelectedIndex.value = index
+    } else {
+      const lo = Math.min(lastSelectedIndex.value, index)
+      const hi = Math.max(lastSelectedIndex.value, index)
+      const next = new Set(selectedFiles.value)
+      for (let k = lo; k <= hi; k++) { const f = displayedFiles.value[k]; if (f) next.add(f.id) }
+      selectedFiles.value = next
+    }
+    return
+  }
+  if (e.ctrlKey || e.metaKey) {
     const next = new Set(selectedFiles.value)
     next.has(file.id) ? next.delete(file.id) : next.add(file.id)
     selectedFiles.value = next
     lastSelectedIndex.value = index
     return
   }
-  // Обычный клик: есть выделение → схлопнуть до одного; нет → открыть превью (привычка «клик = превью»)
-  if (hasSelection.value) {
-    selectedFiles.value = new Set([file.id])
-    lastSelectedIndex.value = index
-  } else {
-    previewFile.value = file
-  }
+  // обычный клик = выделить только это фото
+  selectedFiles.value = new Set([file.id])
+  lastSelectedIndex.value = index
 }
 
 // Тап/клик по чекбоксу-уголку (тач + hover на десктопе): toggle отдельного файла.
@@ -687,7 +709,7 @@ watch([sortKey, sortDir], () => {
 </script>
 
 <template>
-  <div class="relative" @dragenter="onDragEnter" @dragover="onDragOver" @dragleave="onDragLeave" @drop="onRootDrop">
+  <div class="relative min-h-screen" @dragenter="onDragEnter" @dragover="onDragOver" @dragleave="onDragLeave" @drop="onRootDrop">
     <!-- Drag-and-drop оверлей загрузки (§2). pointer-events-none — чтобы не перехватить сам drop. -->
     <div v-if="isDraggingFiles" class="fixed inset-0 z-40 flex items-center justify-center bg-brand-600/20 backdrop-blur-sm border-4 border-dashed border-brand-500 pointer-events-none">
       <div class="bg-white dark:bg-gray-900 rounded-2xl px-8 py-6 shadow-2xl flex flex-col items-center gap-3">
@@ -768,7 +790,7 @@ watch([sortKey, sortDir], () => {
     </div>
 
     <!-- Selection action bar (§6) -->
-    <div v-if="hasSelection" class="flex flex-wrap items-center gap-2 mb-3 p-2 rounded-lg bg-brand-50 dark:bg-brand-950/40 border border-brand-200 dark:border-brand-800">
+    <div v-if="hasSelection" class="sticky top-0 z-30 flex flex-wrap items-center gap-2 mb-3 p-2 rounded-lg bg-brand-50/95 dark:bg-brand-950/90 backdrop-blur border border-brand-200 dark:border-brand-800 shadow-sm">
       <span class="text-sm font-medium text-brand-700 dark:text-brand-300 px-1">{{ selectedFiles.size }} выбрано</span>
       <button @click="openMoveDialog"
         class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 hover:bg-amber-200 dark:hover:bg-amber-700/30 transition-colors">
@@ -903,7 +925,10 @@ watch([sortKey, sortDir], () => {
               : 'border-gray-200 dark:border-gray-800 hover:border-brand-300 dark:hover:border-brand-700'
           ]"
           @click="onCardClick(file, index, $event)"
-          @dblclick.stop="previewFile = file">
+          @dblclick.stop="previewFile = file"
+          @touchstart.passive="onCardTouchStart(file, index)"
+          @touchend="onCardTouchEnd"
+          @touchmove.passive="onCardTouchEnd">
 
           <!-- Thumbnail -->
           <div class="aspect-square bg-gray-100 dark:bg-gray-800 relative">
