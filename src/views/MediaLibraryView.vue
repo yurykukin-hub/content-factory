@@ -521,6 +521,8 @@ function onCardTouchStart(file: MediaFile, index: number) {
   }, 500)
 }
 function onCardTouchEnd() { if (lpTimer) { clearTimeout(lpTimer); lpTimer = null } }
+// Гасим нативное контекстное меню/«сохранить картинку» при long-press на тач (иначе оно перекрывает выделение).
+function onCardContextMenu(e: Event) { if (isTouch) e.preventDefault() }
 
 // Клик по карточке. index — позиция в displayedFiles (учитывает сортировку для Shift-диапазона).
 function onCardClick(file: MediaFile, index: number, e: MouseEvent) {
@@ -797,7 +799,7 @@ watch([sortKey, sortDir], () => {
         enter-active-class="transition duration-150 ease-out" enter-from-class="opacity-0 -translate-y-2"
         leave-active-class="transition duration-150 ease-in" leave-to-class="opacity-0 -translate-y-2">
         <div v-if="hasSelection"
-          class="fixed top-16 md:top-20 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2 px-3 py-2 rounded-2xl bg-white/95 dark:bg-gray-900/95 backdrop-blur border border-gray-200 dark:border-gray-700 shadow-2xl max-w-[calc(100vw-1.5rem)]">
+          class="fixed left-1/2 -translate-x-1/2 z-40 bottom-5 md:bottom-auto md:top-20 flex items-center gap-2 px-3 py-2 rounded-2xl bg-white/95 dark:bg-gray-900/95 backdrop-blur border border-gray-200 dark:border-gray-700 shadow-2xl max-w-[calc(100vw-1.5rem)]">
           <span class="text-sm font-semibold text-brand-700 dark:text-brand-300 px-1 whitespace-nowrap">{{ selectedFiles.size }} выбрано</span>
           <button @click="openMoveDialog"
             class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 hover:bg-amber-200 dark:hover:bg-amber-700/30 transition-colors whitespace-nowrap">
@@ -928,13 +930,14 @@ watch([sortKey, sortDir], () => {
         <div v-for="(file, index) in displayedFiles" :key="file.id"
           :style="cardContainStyle"
           :class="[
-            'group relative bg-white dark:bg-gray-900 rounded-xl border overflow-hidden transition-colors cursor-pointer select-none',
+            'group relative bg-white dark:bg-gray-900 rounded-xl border overflow-hidden transition-colors cursor-pointer select-none [-webkit-touch-callout:none]',
             selectedFiles.has(file.id)
               ? 'border-brand-500 dark:border-brand-400 ring-4 ring-brand-400 dark:ring-brand-500'
               : 'border-gray-200 dark:border-gray-800 hover:border-brand-300 dark:hover:border-brand-700'
           ]"
           @click="onCardClick(file, index, $event)"
           @dblclick.stop="previewFile = file"
+          @contextmenu="onCardContextMenu"
           @touchstart.passive="onCardTouchStart(file, index)"
           @touchend="onCardTouchEnd"
           @touchmove.passive="onCardTouchEnd">
@@ -959,8 +962,9 @@ watch([sortKey, sortDir], () => {
               <Video :size="32" class="text-gray-400" />
             </div>
 
-            <!-- Select checkbox: ТОЛЬКО на тач (там выделяют тапом). На десктопе индикатор выделения — рамка карточки. -->
-            <div v-if="isTouch" class="absolute top-1.5 left-1.5 z-20"
+            <!-- Select checkbox: на тач ТОЛЬКО в режиме выделения (после long-press). По умолчанию — чисто.
+                 На десктопе чекбокса нет вовсе — индикатор выделения это рамка карточки. -->
+            <div v-if="isTouch && hasSelection" class="absolute top-1.5 left-1.5 z-20"
               @click.stop="toggleViaCheckbox(file, index)">
               <div :class="[
                 'w-5 h-5 rounded-md border-2 flex items-center justify-center transition-colors cursor-pointer',
