@@ -498,6 +498,39 @@ describe('BOLA: platforms', () => {
     })
     expect(res.status).toBe(200)
   })
+
+  it('POST /:bizId/platforms does NOT echo accessToken in response', async () => {
+    const token = await makeToken('ADMIN')
+    mockDb.platformAccount.create.mockResolvedValue({
+      id: 'p9', businessId: 'biz-1', platform: 'VK', accountType: 'GROUP',
+      accountName: 'G', accountId: '1', accessToken: 'SECRET', isActive: true,
+    })
+    const res = await app.request('/api/businesses/biz-1/platforms', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: `token=${token}`, 'X-Tab-ID': 't' },
+      body: JSON.stringify({ platform: 'VK', accountType: 'GROUP', accountName: 'G', accountId: '1', accessToken: 'SECRET' }),
+    })
+    expect(res.status).toBe(201)
+    const body = await res.json()
+    expect(body).not.toHaveProperty('accessToken')
+    expect(body.hasToken).toBe(true)
+  })
+
+  it('PUT /platforms/:id does NOT echo accessToken in response', async () => {
+    const token = await makeToken('ADMIN')
+    mockDb.platformAccount.update.mockResolvedValue({
+      id: 'p1', platform: 'VK', accountName: 'OK', accountId: '1', accessToken: 'SECRET', isActive: true,
+    })
+    const res = await app.request('/api/platforms/p1', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Cookie: `token=${token}`, 'X-Tab-ID': 't' },
+      body: JSON.stringify({ accountName: 'OK' }),
+    })
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body).not.toHaveProperty('accessToken')
+    expect(body.hasToken).toBe(true)
+  })
 })
 
 // ============================================================

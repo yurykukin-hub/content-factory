@@ -42,7 +42,9 @@ platformsByBiz.post('/:bizId/platforms', async (c) => {
   const account = await db.platformAccount.create({
     data: { businessId: bizId, ...data },
   })
-  return c.json(account, 201)
+  // accessToken НЕ возвращаем клиенту — только hasToken
+  const { accessToken, ...rest } = account
+  return c.json({ ...rest, hasToken: !!accessToken }, 201)
 })
 
 // --- Routes by platform ID (mounted at /api/platforms) ---
@@ -69,7 +71,9 @@ platformsById.put('/:id', async (c) => {
     where: { id },
     data,
   })
-  return c.json(account)
+  // accessToken НЕ возвращаем клиенту — только hasToken
+  const { accessToken, ...rest } = account
+  return c.json({ ...rest, hasToken: !!accessToken })
 })
 
 // DELETE /api/platforms/:id (soft delete)

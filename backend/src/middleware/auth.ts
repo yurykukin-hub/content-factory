@@ -16,6 +16,7 @@ export interface AuthUser {
 declare module 'hono' {
   interface ContextVariableMap {
     user: AuthUser
+    isApiKey: boolean // выставляется api-key middleware для пропуска CSRF
   }
 }
 
