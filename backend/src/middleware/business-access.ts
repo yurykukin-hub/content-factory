@@ -53,3 +53,19 @@ export async function getUserBusinessIds(user: AuthUser): Promise<string[] | nul
 
   return records.map((r) => r.businessId)
 }
+
+/**
+ * Проверяет доступ пользователя к платформе по её id (через businessId платформы).
+ * ADMIN — всегда true. EDITOR/VIEWER — только если платформа принадлежит доступному бизнесу.
+ * Используется на роутах /api/platforms/:id, где нет :bizId в URL.
+ */
+export async function assertPlatformAccess(user: AuthUser, platformId: string): Promise<boolean> {
+  if (user.role === 'ADMIN') return true
+  const account = await db.platformAccount.findUnique({
+    where: { id: platformId },
+    select: { businessId: true },
+  })
+  if (!account) return false
+  const accessibleIds = await getUserBusinessIds(user)
+  return accessibleIds !== null && accessibleIds.includes(account.businessId)
+}

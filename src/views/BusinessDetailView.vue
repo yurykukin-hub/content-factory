@@ -18,7 +18,7 @@ interface PlatformAccount {
   accountType: string
   accountName: string
   accountId: string
-  accessToken: string
+  hasToken?: boolean
   isActive: boolean
 }
 
@@ -243,7 +243,7 @@ function toggleChannelExpand(pa: PlatformAccount) {
     editForm.value = {
       accountName: pa.accountName,
       accountId: pa.accountId,
-      accessToken: pa.accessToken,
+      accessToken: '', // токен не приходит с сервера; пусто = оставить текущий
     }
   }
 }
@@ -251,7 +251,13 @@ function toggleChannelExpand(pa: PlatformAccount) {
 async function saveChannelEdit(paId: string) {
   editSaving.value = true
   try {
-    await http.put(`/platforms/${paId}`, editForm.value)
+    // Пустой токен НЕ отправляем — бэкенд оставит текущий (accessToken опционален)
+    const payload: Record<string, any> = {
+      accountName: editForm.value.accountName,
+      accountId: editForm.value.accountId,
+    }
+    if (editForm.value.accessToken) payload.accessToken = editForm.value.accessToken
+    await http.put(`/platforms/${paId}`, payload)
     expandedChannelId.value = null
     toast.success('Канал обновлён')
     await loadBusiness()
@@ -611,6 +617,7 @@ onMounted(() => {
                     <input
                       v-model="editForm.accessToken"
                       :type="editShowToken ? 'text' : 'password'"
+                      :placeholder="pa.hasToken ? 'Оставьте пустым — токен не изменится' : 'Введите токен'"
                       class="w-full px-3 py-2 pr-10 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 focus:ring-2 focus:ring-brand-500 text-sm font-mono"
                     />
                     <button

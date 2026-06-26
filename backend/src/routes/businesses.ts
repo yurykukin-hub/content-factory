@@ -23,7 +23,11 @@ businesses.get('/', async (c) => {
     include: { brandProfile: true, platformAccounts: { where: { isActive: true } } },
     orderBy: { name: 'asc' },
   })
-  return c.json(list)
+  // Не отдаём accessToken платформ клиенту — только признак hasToken
+  return c.json(list.map(b => ({
+    ...b,
+    platformAccounts: (b.platformAccounts ?? []).map(({ accessToken, ...p }) => ({ ...p, hasToken: !!accessToken })),
+  })))
 })
 
 // GET /api/businesses/:id — with business access check
@@ -51,7 +55,11 @@ businesses.get('/:id', async (c) => {
     },
   })
   if (!biz) return c.json({ error: 'Бизнес не найден' }, 404)
-  return c.json(biz)
+  // Не отдаём accessToken платформ клиенту — только признак hasToken
+  return c.json({
+    ...biz,
+    platformAccounts: (biz.platformAccounts ?? []).map(({ accessToken, ...p }) => ({ ...p, hasToken: !!accessToken })),
+  })
 })
 
 const createSchema = z.object({
@@ -66,8 +74,12 @@ const createSchema = z.object({
   metrikaGoalIds: z.array(z.string().max(20)).max(50).optional(),
 })
 
-// POST /api/businesses
+// POST /api/businesses — ADMIN only (создание сущности бизнеса)
 businesses.post('/', async (c) => {
+  const user = c.get('user') as AuthUser
+  if (user.role !== 'ADMIN') {
+    return c.json({ error: 'Нет доступа' }, 403)
+  }
   const data = createSchema.parse(await c.req.json())
   const biz = await db.business.create({
     data: {
@@ -77,7 +89,6 @@ businesses.post('/', async (c) => {
     include: { brandProfile: true },
   })
 
-  const user = c.get('user') as AuthUser
   emitEvent({ type: 'business_updated', tabId: c.req.header('X-Tab-ID') || '', businessId: biz.id })
   return c.json(biz, 201)
 })
@@ -86,9 +97,14 @@ const updateSchema = createSchema.partial().extend({
   isActive: z.boolean().optional(),
 })
 
-// PUT /api/businesses/:id
+// PUT /api/businesses/:id — with business access check
 businesses.put('/:id', async (c) => {
   const { id } = c.req.param()
+  const user = c.get('user') as AuthUser
+  const accessibleIds = await getUserBusinessIds(user)
+  if (accessibleIds && !accessibleIds.includes(id)) {
+    return c.json({ error: 'Нет доступа' }, 403)
+  }
   const data = updateSchema.parse(await c.req.json())
   const biz = await db.business.update({
     where: { id },
@@ -99,8 +115,12 @@ businesses.put('/:id', async (c) => {
   return c.json(biz)
 })
 
-// DELETE /api/businesses/:id (soft delete)
+// DELETE /api/businesses/:id (soft delete) — ADMIN only
 businesses.delete('/:id', async (c) => {
+  const user = c.get('user') as AuthUser
+  if (user.role !== 'ADMIN') {
+    return c.json({ error: 'Нет доступа' }, 403)
+  }
   const { id } = c.req.param()
   await db.business.update({ where: { id }, data: { isActive: false } })
   emitEvent({ type: 'business_updated', tabId: c.req.header('X-Tab-ID') || '', businessId: id })

@@ -41,6 +41,10 @@ export function resolveAccess(
   // ADMIN bypass — всегда полный доступ
   if (role === 'ADMIN') return 'full'
 
+  // Defense-in-depth: неизвестная роль (например, токен без поля role) → нет доступа,
+  // вместо проваливания в EDITOR-дефолт ниже.
+  if (role !== 'EDITOR' && role !== 'VIEWER') return 'none'
+
   // Явное переопределение
   if (sectionAccess?.[section] !== undefined) {
     return sectionAccess[section]!

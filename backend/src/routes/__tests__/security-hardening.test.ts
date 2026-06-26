@@ -371,3 +371,187 @@ describe('CSRF: X-Tab-ID header required on mutating requests', () => {
     expect(res.status).toBe(200)
   })
 })
+
+// ============================================================
+// 7. BOLA on businesses mutations (PUT / POST / DELETE)
+// ============================================================
+
+describe('BOLA: businesses mutations', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('EDITOR cannot PUT a business they have no access to', async () => {
+    const token = await makeToken('EDITOR', 'editor-1')
+    mockDb.userBusiness.findMany.mockResolvedValue([{ businessId: 'biz-mine' }])
+
+    const res = await app.request('/api/businesses/biz-other', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Cookie: `token=${token}`, 'X-Tab-ID': 't' },
+      body: JSON.stringify({ name: 'hacked' }),
+    })
+    expect(res.status).toBe(403)
+    expect(mockDb.business.update).not.toHaveBeenCalled()
+  })
+
+  it('EDITOR can PUT their own business', async () => {
+    const token = await makeToken('EDITOR', 'editor-1')
+    mockDb.userBusiness.findMany.mockResolvedValue([{ businessId: 'biz-mine' }])
+    mockDb.business.update.mockResolvedValue({ id: 'biz-mine', name: 'Renamed', brandProfile: null })
+
+    const res = await app.request('/api/businesses/biz-mine', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Cookie: `token=${token}`, 'X-Tab-ID': 't' },
+      body: JSON.stringify({ name: 'Renamed' }),
+    })
+    expect(res.status).toBe(200)
+  })
+
+  it('non-ADMIN cannot create a business (POST)', async () => {
+    const token = await makeToken('EDITOR', 'editor-1')
+
+    const res = await app.request('/api/businesses', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Cookie: `token=${token}`, 'X-Tab-ID': 't' },
+      body: JSON.stringify({ slug: 'new-biz', name: 'New' }),
+    })
+    expect(res.status).toBe(403)
+    expect(mockDb.business.create).not.toHaveBeenCalled()
+  })
+
+  it('non-ADMIN cannot delete a business', async () => {
+    const token = await makeToken('EDITOR', 'editor-1')
+
+    const res = await app.request('/api/businesses/biz-x', {
+      method: 'DELETE',
+      headers: { Cookie: `token=${token}`, 'X-Tab-ID': 't' },
+    })
+    expect(res.status).toBe(403)
+    expect(mockDb.business.update).not.toHaveBeenCalled()
+  })
+
+  it('ADMIN can delete a business', async () => {
+    const token = await makeToken('ADMIN')
+    mockDb.business.update.mockResolvedValue({ id: 'biz-x', isActive: false })
+
+    const res = await app.request('/api/businesses/biz-x', {
+      method: 'DELETE',
+      headers: { Cookie: `token=${token}`, 'X-Tab-ID': 't' },
+    })
+    expect(res.status).toBe(200)
+  })
+})
+
+// ============================================================
+// 8. BOLA on platforms (business-scoped + by-id)
+// ============================================================
+
+describe('BOLA: platforms', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('EDITOR cannot list platforms of a business they have no access to', async () => {
+    const token = await makeToken('EDITOR', 'editor-1')
+    mockDb.userBusiness.findUnique.mockResolvedValue(null) // no UserBusiness record
+
+    const res = await app.request('/api/businesses/biz-other/platforms', {
+      headers: { Cookie: `token=${token}` },
+    })
+    expect(res.status).toBe(403)
+  })
+
+  it('EDITOR with access lists platforms WITHOUT accessToken (hasToken only)', async () => {
+    const token = await makeToken('EDITOR', 'editor-1')
+    mockDb.userBusiness.findUnique.mockResolvedValue({ userId: 'editor-1', businessId: 'biz-mine' })
+    mockDb.platformAccount.findMany.mockResolvedValue([
+      { id: 'p1', platform: 'VK', accountType: 'GROUP', accountName: 'G', accountId: '1', accessToken: 'SECRET', isActive: true },
+    ])
+
+    const res = await app.request('/api/businesses/biz-mine/platforms', {
+      headers: { Cookie: `token=${token}` },
+    })
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body[0]).not.toHaveProperty('accessToken')
+    expect(body[0].hasToken).toBe(true)
+  })
+
+  it('EDITOR cannot update a platform belonging to another business', async () => {
+    const token = await makeToken('EDITOR', 'editor-1')
+    mockDb.platformAccount.findUnique.mockResolvedValue({ businessId: 'biz-other' })
+    mockDb.userBusiness.findMany.mockResolvedValue([{ businessId: 'biz-mine' }])
+
+    const res = await app.request('/api/platforms/p1', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Cookie: `token=${token}`, 'X-Tab-ID': 't' },
+      body: JSON.stringify({ accountName: 'hacked' }),
+    })
+    expect(res.status).toBe(403)
+    expect(mockDb.platformAccount.update).not.toHaveBeenCalled()
+  })
+
+  it('ADMIN can update any platform (bypass)', async () => {
+    const token = await makeToken('ADMIN')
+    mockDb.platformAccount.update.mockResolvedValue({ id: 'p1', accountName: 'OK', platform: 'VK' })
+
+    const res = await app.request('/api/platforms/p1', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Cookie: `token=${token}`, 'X-Tab-ID': 't' },
+      body: JSON.stringify({ accountName: 'OK' }),
+    })
+    expect(res.status).toBe(200)
+  })
+})
+
+// ============================================================
+// 9. Token leak: accessToken never returned to client
+// ============================================================
+
+describe('Token leak: accessToken stripped from business responses', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('GET /api/businesses/:id does not leak platform accessToken', async () => {
+    const token = await makeToken('ADMIN')
+    mockDb.business.findUnique.mockResolvedValue({
+      id: 'biz-1', name: 'Biz', isActive: true, brandProfile: null,
+      platformAccounts: [{ id: 'p1', platform: 'VK', accountName: 'G', accountId: '1', accessToken: 'LIVE-VK-TOKEN', isActive: true }],
+      _count: { posts: 0, contentPlans: 0 },
+    })
+
+    const res = await app.request('/api/businesses/biz-1', {
+      headers: { Cookie: `token=${token}` },
+    })
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.platformAccounts[0]).not.toHaveProperty('accessToken')
+    expect(body.platformAccounts[0].hasToken).toBe(true)
+  })
+})
+
+// ============================================================
+// 10. Refresh token cannot be used as access token
+// ============================================================
+
+describe('Refresh token rejected on protected routes', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('a refresh token (type:refresh) in the token cookie is rejected with 401', async () => {
+    const secret = new TextEncoder().encode('test-jwt-secret-at-least-32-characters-long')
+    const refreshToken = await new jose.SignJWT({ userId: 'editor-1', type: 'refresh' })
+      .setProtectedHeader({ alg: 'HS256' })
+      .setExpirationTime('30d')
+      .sign(secret)
+
+    const res = await app.request('/api/businesses', {
+      headers: { Cookie: `token=${refreshToken}` },
+    })
+    expect(res.status).toBe(401)
+  })
+
+  it('a valid access token still works on the same route', async () => {
+    const token = await makeToken('ADMIN')
+    mockDb.business.findMany.mockResolvedValue([])
+
+    const res = await app.request('/api/businesses', {
+      headers: { Cookie: `token=${token}` },
+    })
+    expect(res.status).toBe(200)
+  })
+})

@@ -1,18 +1,23 @@
 import { Hono } from 'hono'
 import { z } from 'zod'
 import { db } from '../db'
+import type { AuthUser } from '../middleware/auth'
+import { requireBusinessAccess, assertPlatformAccess } from '../middleware/business-access'
 
 // --- Routes scoped by business (mounted at /api/businesses) ---
 const platformsByBiz = new Hono()
 
-// GET /api/businesses/:bizId/platforms
+// BOLA-защита: все под-роуты /:bizId/* требуют доступа к этому бизнесу
+platformsByBiz.use('/:bizId/*', requireBusinessAccess)
+
+// GET /api/businesses/:bizId/platforms — accessToken НЕ возвращается клиенту (только hasToken)
 platformsByBiz.get('/:bizId/platforms', async (c) => {
   const { bizId } = c.req.param()
   const accounts = await db.platformAccount.findMany({
     where: { businessId: bizId, isActive: true },
     orderBy: { platform: 'asc' },
   })
-  return c.json(accounts)
+  return c.json(accounts.map(({ accessToken, ...rest }) => ({ ...rest, hasToken: !!accessToken })))
 })
 
 const createSchema = z.object({
@@ -55,6 +60,10 @@ const updateSchema = z.object({
 // PUT /api/platforms/:id
 platformsById.put('/:id', async (c) => {
   const { id } = c.req.param()
+  const user = c.get('user') as AuthUser
+  if (!(await assertPlatformAccess(user, id))) {
+    return c.json({ error: 'Нет доступа' }, 403)
+  }
   const data = updateSchema.parse(await c.req.json())
   const account = await db.platformAccount.update({
     where: { id },
@@ -66,6 +75,10 @@ platformsById.put('/:id', async (c) => {
 // DELETE /api/platforms/:id (soft delete)
 platformsById.delete('/:id', async (c) => {
   const { id } = c.req.param()
+  const user = c.get('user') as AuthUser
+  if (!(await assertPlatformAccess(user, id))) {
+    return c.json({ error: 'Нет доступа' }, 403)
+  }
   await db.platformAccount.update({
     where: { id },
     data: { isActive: false },
@@ -76,6 +89,10 @@ platformsById.delete('/:id', async (c) => {
 // POST /api/platforms/:id/test — тест соединения
 platformsById.post('/:id/test', async (c) => {
   const { id } = c.req.param()
+  const user = c.get('user') as AuthUser
+  if (!(await assertPlatformAccess(user, id))) {
+    return c.json({ error: 'Нет доступа' }, 403)
+  }
   const account = await db.platformAccount.findUnique({ where: { id } })
   if (!account) return c.json({ error: 'Аккаунт не найден' }, 404)
 

@@ -11,6 +11,14 @@ export interface AuthUser {
   sectionAccess?: SectionAccess | null
 }
 
+// Типизируем Hono-контекст: c.get('user') → AuthUser (вместо unknown).
+// Убирает TS2769 "No overload" на c.get('user') по всему проекту (часть Hono-baseline).
+declare module 'hono' {
+  interface ContextVariableMap {
+    user: AuthUser
+  }
+}
+
 /**
  * JWT auth middleware. Reads token from httpOnly cookie "token".
  * Sets c.set('user', AuthUser) on success.
@@ -24,6 +32,12 @@ export async function requireAuth(c: Context, next: Next) {
   try {
     const secret = new TextEncoder().encode(config.JWT_SECRET)
     const { payload } = await jose.jwtVerify(token, secret)
+
+    // Отклоняем не-access токены (например, 30-дневный refresh, поданный как access).
+    // Access-токены подписываются с type:'access'; refresh живёт в отдельной cookie refresh_token.
+    if (payload.type !== 'access') {
+      return c.json({ error: 'INVALID_TOKEN' }, 401)
+    }
 
     const user: AuthUser = {
       userId: payload.userId as string,

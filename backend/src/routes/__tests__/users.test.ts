@@ -50,7 +50,7 @@ import * as jose from 'jose'
 // Helper: create a valid JWT token for tests
 async function makeToken(role: 'ADMIN' | 'EDITOR' | 'VIEWER' = 'ADMIN', userId = 'admin-1') {
   const secret = new TextEncoder().encode('test-jwt-secret-at-least-32-characters-long')
-  return await new jose.SignJWT({ userId, name: 'Test', role })
+  return await new jose.SignJWT({ userId, name: 'Test', role, type: 'access' })
     .setProtectedHeader({ alg: 'HS256' })
     .setExpirationTime('1h')
     .sign(secret)

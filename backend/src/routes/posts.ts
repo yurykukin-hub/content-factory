@@ -48,7 +48,8 @@ posts.get('/:id', async (c) => {
     include: {
       versions: {
         include: {
-          platformAccount: true,
+          // accessToken НЕ отдаём клиенту — только публичные поля платформы
+          platformAccount: { select: { id: true, platform: true, accountType: true, accountName: true, accountId: true, isActive: true } },
           publishLogs: { orderBy: { attemptedAt: 'desc' }, take: 5 },
         },
       },
