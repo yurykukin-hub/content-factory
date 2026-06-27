@@ -26,148 +26,18 @@ AI-контент-фабрика для автоматизации SMM. Гене
 | Frontend dev | :5176 |
 | PostgreSQL | :5441 |
 
-## Структура
+## Структура (верхний уровень; детали — в самих директориях)
 
-```
-content-factory/
-├── backend/
-│   ├── prisma/schema.prisma    # 23 модели, 8 enums
-│   ├── src/
-│   │   ├── app.ts              # Hono app (routes, middleware, error handler)
-│   │   ├── index.ts            # Server start + scheduler + graceful shutdown
-│   │   ├── db.ts               # PrismaClient singleton
-│   │   ├── config.ts           # Env validation (zod)
-│   │   ├── eventBus.ts         # SSE events
-│   │   ├── middleware/
-│   │   │   ├── auth.ts         # JWT httpOnly cookie + requireRole + sectionAccess
-│   │   │   ├── section-access.ts   # requireSection(section, level) — per-section access control
-│   │   │   ├── business-access.ts  # requireBusinessAccess + getUserBusinessIds
-│   │   │   └── resource-access.ts  # verifyPost/Plan/Media/PostVersionAccess
-│   │   ├── routes/             # API endpoints (~18 файлов)
-│   │   │   ├── auth.ts         # login/logout/me/refresh (access+refresh tokens)
-│   │   │   ├── users.ts        # CRUD пользователей (ADMIN-only)
-│   │   │   ├── businesses.ts   # CRUD + brand profile + isActive toggle (ADMIN sees inactive) + booking-links (ERP ref-ссылки → fallback BrandProfile.links)
-│   │   │   ├── platforms.ts    # platformsByBiz + platformsById
-│   │   │   ├── posts.ts        # CRUD + approve + versions (access checks)
-│   │   │   ├── content-plans.ts # CRUD + create-post/ai-generate + batch
-│   │   │   ├── ai.ts           # generate-post/image/video/scenario, adapt, hashtags, rewrite, enhance-prompt, describe-image, suggest-templates, agent-chat, transcribe (Whisper)
-│   │   │   ├── publish.ts      # publish + schedule (тонкие обёртки над services/publish-runner.ts — общая логика для роутов и дайджеста)
-│   │   │   ├── media.ts        # upload(+авто-EXIF-нормализация) / delete / bulk-delete / attach + library(+counts) + tags + rotate + overlay-video + bake-design-layer (единый дизайн-слой: фото→sharp, видео→ffmpeg)
-│   │   │   ├── auto-post.ts     # дайджест/авто-пост: list (multi-status), approve→draft, approve-publish (прямая публикация baked-сторис), reject, restore, generate-digest, collect-competitors, competitor-inspiration
-│   │   │   ├── settings.ts     # AppConfig CRUD (ADMIN-only, .env fallback)
-│   │   │   ├── vk-oauth.ts     # VK OAuth 2.1 PKCE
-│   │   │   ├── ideas.ts        # CRUD идей (per-user, ownership check)
-│   │   │   ├── characters.ts   # CRUD AI-персонажей + CharacterImage gallery CRUD + generate-sheet
-│   │   │   ├── scenarios.ts    # CRUD сценариев (scenes JSON, AI-генерация)
-│   │   │   ├── sessions.ts     # CRUD GenerationSession (video + music + photo sessions, type filter)
-│   │   │   ├── music.ts        # Sound Studio: generate, enhance-prompt (8 modes), agent-chat, personas CRUD, from-track
-│   │   │   ├── photos.ts       # Photo Studio: generate (batch 1/2/4), enhance-prompt (8 modes), agent-chat, edit-image, remove-bg
-│   │   │   ├── dashboard.ts    # metrics (scoped by business access)
-│   │   │   ├── ai-logs.ts     # AI usage logs (list, stats, summary, error-count, export CSV)
-│   │   │   ├── analytics.ts    # SMM-аналитика: collect, overview (дашборд), report (агент), reports CRUD
-│   │   │   └── sse.ts          # Server-Sent Events
-│   │   ├── services/
-│   │   │   ├── scheduler.ts    # Отложенная публикация + триггеры: digest, digest-roles (ритм 3×/день), metrics-collection, weekly-analysis, competitor-collection
-│   │   │   ├── video-poller.ts # Background poller: video + music + photo KIE tasks → download → SSE (10 сек)
-│   │   │   ├── metrics-poller.ts # SMM-метрики: сбор VK/IG/Метрика 2×/день (time-gated, scheduler)
-│   │   │   ├── analytics/       # SMM-аналитика (Эпик B): types, vk-adapter, postmypost-adapter, metrika-adapter, collector, analyst-agent, analyst-telegram
-│   │   │   ├── video-overlay.ts # ffmpeg: статичный текст-PNG поверх видео (scale2ref+overlay) для видео-сторис
-│   │   │   ├── design-layer.ts  # единый bake дизайн-слоя: фото→sharp.composite (EXIF-aware), видео→ffmpeg(+муз)
-│   │   │   ├── competitor-poller.ts # мониторинг конкурентов: VK wall.get по пабликам, ER, виральность (медиана×2), getViralCompetitorPosts
-│   │   │   ├── vk-oauth.ts     # VK OAuth service (PKCE, auto-refresh)
-│   │   │   ├── ai/
-│   │   │   │   ├── openrouter.ts      # OpenRouter + cost calculation + logAndCharge DRY helper
-│   │   │   │   ├── prompt-builder.ts  # Промпт-конструктор + video/music/photo agent prompts + 8 enhance modes per studio
-│   │   │   │   ├── suno.ts           # KIE.ai Suno client: createMusicTask, processMusicResult, generatePersona
-│   │   │   │   ├── image-generation.ts # AI image gen (Gemini 2.5 Flash Image)
-│   │   │   │   ├── fal.ts            # FAL.ai SDK (image editing, remove bg)
-│   │   │   │   ├── whisper.ts        # OpenAI Whisper STT (voice transcription, AppConfig + .env key)
-│   │   │   │   ├── strategy.ts       # strategy-as-data: рубрики/поводы/стратегия/сезон из БД (generic)
-│   │   │   │   └── nawode-strategy.ts # НаWоде константы — ТОЛЬКО для сидера seed-nawode-strategy.ts
-│   │   │   ├── datasource/     # DataSourceAdapter (Эпик B Phase 2): NawodeErpAdapter (обёртка nawode-data) + Null + реестр по erpType. Методы: getDailySummary/getBookingsInRange/getHotSlots/getActiveDiscounts
-│   │   │   ├── promo/          # Промо (Фаза 3): red-lines.ts (getRedLine — красные линии маржи, переиспуч. Sales Bot) + promo-block.ts (buildPromoBlock — действующие скидки в промпт) + weather-flash.ts (evaluateWeatherFlash — погодный flash-сигнал)
-│   │   │   └── publishers/
-│   │   │       ├── base.ts     # Publisher interface + getPublisher(platform,{postType,config}) — VK гибрид
-│   │   │       ├── postmypost.ts # Generic Postmypost (IG + VK-стена через config.viaPostmypost; API v4.1, byFile→S3)
-│   │   │       ├── vk.ts       # VK wall.post + photo/video + Stories (прямой VK API; сторис всегда тут)
-│   │   │       ├── telegram.ts # TG sendPhoto/Video/MediaGroup
-│   │   │       └── instagram.ts # тонкая обёртка над PostmypostPublisher (backward-compat)
-│   │   └── utils/
-│   │       ├── paths.ts        # getModuleDir (Bun/Node compat)
-│   │       └── logger.ts       # Structured logging (JSON prod, pretty dev)
-│   ├── vitest.config.ts, vitest-setup.ts
-│   ├── package.json, Dockerfile
-│   └── .env.example
-├── src/                        # Vue 3 frontend
-│   ├── api/client.ts           # HTTP client (auto-refresh on 401)
-│   ├── router/index.ts         # 16 routes + auth guard + section access guard
-│   ├── stores/                 # auth (+ sectionAccess), businesses, theme, sidebar
-│   ├── composables/            # useToast, useFormatters, useStatus, usePlatform, useSectionAccess, useRates, useVoiceInput
-│   ├── views/
-│   │   ├── BusinessesView      # Grid карточек проектов (клик → detail)
-│   │   ├── BusinessDetailView  # Хаб проекта: 3 таба (профиль/каналы/обзор+доступы)
-│   │   ├── PostEditorView      # Редактор постов (текст + медиа + платформы)
-│   │   ├── StoryEditorView     # Stories (модерн. UI: 12-кол, превью VK/IG табы + «Опубликовать ▾»; canvas+baked+видео, ERP-ссылки дропдаун)
-│   │   ├── ContentPlansView    # AI планы (таблица + календарь)
-│   │   ├── MediaLibraryView    # Медиа-библиотека (grid, click-to-preview modal, AI describe)
-│   │   ├── VideoStudioView     # Видео-студия (Kling-style 50/50 layout, sessions, rich prompt)
-│   │   ├── PhotoStudioView    # Фото-студия (50/50, NB2/Pro, batch 1/2/4, 1K/2K/4K, AI Agent)
-│   │   ├── IdeasView           # Личный блокнот идей (inline edit, auto-save)
-│   │   └── ...                 # Dashboard, Login, Settings
-│   └── components/
-│       ├── layout/             # TheSidebar (mobile overlay), TheHeader (hamburger)
-│       ├── BusinessFilter.vue  # Pill-кнопки выбора бизнеса (везде кроме VideoStudio/Media)
-│       ├── MediaPickerModal.vue # Выбор файла из медиатеки (модальное окно)
-│       ├── ToastContainer.vue  # Toast notifications
-│       ├── MediaUpload.vue     # Drag & drop + AI edit/remove bg buttons
-│       ├── ai/
-│       │   └── ImageEditModal.vue  # AI image editing modal (FLUX Kontext)
-│       ├── video/              # Видео-студия компоненты
-│       │   ├── VsModeTabs.vue         # Табы режимов (Референсы/Кадры/Текст)
-│       │   ├── VsCharacterCarousel.vue # Карусель референсов + hover popup + create
-│       │   ├── VsPromptTabs.vue       # Табы Agent/Editor в промпт-зоне
-│       │   ├── VsAgentChat.vue        # AI Agent чат (multi-turn, quick replies, Simple/Advanced)
-│       │   ├── VsAgentMessage.vue     # Сообщение в чате (markdown, XSS-safe escapeHtml)
-│       │   ├── VsPreGenModal.vue      # Модалка подтверждения перед генерацией (formatted prompt)
-│       │   ├── VsPromptArea.vue       # Промпт + ref images + шаблоны + VsEnhanceMenu
-│       │   ├── VsEnhanceMenu.vue     # Split-button dropdown: 8 режимов enhance (basic+pro)
-│       │   ├── VsRichPrompt.vue       # Contenteditable с draggable badge chips (@ImageN)
-│       │   ├── VsSettingsPanel.vue    # Resolution/Duration/Ratio/Audio + Generate + timer
-│       │   ├── VsSessionBar.vue       # Список сессий (вверху левой панели, status dots, delete)
-│       │   ├── VsGallery.vue          # Галерея: видео/промпты/избранное (inline player)
-│       │   ├── VsConstructorDrawer.vue # Drawer с PromptConstructor
-│       │   ├── VsRefModal.vue         # Модалка создания/просмотра референса + AI Auto
-│       │   └── PromptConstructor.vue  # Конструктор промптов (6 секций)
-│       ├── sound/              # Звуковая студия компоненты
-│       │   ├── SsModeTabs.vue         # Simple/Custom режим
-│       │   ├── SsTrackPlayer.vue      # Waveform player (wavesurfer.js, fuchsia brand)
-│       │   ├── SsLyricsEditor.vue     # Textarea + [Verse]/[Chorus] section markers
-│       │   ├── SsStylePanel.vue       # Genre/Mood/BPM + negative tags
-│       │   ├── SsEnhanceMenu.vue      # Split-button: 8 music enhance modes
-│       │   ├── SsSettingsPanel.vue    # Model/weights/cost + Generate button
-│       │   ├── SsSessionBar.vue       # Список музыкальных сессий
-│       │   ├── SsGallery.vue          # Галерея треков с waveform players
-│       │   ├── SsAgentChat.vue        # AI Agent чат для музыки (multi-turn)
-│       │   ├── SsPromptTabs.vue       # Agent/Editor табы
-│       │   ├── SsPreGenModal.vue      # Подтверждение перед генерацией
-│       │   ├── SsPersonaSelector.vue  # Выбор голосовой персоны (Voice Clone)
-│       │   └── SsCreatePersonaModal.vue # Создание персоны из трека (Suno V5.5)
-│       ├── photo/              # Фото-студия компоненты
-│       │   ├── PsSettingsPanel.vue    # Model/Resolution/Batch/AspectRatio + Generate
-│       │   ├── PsSessionBar.vue       # Список фото-сессий
-│       │   ├── PsPromptTabs.vue       # Agent/Editor табы
-│       │   ├── PsAgentChat.vue        # AI Agent чат для фото
-│       │   ├── PsEnhanceMenu.vue      # Split-button: 8 photo enhance modes
-│       │   ├── PsGallery.vue          # Галерея изображений (grid + lightbox)
-│       │   └── PsPreGenModal.vue      # Подтверждение перед генерацией
-│       ├── shared/             # Общие компоненты между студиями
-│       │   ├── SharedCharacterCarousel.vue # Карусель персонажей (colorScheme: emerald/fuchsia)
-│       │   └── SharedRefModal.vue         # Модалка создания/редактирования персонажа с галереей
-│       └── settings/           # VkOAuthTab, ProfileTab, AiTab, UsersTab
-├── docker-compose.yml          # Dev (postgres only)
-├── docker-compose.prod.yml     # Prod (postgres + backend, healthchecks)
-└── scripts/deploy.sh, backup-db.sh
-```
+**Backend `backend/src/`** (Bun + Hono + Prisma):
+- `app.ts` (Hono routes/middleware/error-handler), `index.ts` (server + scheduler + graceful shutdown), `db.ts`, `config.ts` (zod env), `eventBus.ts` (SSE).
+- `middleware/` — `auth` (JWT httpOnly cookie + requireRole), `section-access` (requireSection), `business-access` (requireBusinessAccess + getUserBusinessIds), `resource-access` (verify{Post,Plan,Media,PostVersion}Access).
+- `routes/` (~18) — auth, users, businesses (+brand profile, +booking-links), platforms, posts (+versions), content-plans, ai (generate post/image/video/scenario, adapt, hashtags, rewrite, describe, transcribe), publish, media (upload+EXIF, rotate, overlay-video, bake-design-layer), auto-post (дайджест), settings, vk-oauth, ideas, characters, scenarios, sessions, music, photos, dashboard, ai-logs, analytics, sse.
+- `services/` — scheduler (отложка + триггеры digest/metrics/analysis/competitor), video-poller (video+music+photo KIE, 10с), metrics-poller, design-layer (sharp/ffmpeg bake), competitor-poller, vk-oauth; `analytics/` (vk/postmypost/metrika adapters + collector + analyst-agent); `ai/` (openrouter +cost, prompt-builder, suno, image-generation, fal, whisper, strategy/nawode-strategy); `datasource/` (NawodeErpAdapter); `promo/` (red-lines, promo-block, weather-flash); `publishers/` (base — getPublisher VK-гибрид; postmypost, vk +Stories, telegram, instagram).
+- `utils/` — paths (Bun/Node compat), logger.
+
+**Frontend `src/`** (Vue 3): `api/client` (auto-refresh 401), `router` (16 routes + auth/section guards), `stores/` (auth+sectionAccess, businesses, theme, sidebar), `composables/` (useToast/Formatters/Status/Platform/SectionAccess/Rates/VoiceInput), `views/` (Businesses, BusinessDetail, PostEditor, StoryEditor, ContentPlans, MediaLibrary, VideoStudio, PhotoStudio, Ideas, Dashboard, Login, Settings), `components/` (layout, ai/ImageEditModal; `video/` Vs*, `sound/` Ss*, `photo/` Ps* — каждая студия: ModeTabs/AgentChat/Gallery/EnhanceMenu(8 modes)/SettingsPanel/SessionBar/PreGenModal + Video: PromptConstructor/RichPrompt; `shared/` SharedCharacterCarousel+RefModal; `settings/` VkOAuth/Profile/Ai/Users).
+
+Деплой: `docker-compose.yml` (dev, postgres) / `docker-compose.prod.yml` (prod: postgres+backend, healthchecks) + `scripts/deploy.sh`, `backup-db.sh`. Прод-копия живёт в `/opt/content-factory` (env_file `.env.prod`).
 
 ## Schema (37 моделей, 8 enums)
 User, UserBusiness, Business, BrandProfile, PlatformAccount, ContentPlan, ContentPlanItem, Post, PostVersion, PublishLog, MediaFolder, MediaFile, AiUsageLog, WebhookRule, AppConfig, Idea, StoryTemplate, Character, CharacterBusiness, CharacterImage, Scenario, PromptEntry, PromptTemplate, GenerationSession, BalanceTransaction, MusicPersona, PhotoCatalog, AutoPostTask, SocialPostMetricSnapshot, SocialAccountMetricSnapshot, SiteTrafficSnapshot, AnalyticsReport, Rubric, Occasion (strategy-as-data — Эпик B Phase 3), **CompetitorAccount**, **CompetitorPost** (мониторинг конкурентов VK — 2026-06)
