@@ -26,6 +26,7 @@ import {
   type DigestStoryRole,
 } from './ai/prompt-builder'
 import { getDataSourceAdapter } from './datasource'
+import { windLabel, parseJsonLoose } from './digest/text-utils'
 import { getStrategyBlock, getSeasonHint, getRubricNames } from './ai/strategy'
 import { getViralCompetitorPosts } from './competitor-poller'
 import { renderAndSaveStoryDesign } from './story-design'
@@ -88,21 +89,7 @@ interface DigestContext {
   promoBadge?: string | null     // короткая плашка скидки для картинки дизайн-сторис («Прокат −10% · 900₽»)
 }
 
-/** Скорость ветра (м/с) → словесное описание. Цифры м/с люди не понимают — в тексте только словами. */
-function windLabel(ms: number | null | undefined): string {
-  if (ms == null) return 'ветер спокойный'
-  if (ms < 2) return 'штиль'
-  if (ms < 4) return 'слабый ветер'
-  if (ms < 7) return 'умеренный ветер'
-  if (ms < 10) return 'свежий ветер'
-  return 'сильный ветер'
-}
-
-/** Безопасный парс JSON из ответа LLM (срезает markdown-обёртку). */
-function parseJsonLoose<T>(raw: string): T | null {
-  const cleaned = (raw || '').replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()
-  try { return JSON.parse(cleaned) as T } catch { return null }
-}
+// windLabel / parseJsonLoose вынесены в ./digest/text-utils (чистые, под тестами)
 
 /** Проверка по расписанию (вызывается каждые 60с из scheduler) — ЛЕГАСИ единый прогон (пачка идей). */
 export async function checkAndRunDailyDigest(): Promise<void> {
