@@ -274,7 +274,7 @@ ${recentTopics || 'нет постов'}
   }
 
   // Determine platforms from business platform accounts
-  const platforms = [...new Set(business.platformAccounts.map((pa: any) => pa.platform))]
+  const platforms = [...new Set<string>(business.platformAccounts.map((pa: any) => pa.platform as string))]
 
   // Create AutoPostTask
   await db.autoPostTask.create({

@@ -214,7 +214,7 @@ app.onError((err, c) => {
 
   // Prisma errors
   if (err.constructor?.name === 'PrismaClientKnownRequestError') {
-    const prismaErr = err as { code: string; meta?: Record<string, unknown> }
+    const prismaErr = err as unknown as { code: string; meta?: Record<string, unknown> }
     if (prismaErr.code === 'P2002') {
       return c.json({ error: 'Duplicate entry', details: prismaErr.meta }, 409)
     }

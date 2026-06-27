@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
 import { z } from 'zod'
+import { Prisma } from '@prisma/client'
 import { db } from '../db'
 import type { AuthUser } from '../middleware/auth'
 import { assertBusinessAccess } from '../middleware/resource-access'
@@ -108,7 +109,7 @@ sessions.post('/sessions', async (c) => {
       business: { connect: { id: businessId } },
       user: { connect: { id: user.userId } },
       status: 'draft',
-    },
+    } as Prisma.GenerationSessionCreateInput,
   })
   return c.json(session, 201)
 })

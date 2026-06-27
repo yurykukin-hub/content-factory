@@ -280,7 +280,7 @@ export class VkPublisher implements Publisher {
     text: string
     mediaFiles?: { url: string; mimeType: string; filename: string }[]
     accountId: string; accountType: string; token: string
-    storiesOptions?: { linkText?: string; linkUrl?: string; overlayText?: boolean; textPosition?: 'top' | 'center' | 'bottom' }
+    storiesOptions?: { linkText?: string; linkUrl?: string; overlayText?: boolean; textPosition?: 'top' | 'center' | 'bottom'; skipOverlay?: boolean; photoPosition?: string }
   }): Promise<PublishResult> {
     const { text, mediaFiles, accountId, accountType, token, storiesOptions } = params
 
@@ -328,7 +328,7 @@ export class VkPublisher implements Publisher {
 
       // 2. Read file and optionally overlay text
       const filePath = join(UPLOAD_DIR, mf.url.replace('/uploads/', ''))
-      let fileBuffer = await readFile(filePath)
+      let fileBuffer: Buffer = await readFile(filePath)
 
       // Авто-resize фото под 1080x1920 (9:16) для Stories (skip if pre-rendered by client canvas)
       if (!isVideo && !storiesOptions?.skipOverlay) {
@@ -369,7 +369,7 @@ export class VkPublisher implements Publisher {
 
       const formData = new FormData()
       const fieldName = isVideo ? 'video_file' : 'photo'
-      formData.append(fieldName, new Blob([fileBuffer], { type: mf.mimeType }), mf.filename)
+      formData.append(fieldName, new Blob([fileBuffer as Uint8Array<ArrayBuffer>], { type: mf.mimeType }), mf.filename)
 
       log.info(`[VK Stories] Uploading ${fileBuffer.length} bytes to VK...`)
       const uploadRes = await fetch(uploadUrl, { method: 'POST', body: formData })

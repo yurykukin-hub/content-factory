@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
 import { z } from 'zod'
+import { Prisma } from '@prisma/client'
 import { db } from '../db'
 import type { AuthUser } from '../middleware/auth'
 import { assertBusinessAccess } from '../middleware/resource-access'
@@ -72,7 +73,7 @@ async function assertCharacterAccess(user: AuthUser, characterId: string) {
   if (!character) return null
 
   if (user.role !== 'ADMIN') {
-    const bizIds = await getUserBusinessIds(user)
+    const bizIds = (await getUserBusinessIds(user)) ?? []
     const hasAccess = character.businesses.some(b => bizIds.includes(b.businessId))
     if (!hasAccess) return null
   }
@@ -130,7 +131,7 @@ characters.get('/characters', async (c) => {
     }
     where = { businesses: { some: { businessId: filterBizId } } }
   } else if (user.role !== 'ADMIN') {
-    const bizIds = await getUserBusinessIds(user)
+    const bizIds = (await getUserBusinessIds(user)) ?? []
     where = { businesses: { some: { businessId: { in: bizIds } } } }
   }
 
@@ -176,7 +177,7 @@ characters.post('/characters', async (c) => {
       businesses: {
         create: businessIds.map(bizId => ({ businessId: bizId })),
       },
-    },
+    } as Prisma.CharacterUncheckedCreateInput,
     include: characterInclude,
   })
   return c.json(formatCharacter(character), 201)
@@ -197,7 +198,7 @@ characters.post('/businesses/:bizId/characters', async (c) => {
     data: {
       ...data,
       businesses: { create: [{ businessId: bizId }] },
-    },
+    } as Prisma.CharacterUncheckedCreateInput,
     include: characterInclude,
   })
   return c.json(formatCharacter(character), 201)
@@ -215,7 +216,7 @@ characters.get('/characters/:id', async (c) => {
   if (!character) return c.json({ error: 'Не найден' }, 404)
 
   if (user.role !== 'ADMIN') {
-    const bizIds = await getUserBusinessIds(user)
+    const bizIds = (await getUserBusinessIds(user)) ?? []
     const hasAccess = character.businesses.some(b => bizIds.includes(b.business.id))
     if (!hasAccess) return c.json({ error: 'Нет доступа' }, 403)
   }
@@ -252,7 +253,7 @@ characters.put('/characters/:id', async (c) => {
 
   const updated = await db.character.update({
     where: { id },
-    data: data,
+    data: data as Prisma.CharacterUncheckedUpdateInput,
     include: characterInclude,
   })
   return c.json(formatCharacter(updated))
@@ -438,7 +439,7 @@ characters.post('/characters/:id/generate-sheet', async (c) => {
   if (!character) return c.json({ error: 'Не найден' }, 404)
 
   if (user.role !== 'ADMIN') {
-    const bizIds = await getUserBusinessIds(user)
+    const bizIds = (await getUserBusinessIds(user)) ?? []
     const hasAccess = character.businesses.some(b => bizIds.includes(b.businessId))
     if (!hasAccess) return c.json({ error: 'Нет доступа' }, 403)
   }

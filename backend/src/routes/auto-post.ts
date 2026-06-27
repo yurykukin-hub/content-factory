@@ -6,6 +6,7 @@
 import { Hono } from 'hono'
 import { db } from '../db'
 import { z } from 'zod'
+import type { Platform } from '@prisma/client'
 import type { AuthUser } from '../middleware/auth'
 import { assertBusinessAccess } from '../middleware/resource-access'
 import { log } from '../utils/logger'
@@ -311,7 +312,7 @@ autoPost.patch('/:id', async (c) => {
       await db.post.update({ where: { id: task.postId }, data: { body: proposedText, ...(proposedTags !== undefined ? { hashtags: proposedTags } : {}) } }).catch(() => {})
     }
     for (const a of (adaptations || [])) {
-      const pa = await db.platformAccount.findFirst({ where: { businessId: task.businessId, platform: a.platform, isActive: true } })
+      const pa = await db.platformAccount.findFirst({ where: { businessId: task.businessId, platform: a.platform as Platform, isActive: true } })
       if (!pa) continue
       await db.postVersion.upsert({
         where: { postId_platformAccountId: { postId: task.postId, platformAccountId: pa.id } },

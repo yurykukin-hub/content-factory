@@ -26,7 +26,7 @@ const createSchema = z.object({
   accountName: z.string().min(1),
   accountId: z.string().min(1),
   accessToken: z.string().min(1),
-  config: z.record(z.unknown()).optional(),
+  config: z.record(z.any()).optional(),
 })
 
 // POST /api/businesses/:bizId/platforms
@@ -56,7 +56,7 @@ const updateSchema = z.object({
   accountId: z.string().min(1).optional(),
   accessToken: z.string().min(1).optional(),
   accountType: z.enum(['GROUP', 'PERSONAL', 'CHANNEL', 'BOT', 'BUSINESS']).optional(),
-  config: z.record(z.unknown()).optional(),
+  config: z.record(z.any()).optional(),
 })
 
 // PUT /api/platforms/:id

@@ -135,9 +135,9 @@ const brandProfileSchema = z.object({
   hashtags: z.array(z.string()).optional(),
   keyTopics: z.array(z.string()).optional(),
   doNotMention: z.array(z.string()).optional(),
-  examplePosts: z.unknown().optional(),
+  examplePosts: z.any().optional(),
   postsPerWeek: z.number().min(1).max(14).optional(),
-  links: z.unknown().optional(),
+  links: z.any().optional(),
 })
 
 // PUT /api/businesses/:id/brand-profile — with business access check

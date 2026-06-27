@@ -7,6 +7,7 @@
  * On failure: marks session as failed, emits SSE.
  */
 
+import { Prisma } from '@prisma/client'
 import { db } from '../db'
 import { checkVideoTaskStatus, processVideoTaskResult, checkPhotoTaskStatus, processPhotoTaskResult } from './ai/kie'
 import { checkMusicTaskStatus, processMusicTaskResult } from './ai/suno'
@@ -307,7 +308,7 @@ async function pollPhotoSession(session: any) {
       mediaFileId: newResults[0].mediaFileId,
       resultUrl: newResults[0].resultUrl,
       kieTaskId: null,
-      batchTaskIds: null,
+      batchTaskIds: Prisma.DbNull,
       results: allResults,
     },
   })

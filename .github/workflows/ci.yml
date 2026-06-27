@@ -28,10 +28,9 @@ jobs:
       - name: Run tests
         run: bun run test
 
-  # ── Backend typecheck (baseline — continue-on-error) ─────────────────────
-  # 164 TS errors present locally (Hono context typings). Non-blocking until cleaned up.
+  # ── Backend typecheck (strict — blocking) ────────────────────────────────
   backend-typecheck:
-    name: Backend Typecheck (baseline)
+    name: Backend Typecheck (strict)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -48,7 +47,6 @@ jobs:
 
       - name: Typecheck
         run: npx tsc --noEmit
-        continue-on-error: true
 
   # ── Frontend typecheck (strict — blocking) ───────────────────────────────
   # Vue 3 + Vite root. Project uses Bun (bun.lock в корне, не npm). tsc --noEmit exits 0 locally.

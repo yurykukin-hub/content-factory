@@ -783,7 +783,7 @@ ai.post('/generate-scenario', async (c) => {
   // Генерируем заголовок из темы
   const title = data.topic.length > 50 ? data.topic.slice(0, 50) + '...' : data.topic
 
-  return c.json({ title, scenes, usage: result.usage })
+  return c.json({ title, scenes })
 })
 
 // POST /api/ai/enhance-video-prompt — улучшение промпта для видео (multi-mode)
@@ -1061,7 +1061,7 @@ ai.post('/describe-image', async (c) => {
   }
 
   const publicUrl = data.imageUrl.startsWith('/uploads/')
-    ? `${config.isProd ? 'https://content.yurykukin.ru' : `http://localhost:${config.port}`}${data.imageUrl}`
+    ? `${config.isProd ? 'https://content.yurykukin.ru' : `http://localhost:${config.PORT}`}${data.imageUrl}`
     : data.imageUrl
 
   // 'gallery' — описание для семантического поиска по медиатеке (единый промпт, см. prompt-builder).
