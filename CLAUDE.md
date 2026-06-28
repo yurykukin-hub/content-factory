@@ -16,7 +16,7 @@ AI-контент-фабрика для автоматизации SMM. Гене
 - **AI:** OpenRouter (Haiku 4.5 для адаптации, **Sonnet 4.6** для генерации, Gemini Flash для vision) + KIE.ai (Nano Banana 2 + **Nano Banana Pro** + **GPT Image 2** для text2img/img2img, FLUX Kontext Pro для img2img, recraft для удаления фона, Seedance 2 для видео, **Suno V4/V4_5/V5_5 для музыки — API v2**) + **OpenAI Whisper** (голосовой ввод)
 - **Audio:** wavesurfer.js v7 (waveform visualization)
 - **Дизайн-слой:** satori + @resvg/resvg-js (HTML-узлы→SVG→PNG, без браузера; сторис/карусели — Ф2). Шрифты Montserrat/Cormorant + лого из print-kit (`src/assets/`)
-- **Testing:** Vitest (179 тестов — 17 файлов)
+- **Testing:** Vitest (359 тестов — 32 файла)
 - **Deploy:** Docker Compose + Caddy (SSL auto)
 
 ## Порты
@@ -37,7 +37,7 @@ AI-контент-фабрика для автоматизации SMM. Гене
 
 **Frontend `src/`** (Vue 3): `api/client` (auto-refresh 401), `router` (16 routes + auth/section guards), `stores/` (auth+sectionAccess, businesses, theme, sidebar), `composables/` (useToast/Formatters/Status/Platform/SectionAccess/Rates/VoiceInput), `views/` (Businesses, BusinessDetail, PostEditor, StoryEditor, ContentPlans, MediaLibrary, VideoStudio, PhotoStudio, Ideas, Dashboard, Login, Settings), `components/` (layout, ai/ImageEditModal; `video/` Vs*, `sound/` Ss*, `photo/` Ps* — каждая студия: ModeTabs/AgentChat/Gallery/EnhanceMenu(8 modes)/SettingsPanel/SessionBar/PreGenModal + Video: PromptConstructor/RichPrompt; `shared/` SharedCharacterCarousel+RefModal; `settings/` VkOAuth/Profile/Ai/Users).
 
-Деплой: `docker-compose.yml` (dev, postgres) / `docker-compose.prod.yml` (prod: postgres+backend, healthchecks) + `scripts/deploy.sh`, `backup-db.sh`. Прод-копия живёт в `/opt/content-factory` (env_file `.env.prod`).
+Деплой: `docker-compose.dev.yml` (dev: contentfactory_dev, :5441, изолированный project `contentfactory-dev`) / `docker-compose.prod.yml` (prod: postgres+backend, healthchecks) + `scripts/deploy.sh`, `backup-db.sh`. Прод-копия живёт в `/opt/content-factory` (env_file `.env.prod`). ⚠️ Dev запускать ТОЛЬКО через `-f docker-compose.dev.yml` — голый `docker compose up` ронял прод-БД (инцидент 2026-06-04). Устаревший `docker-compose.yml` оставлен для истории, не использовать.
 
 ## Schema (37 моделей, 8 enums)
 User, UserBusiness, Business, BrandProfile, PlatformAccount, ContentPlan, ContentPlanItem, Post, PostVersion, PublishLog, MediaFolder, MediaFile, AiUsageLog, WebhookRule, AppConfig, Idea, StoryTemplate, Character, CharacterBusiness, CharacterImage, Scenario, PromptEntry, PromptTemplate, GenerationSession, BalanceTransaction, MusicPersona, PhotoCatalog, AutoPostTask, SocialPostMetricSnapshot, SocialAccountMetricSnapshot, SiteTrafficSnapshot, AnalyticsReport, Rubric, Occasion (strategy-as-data — Эпик B Phase 3), **CompetitorAccount**, **CompetitorPost** (мониторинг конкурентов VK — 2026-06)
@@ -67,14 +67,16 @@ cd backend && bun install && bun run dev
 # Frontend
 bun install && bun run dev
 
-# Database
-docker compose up -d                    # Start PostgreSQL
-cd backend && bunx prisma migrate dev   # Run migrations
-cd backend && bunx prisma studio        # DB GUI
-cd backend && bun src/seed.ts           # Seed demo data
+# Database (dev — изолированная БД contentfactory_dev на :5441)
+docker compose -f docker-compose.dev.yml up -d   # Start dev PostgreSQL (НЕ голый `docker compose up`!)
+cd backend && bunx prisma migrate dev            # Run migrations
+cd backend && bunx prisma studio                 # DB GUI
+cd backend && bun run db:seed                    # Seed demo data
+cd backend && bun run db:reset                   # Сброс БД + миграции (dev)
+cd backend && bun run db:fresh                   # Сброс + миграции + seed-демо (dev)
 
 # Tests
-cd backend && bun run test              # 96 tests (7 files)
+cd backend && bun run test              # 359 tests (32 files)
 cd backend && bun run test:watch        # Watch mode
 
 # Deploy
