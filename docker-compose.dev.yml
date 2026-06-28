@@ -1,0 +1,32 @@
+# docker-compose.dev.yml — локальная dev-БД Content Factory.
+# Изолирована от прода ПО КОДУ: отдельное имя БД (contentfactory_dev) и отдельный
+# dev-пароль (прод-пароль живёт только в .env.prod / backend/.env, в git его нет).
+# Запуск:  docker compose -f docker-compose.dev.yml up -d
+# Затем:   cd backend && cp .env.example .env && bun run db:fresh && bun run dev
+#
+# ВАЖНО (инцидент 2026-06-04): отдельный project `name` изолирует dev от прод-проекта
+# `content-factory` — иначе docker compose по общему basename папки мог затронуть
+# прод-БД. Запускать ТОЛЬКО через `-f docker-compose.dev.yml`, не голым `docker compose up`.
+name: contentfactory-dev
+
+services:
+  postgres-dev:
+    image: postgres:16-alpine
+    container_name: contentfactory_postgres_dev
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: contentfactory_dev
+      POSTGRES_USER: contentfactory
+      POSTGRES_PASSWORD: cf_dev_password   # dev-only, НЕ равен прод-паролю
+    ports:
+      - "5441:5432"                        # dev-порт CF (прод хост-порт не публикует)
+    volumes:
+      - contentfactory_pgdata_dev:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U contentfactory -d contentfactory_dev"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  contentfactory_pgdata_dev:

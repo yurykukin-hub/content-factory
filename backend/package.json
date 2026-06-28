@@ -9,6 +9,8 @@
     "db:migrate": "bunx prisma migrate dev",
     "db:studio": "bunx prisma studio",
     "db:seed": "bun src/seed.ts",
+    "db:reset": "bunx prisma migrate reset --force",
+    "db:fresh": "bunx prisma migrate reset --force && bun src/seed.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage"
