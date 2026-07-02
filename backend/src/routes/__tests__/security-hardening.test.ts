@@ -344,7 +344,7 @@ describe('CSRF: X-Tab-ID header required on mutating requests', () => {
         Cookie: `token=${token}`,
         'X-Tab-ID': 'test-tab',
       },
-      body: JSON.stringify({ login: 'test', password: 'test123', name: 'Test', role: 'EDITOR' }),
+      body: JSON.stringify({ login: 'test', password: 'test1234', name: 'Test', role: 'EDITOR' }),
     })
     expect(res.status).toBe(201)
   })

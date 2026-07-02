@@ -130,12 +130,21 @@ async function saveUser() {
         businessIds: form.value.businessIds,
         sectionAccess,
       }
+      // Пароль-политика: если меняют — минимум 8 символов (пустой = не менять).
+      if (form.value.password && form.value.password.length < 8) {
+        toast.error('Пароль должен быть не короче 8 символов')
+        return
+      }
       if (form.value.password) data.password = form.value.password
       await http.put(`/users/${editingId.value}`, data)
       toast.success('Пользователь обновлён')
     } else {
       if (!form.value.login || !form.value.password || !form.value.name) {
         toast.error('Заполните все обязательные поля')
+        return
+      }
+      if (form.value.password.length < 8) {
+        toast.error('Пароль должен быть не короче 8 символов')
         return
       }
       await http.post('/users', { ...form.value, sectionAccess })
@@ -284,7 +293,7 @@ onMounted(loadUsers)
             <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
               {{ editingId ? 'Новый пароль (оставьте пустым)' : 'Пароль *' }}
             </label>
-            <input v-model="form.password" type="password" class="w-full px-3 py-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
+            <input v-model="form.password" type="password" autocomplete="new-password" minlength="8" class="w-full px-3 py-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white" />
           </div>
 
           <div>

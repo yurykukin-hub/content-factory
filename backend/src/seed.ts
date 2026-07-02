@@ -7,8 +7,20 @@ import { db } from './db'
 async function main() {
   console.log('Seeding database...')
 
+  // Пароли сид-юзеров — ТОЛЬКО из env (не хардкод), чтобы дефолты не утекли в прод.
+  const ADMIN_PW = process.env.SEED_ADMIN_PASSWORD
+  const DEFAULT_PW = process.env.SEED_DEFAULT_PASSWORD
+  if (!ADMIN_PW || !DEFAULT_PW) {
+    console.error('❌ Заданы не все пароли. Пример: SEED_ADMIN_PASSWORD=... SEED_DEFAULT_PASSWORD=... bun src/seed.ts')
+    process.exit(1)
+  }
+  if (ADMIN_PW.length < 8 || DEFAULT_PW.length < 8) {
+    console.error('❌ SEED_ADMIN_PASSWORD/SEED_DEFAULT_PASSWORD слишком короткие (минимум 8 символов).')
+    process.exit(1)
+  }
+
   // Admin user
-  const adminPassword = await Bun.password.hash('admin123', { algorithm: 'bcrypt' })
+  const adminPassword = await Bun.password.hash(ADMIN_PW, { algorithm: 'bcrypt' })
   const admin = await db.user.upsert({
     where: { login: 'admin' },
     update: {},
@@ -123,7 +135,7 @@ async function main() {
   }
 
   // Create Sveta (EDITOR for НаWоде)
-  const svetaPassword = await Bun.password.hash('sveta123', { algorithm: 'bcrypt' })
+  const svetaPassword = await Bun.password.hash(DEFAULT_PW, { algorithm: 'bcrypt' })
   const sveta = await db.user.upsert({
     where: { login: 'sveta' },
     update: {},
@@ -140,7 +152,7 @@ async function main() {
   console.log(`  User: ${sveta.login} (EDITOR, НаWоде)`)
 
   // Create Anton (EDITOR for НаWоде)
-  const antonPassword = await Bun.password.hash('anton123', { algorithm: 'bcrypt' })
+  const antonPassword = await Bun.password.hash(DEFAULT_PW, { algorithm: 'bcrypt' })
   const anton = await db.user.upsert({
     where: { login: 'anton' },
     update: {},

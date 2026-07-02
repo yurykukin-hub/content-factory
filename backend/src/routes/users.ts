@@ -42,7 +42,7 @@ const sectionAccessSchema = z.record(
 
 const createUserSchema = z.object({
   login: z.string().min(2).max(50),
-  password: z.string().min(4).max(100),
+  password: z.string().min(8).max(100),
   name: z.string().min(1).max(100),
   role: z.enum(['ADMIN', 'EDITOR', 'VIEWER']).default('EDITOR'),
   businessIds: z.array(z.string()).default([]),
@@ -99,7 +99,7 @@ const updateUserSchema = z.object({
   name: z.string().min(1).max(100).optional(),
   role: z.enum(['ADMIN', 'EDITOR', 'VIEWER']).optional(),
   isActive: z.boolean().optional(),
-  password: z.string().min(4).max(100).optional(),
+  password: z.string().min(8).max(100).optional(),
   businessIds: z.array(z.string()).optional(),
   sectionAccess: sectionAccessSchema,
 })

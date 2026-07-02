@@ -13,9 +13,9 @@ docker compose -f docker-compose.dev.yml up -d
 
 # 2. backend
 cd backend
-cp .env.example .env          # дефолты уже настроены под dev-БД
+cp .env.example .env          # заполнить SEED_ADMIN_PASSWORD и SEED_DEFAULT_PASSWORD (иначе seed упадёт)
 bun install
-bun run db:fresh              # миграции + seed (admin + 4 демо-бизнеса)
+bun run db:fresh              # миграции + seed (admin + sveta/anton + 4 демо-бизнеса)
 bun run dev                   # API на :3800
 
 # 3. frontend (новый терминал, из корня проекта)
@@ -23,7 +23,8 @@ bun install
 bun run dev                   # UI на :5176
 ```
 
-Вход: **admin / admin123**.
+Вход: логин **admin**, пароль — из `SEED_ADMIN_PASSWORD` (задаётся в `.env`, минимум 8 символов;
+без переменной seed падает, чтобы дефолтный пароль не утёк в прод).
 
 ## Полезные команды (из `backend/`)
 
