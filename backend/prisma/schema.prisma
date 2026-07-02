@@ -73,6 +73,9 @@ model User {
   name           String
   role           UserRole @default(EDITOR)
   isActive       Boolean  @default(true) @map("is_active")
+  // tokenVersion: мгновенный отзыв сессий. Кладётся в refresh-payload; сверяется на каждом
+  // refresh (/refresh и /me). logout / смена пароля → increment → старые токены → 401.
+  tokenVersion   Int      @default(0) @map("token_version")
   sectionAccess  Json?    @map("section_access")
   balanceKopecks Int      @default(0) @map("balance_kopecks") // баланс в копейках (рубли * 100)
   createdAt      DateTime @default(now()) @map("created_at")

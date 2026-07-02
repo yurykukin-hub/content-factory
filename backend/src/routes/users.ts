@@ -118,7 +118,11 @@ users.put('/:id', async (c) => {
   if (body.name !== undefined) data.name = body.name
   if (body.role !== undefined) data.role = body.role
   if (body.isActive !== undefined) data.isActive = body.isActive
-  if (body.password) data.passwordHash = await Bun.password.hash(body.password)
+  if (body.password) {
+    data.passwordHash = await Bun.password.hash(body.password)
+    // Смена пароля отзывает все старые сессии юзера (сверка на следующем refresh → 401).
+    data.tokenVersion = { increment: 1 }
+  }
   if (body.sectionAccess !== undefined) data.sectionAccess = body.sectionAccess
 
   const user = await db.user.update({

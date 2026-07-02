@@ -58,7 +58,7 @@ const REFRESH_TOKEN_TTL = '30d'   // Long-lived refresh token
 const ACCESS_COOKIE_MAX_AGE = 60 * 60          // 1 hour
 const REFRESH_COOKIE_MAX_AGE = 30 * 24 * 60 * 60 // 30 days
 
-async function issueTokens(c: any, user: { id: string; name: string; login: string; role: string; sectionAccess?: unknown }, rememberMe = false) {
+async function issueTokens(c: any, user: { id: string; name: string; login: string; role: string; sectionAccess?: unknown; tokenVersion: number }, rememberMe = false) {
   const secret = new TextEncoder().encode(config.JWT_SECRET)
 
   const accessToken = await new jose.SignJWT({
@@ -70,7 +70,8 @@ async function issueTokens(c: any, user: { id: string; name: string; login: stri
     .sign(secret)
 
   const refreshToken = await new jose.SignJWT({
-    userId: user.id, type: 'refresh', remember: rememberMe, // remember сохраняется между ротациями
+    // tokenVersion в refresh-payload переживает ротацию → сверяется на каждом refresh (мгновенный отзыв).
+    userId: user.id, type: 'refresh', remember: rememberMe, tokenVersion: user.tokenVersion,
   })
     .setProtectedHeader({ alg: 'HS256' })
     .setExpirationTime(REFRESH_TOKEN_TTL)
@@ -143,11 +144,19 @@ auth.post('/refresh', async (c) => {
 
     const user = await db.user.findUnique({
       where: { id: payload.userId as string },
-      select: { id: true, name: true, login: true, role: true, isActive: true, sectionAccess: true },
+      select: { id: true, name: true, login: true, role: true, isActive: true, sectionAccess: true, tokenVersion: true },
     })
 
     if (!user || !user.isActive) {
       return c.json({ error: 'User not found or inactive' }, 401)
+    }
+
+    // Отзыв: строгая сверка версии. У refresh-токенов, выданных до внедрения tokenVersion,
+    // поля нет (undefined) → !== 0 → 401 + чистка cookie (разлогин при следующем refresh).
+    if (payload.tokenVersion !== user.tokenVersion) {
+      deleteCookie(c, 'token', { path: '/' })
+      deleteCookie(c, 'refresh_token', { path: '/api/auth' })
+      return c.json({ error: 'Session revoked' }, 401)
     }
 
     await issueTokens(c, user, payload.remember === true)
@@ -165,7 +174,20 @@ auth.post('/refresh', async (c) => {
 })
 
 // POST /api/auth/logout
-auth.post('/logout', (c) => {
+auth.post('/logout', async (c) => {
+  // Отзываем ВСЕ сессии юзера: инкремент tokenVersion. logout — публичный роут
+  // (смонтирован до requireAuth), c.get('user') недоступен → userId берём из токена.
+  // Best-effort: даже если токен протух, cookie всё равно чистим.
+  const token = getCookie(c, 'refresh_token') || getCookie(c, 'token')
+  if (token) {
+    try {
+      const secret = new TextEncoder().encode(config.JWT_SECRET)
+      const { payload } = await jose.jwtVerify(token, secret, { algorithms: ['HS256'] })
+      if (payload.userId) {
+        await db.user.update({ where: { id: payload.userId as string }, data: { tokenVersion: { increment: 1 } } })
+      }
+    } catch { /* токен невалиден/протух — просто чистим cookie ниже */ }
+  }
   deleteCookie(c, 'token', { path: '/' })
   deleteCookie(c, 'refresh_token', { path: '/api/auth' })
   return c.json({ success: true })
@@ -198,9 +220,11 @@ auth.get('/me', async (c) => {
 
       const user = await db.user.findUnique({
         where: { id: payload.userId as string },
-        select: { id: true, name: true, login: true, role: true, isActive: true, sectionAccess: true, balanceKopecks: true },
+        select: { id: true, name: true, login: true, role: true, isActive: true, sectionAccess: true, balanceKopecks: true, tokenVersion: true },
       })
       if (!user || !user.isActive) return c.json(null)
+      // Отзыв: этот catch-блок — ВТОРОЙ скрытый refresh-путь, сверяем версию так же, как /refresh.
+      if (payload.tokenVersion !== user.tokenVersion) return c.json(null)
 
       // Re-issue tokens transparently (сохраняем remember из refresh-payload)
       await issueTokens(c, user, payload.remember === true)
