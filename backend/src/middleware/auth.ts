@@ -32,7 +32,8 @@ export async function requireAuth(c: Context, next: Next) {
 
   try {
     const secret = new TextEncoder().encode(config.JWT_SECRET)
-    const { payload } = await jose.jwtVerify(token, secret)
+    // Пиннинг алгоритма HS256 — защита от algorithm-confusion.
+    const { payload } = await jose.jwtVerify(token, secret, { algorithms: ['HS256'] })
 
     // Отклоняем не-access токены (например, 30-дневный refresh, поданный как access).
     // Access-токены подписываются с type:'access'; refresh живёт в отдельной cookie refresh_token.

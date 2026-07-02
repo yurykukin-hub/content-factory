@@ -17,6 +17,16 @@ if (!parsed.success) {
   process.exit(1)
 }
 
+// В production JWT_SECRET не должен быть плейсхолдером/предсказуемым dev-ключом — иначе токены подделываются.
+if (parsed.data.NODE_ENV === 'production') {
+  const s = parsed.data.JWT_SECRET
+  const weak = s.startsWith('change-this') || /-dev-|dev-key/i.test(s)
+  if (weak) {
+    console.error('[SECURITY] JWT_SECRET выглядит как плейсхолдер/dev-ключ. Сгенерируйте: openssl rand -base64 48')
+    process.exit(1)
+  }
+}
+
 export const config = {
   ...parsed.data,
   isProd: parsed.data.NODE_ENV === 'production',

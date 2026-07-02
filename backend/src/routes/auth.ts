@@ -1,11 +1,27 @@
 import { Hono } from 'hono'
 import { setCookie, deleteCookie, getCookie } from 'hono/cookie'
 import * as jose from 'jose'
+import { z } from 'zod'
 import { db } from '../db'
 import { config } from '../config'
 import type { AuthUser } from '../middleware/auth'
 
 const auth = new Hono()
+
+// Валидация тела /login (рантайм, не TS-каст). rememberMe → persistent vs session-cookie.
+const LoginSchema = z.object({
+  login: z.string().min(1),
+  password: z.string().min(1),
+  rememberMe: z.boolean().optional().default(false),
+})
+
+// Anti-enumeration: при несуществующем/неактивном юзере всё равно тратим время на bcrypt-verify
+// против фиктивного хеша — чтобы ответ по таймингу не отличался от «юзер есть, пароль неверный».
+let dummyHash: string | null = null
+async function verifyAgainstDummy(password: string): Promise<void> {
+  if (!dummyHash) dummyHash = await Bun.password.hash('cf-timing-guard-not-a-real-password', { algorithm: 'bcrypt' })
+  await Bun.password.verify(password, dummyHash)
+}
 
 // --- Rate limiting for login (in-memory, per IP) ---
 const LOGIN_MAX_ATTEMPTS = 5
@@ -42,7 +58,7 @@ const REFRESH_TOKEN_TTL = '30d'   // Long-lived refresh token
 const ACCESS_COOKIE_MAX_AGE = 60 * 60          // 1 hour
 const REFRESH_COOKIE_MAX_AGE = 30 * 24 * 60 * 60 // 30 days
 
-async function issueTokens(c: any, user: { id: string; name: string; login: string; role: string; sectionAccess?: unknown }) {
+async function issueTokens(c: any, user: { id: string; name: string; login: string; role: string; sectionAccess?: unknown }, rememberMe = false) {
   const secret = new TextEncoder().encode(config.JWT_SECRET)
 
   const accessToken = await new jose.SignJWT({
@@ -54,20 +70,21 @@ async function issueTokens(c: any, user: { id: string; name: string; login: stri
     .sign(secret)
 
   const refreshToken = await new jose.SignJWT({
-    userId: user.id, type: 'refresh',
+    userId: user.id, type: 'refresh', remember: rememberMe, // remember сохраняется между ротациями
   })
     .setProtectedHeader({ alg: 'HS256' })
     .setExpirationTime(REFRESH_TOKEN_TTL)
     .sign(secret)
 
+  // maxAge только при rememberMe → persistent; иначе session-cookie (стирается при закрытии браузера).
   setCookie(c, 'token', accessToken, {
-    httpOnly: true, secure: config.isProd, sameSite: 'Lax',
-    maxAge: ACCESS_COOKIE_MAX_AGE, path: '/',
+    httpOnly: true, secure: config.isProd, sameSite: 'Lax', path: '/',
+    ...(rememberMe ? { maxAge: ACCESS_COOKIE_MAX_AGE } : {}),
   })
 
   setCookie(c, 'refresh_token', refreshToken, {
-    httpOnly: true, secure: config.isProd, sameSite: 'Lax',
-    maxAge: REFRESH_COOKIE_MAX_AGE, path: '/api/auth',
+    httpOnly: true, secure: config.isProd, sameSite: 'Lax', path: '/api/auth',
+    ...(rememberMe ? { maxAge: REFRESH_COOKIE_MAX_AGE } : {}),
   })
 
   return { accessToken, refreshToken }
@@ -84,10 +101,12 @@ auth.post('/login', async (c) => {
     return c.json({ error: 'Слишком много попыток входа. Попробуйте через 15 минут.' }, 429)
   }
 
-  const { login, password } = await c.req.json<{ login: string; password: string }>()
+  const { login, password, rememberMe } = LoginSchema.parse(await c.req.json())
 
   const user = await db.user.findUnique({ where: { login } })
   if (!user || !user.isActive) {
+    // Anti-enumeration: тратим то же время на verify, чтобы не выдать существование логина по таймингу.
+    await verifyAgainstDummy(password)
     return c.json({ error: 'Неверный логин или пароль' }, 401)
   }
 
@@ -96,7 +115,7 @@ auth.post('/login', async (c) => {
     return c.json({ error: 'Неверный логин или пароль' }, 401)
   }
 
-  await issueTokens(c, user)
+  await issueTokens(c, user, rememberMe)
 
   return c.json({
     success: true,
@@ -116,7 +135,7 @@ auth.post('/refresh', async (c) => {
 
   try {
     const secret = new TextEncoder().encode(config.JWT_SECRET)
-    const { payload } = await jose.jwtVerify(refreshToken, secret)
+    const { payload } = await jose.jwtVerify(refreshToken, secret, { algorithms: ['HS256'] })
 
     if (payload.type !== 'refresh') {
       return c.json({ error: 'Invalid token type' }, 401)
@@ -131,7 +150,7 @@ auth.post('/refresh', async (c) => {
       return c.json({ error: 'User not found or inactive' }, 401)
     }
 
-    await issueTokens(c, user)
+    await issueTokens(c, user, payload.remember === true)
 
     return c.json({
       success: true,
@@ -159,7 +178,7 @@ auth.get('/me', async (c) => {
 
   try {
     const secret = new TextEncoder().encode(config.JWT_SECRET)
-    const { payload } = await jose.jwtVerify(token, secret)
+    const { payload } = await jose.jwtVerify(token, secret, { algorithms: ['HS256'] })
 
     const dbUser = await db.user.findUnique({
       where: { id: payload.userId as string },
@@ -174,7 +193,7 @@ auth.get('/me', async (c) => {
 
     try {
       const secret = new TextEncoder().encode(config.JWT_SECRET)
-      const { payload } = await jose.jwtVerify(refreshToken, secret)
+      const { payload } = await jose.jwtVerify(refreshToken, secret, { algorithms: ['HS256'] })
       if (payload.type !== 'refresh') return c.json(null)
 
       const user = await db.user.findUnique({
@@ -183,8 +202,8 @@ auth.get('/me', async (c) => {
       })
       if (!user || !user.isActive) return c.json(null)
 
-      // Re-issue tokens transparently
-      await issueTokens(c, user)
+      // Re-issue tokens transparently (сохраняем remember из refresh-payload)
+      await issueTokens(c, user, payload.remember === true)
       return c.json({
         id: user.id, name: user.name, login: user.login, role: user.role,
         sectionAccess: user.sectionAccess, balanceKopecks: user.balanceKopecks,

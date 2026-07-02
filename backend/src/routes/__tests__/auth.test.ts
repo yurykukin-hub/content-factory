@@ -131,6 +131,39 @@ describe('POST /api/auth/login', () => {
     expect(setCookie).toContain('token=')
     expect(setCookie).toContain('HttpOnly')
   })
+
+  it('rememberMe:true → refresh_token persistent (Max-Age)', async () => {
+    const hash = await Bun.password.hash('pass123')
+    mockDb.user.findUnique.mockResolvedValue({
+      id: 'u1', login: 'yury', name: 'Yury', role: 'ADMIN', passwordHash: hash, isActive: true,
+    })
+    const res = await app.request('/api/auth/login', {
+      method: 'POST',
+      // уникальный IP — чтобы не расходовать общий bucket rate-limiter'а (5/15мин)
+      headers: { 'Content-Type': 'application/json', 'x-real-ip': '10.10.0.1' },
+      body: JSON.stringify({ login: 'yury', password: 'pass123', rememberMe: true }),
+    })
+    expect(res.status).toBe(200)
+    const setCookie = res.headers.get('set-cookie') || ''
+    expect(setCookie).toContain('refresh_token=')
+    expect(setCookie).toContain('Max-Age=2592000') // 30 дней — persistent
+  })
+
+  it('rememberMe:false (или без поля) → session-cookie (нет Max-Age)', async () => {
+    const hash = await Bun.password.hash('pass123')
+    mockDb.user.findUnique.mockResolvedValue({
+      id: 'u1', login: 'yury', name: 'Yury', role: 'ADMIN', passwordHash: hash, isActive: true,
+    })
+    const res = await app.request('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-real-ip': '10.10.0.2' },
+      body: JSON.stringify({ login: 'yury', password: 'pass123' }), // без rememberMe → default false
+    })
+    expect(res.status).toBe(200)
+    const setCookie = res.headers.get('set-cookie') || ''
+    expect(setCookie).toContain('token=')
+    expect(setCookie).not.toContain('Max-Age')
+  })
 })
 
 describe('POST /api/auth/logout', () => {
