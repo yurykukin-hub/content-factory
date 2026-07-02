@@ -12,18 +12,23 @@ BACKUP_FILE="$BACKUP_DIR/contentfactory-$TIMESTAMP.sql.gz"
 
 echo "[$TIMESTAMP] Starting backup..." >> "$LOG"
 
-docker compose -f /opt/content-factory/docker-compose.prod.yml exec -T postgres \
-  pg_dump -U contentfactory contentfactory | gzip > "$BACKUP_FILE"
+if ! docker compose -f /opt/content-factory/docker-compose.prod.yml exec -T postgres \
+  pg_dump -U contentfactory contentfactory | gzip > "$BACKUP_FILE"; then
+  echo "[$TIMESTAMP] ERROR: pg_dump не выполнился — удаляю неполный файл" >> "$LOG"
+  rm -f "$BACKUP_FILE"
+  exit 1
+fi
+
+# Валидность: НЕ пустышка (20-байтный gzip проходит gunzip -t!) + корректный gzip-архив.
+BYTES=$(stat -c%s "$BACKUP_FILE" 2>/dev/null || echo 0)
+if [ "$BYTES" -lt 1000 ] || ! gunzip -t "$BACKUP_FILE" 2>/dev/null; then
+  echo "[$TIMESTAMP] ERROR: бэкап невалиден (${BYTES}B < 1000 или битый gzip) — удаляю" >> "$LOG"
+  rm -f "$BACKUP_FILE"
+  exit 1
+fi
 
 SIZE=$(du -h "$BACKUP_FILE" | cut -f1)
-echo "[$TIMESTAMP] Backup created: $BACKUP_FILE ($SIZE)" >> "$LOG"
-
-# Verify backup integrity
-if gunzip -t "$BACKUP_FILE" 2>/dev/null; then
-  echo "[$TIMESTAMP] Backup verified: OK" >> "$LOG"
-else
-  echo "[$TIMESTAMP] ERROR: Backup verification FAILED — file may be corrupted!" >> "$LOG"
-fi
+echo "[$TIMESTAMP] Backup created & verified: $BACKUP_FILE ($SIZE)" >> "$LOG"
 
 find "$BACKUP_DIR" -name "contentfactory-*.sql.gz" -mtime +$RETENTION_DAYS -delete
 echo "[$TIMESTAMP] Old backups cleaned (>${RETENTION_DAYS} days)" >> "$LOG"
