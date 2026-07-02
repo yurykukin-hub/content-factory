@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { logger } from 'hono/logger'
+import { secureHeaders } from 'hono/secure-headers'
 import { HTTPException } from 'hono/http-exception'
 import { ZodError } from 'zod'
 import { join, resolve } from 'path'
@@ -43,6 +44,17 @@ const app = new Hono()
 
 // --- Middleware ---
 app.use('*', logger())
+// Security-заголовки на всех ответах Hono (API + /uploads). Полный CSP/HSTS для SPA — на Caddy (VPS).
+// nosniff особенно важен на /uploads (пользовательские файлы — против MIME-sniffing).
+app.use('*', secureHeaders({
+  xFrameOptions: 'DENY',
+  xContentTypeOptions: 'nosniff',
+  referrerPolicy: 'strict-origin-when-cross-origin',
+  // CSP не задаём здесь: Hono не отдаёт HTML (SPA раздаёт Caddy), а дефолтный CSP от secureHeaders
+  // мог бы мешать /uploads. Полный CSP — на уровне Caddy для content.yurykukin.ru.
+  contentSecurityPolicy: undefined,
+  strictTransportSecurity: false, // HSTS ставит Caddy (терминация TLS)
+}))
 app.use('/api/*', cors({
   origin: config.isProd
     ? ['https://content.yurykukin.ru']
