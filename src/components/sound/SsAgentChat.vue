@@ -110,9 +110,9 @@ watch(() => props.loading, () => {
   })
 })
 
-/** Simple XSS-safe escape */
+/** Simple XSS-safe escape (включая кавычки — консистентно с VsAgentMessage) */
 function escapeHtml(text: string): string {
-  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
 }
 
 /** Render markdown-like bold, italic, newlines (collapse 3+ blank lines into 1) */
