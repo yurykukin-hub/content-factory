@@ -6,6 +6,31 @@ body {
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
 }
 
+/* ─── Design-system transitions (Фаза A) — нужны UiModal / UiDropdown ─── */
+/* fade — оверлеи/бэкдропы */
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.15s ease;
+}
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+
+/* slide-up — контент модалок/меню */
+.slide-up-enter-active,
+.slide-up-leave-active {
+  transition: transform 0.2s ease-out, opacity 0.2s ease-out;
+}
+.slide-up-enter-from {
+  opacity: 0;
+  transform: translateY(8px);
+}
+.slide-up-leave-to {
+  opacity: 0;
+  transform: translateY(4px);
+}
+
 /* Hide scrollbar but keep scroll functionality */
 .scrollbar-hide {
   -ms-overflow-style: none;

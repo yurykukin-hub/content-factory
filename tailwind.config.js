@@ -1,4 +1,6 @@
 /** @type {import('tailwindcss').Config} */
+import colors from 'tailwindcss/colors'
+
 export default {
   darkMode: 'class',
   content: [
@@ -21,6 +23,12 @@ export default {
           900: '#701a75',
           950: '#4a044e',
         },
+        // Семантические токены (Фаза A) — алиасы на полные шкалы Tailwind.
+        // Назначены по замеру реального использования в src/ (см. docs/refactor/A-fundament-spec.md).
+        success: colors.emerald, // emerald 262 + green 210
+        danger: colors.red,      // 230
+        warning: colors.amber,   // amber 142 + yellow 25
+        info: colors.blue,       // 170
       },
       minWidth: {
         touch: '44px',

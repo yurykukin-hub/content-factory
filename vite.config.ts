@@ -12,12 +12,14 @@ export default defineConfig({
   server: {
     port: 5176,
     proxy: {
+      // Цель бэкенда конфигурируема через env (по умолчанию 3800). Позволяет
+      // указывать на локальный dev-бэкенд (напр. 3801) не трогая прод-контейнер.
       '/api': {
-        target: 'http://localhost:3800',
+        target: process.env.VITE_BACKEND_URL || 'http://localhost:3800',
         changeOrigin: true,
       },
       '/uploads': {
-        target: 'http://localhost:3800',
+        target: process.env.VITE_BACKEND_URL || 'http://localhost:3800',
         changeOrigin: true,
       },
     },

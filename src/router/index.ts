@@ -117,6 +117,13 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/AiLogsView.vue'),
     meta: { section: 'aiLogs' },
   },
+  {
+    // Фаза A рефактора — визуальный QA-стенд UI-кита. Без meta.section (не завязан
+    // на sectionAccess), но требует логин через обычный auth guard ниже.
+    path: '/ui-kit',
+    name: 'ui-kit',
+    component: () => import('@/views/UiKitView.vue'),
+  },
 ]
 
 const router = createRouter({
