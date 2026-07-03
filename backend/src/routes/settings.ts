@@ -12,12 +12,36 @@ function maskSecret(value: string): string {
   return `${value.slice(0, 10)}...${value.slice(-4)}`
 }
 
-// GET /api/settings/config — все настройки (DB + .env fallback)
+// Дефолты ключевых digest_* ключей — чтобы UI кокпита показал текущее состояние,
+// даже если ключ ещё ни разу не записывали (config пустой).
+const DIGEST_CONFIG_DEFAULTS: Record<string, string> = {
+  digest_enabled: 'false',
+  digest_roles_enabled: 'false',
+  digest_autopilot_enabled: 'false',
+  digest_time_utc: '04:00',
+  digest_time_utc_morning: '04:00',
+  digest_time_utc_day: '10:00',
+  digest_time_utc_evening: '16:00',
+  digest_key_facts: '',
+  digest_promo_enabled: 'false',
+  digest_flash_enabled: 'false',
+  digest_recruitment_enabled: 'false',
+}
+
+// GET /api/settings/config — все настройки (DB + .env fallback).
+// ?prefix=digest_ → только ключи с этим префиксом + дефолты (для панели кокпита «Лента»).
 settings.get('/config', async (c) => {
   const user = c.get('user') as AuthUser
   if (user.role !== 'ADMIN') return c.json({ error: 'FORBIDDEN' }, 403)
-  const configs = await db.appConfig.findMany()
+  const prefix = c.req.query('prefix')
+  const configs = await db.appConfig.findMany(
+    prefix ? { where: { key: { startsWith: prefix } } } : undefined
+  )
   const result: Record<string, string> = {}
+  // Префиксный режим: сперва дефолты, чтобы недостающие ключи имели значение
+  if (prefix === 'digest_') {
+    Object.assign(result, DIGEST_CONFIG_DEFAULTS)
+  }
   for (const cfg of configs) {
     if (cfg.key.includes('key') || cfg.key.includes('token') || cfg.key.includes('secret')) {
       result[cfg.key] = maskSecret(cfg.value)
@@ -25,6 +49,7 @@ settings.get('/config', async (c) => {
       result[cfg.key] = cfg.value
     }
   }
+  if (prefix) return c.json(result)
 
   // Fallback: show .env keys if not in DB
   if (!result['openrouter_api_key'] && config.OPENROUTER_API_KEY) {

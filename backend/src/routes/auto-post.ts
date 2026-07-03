@@ -9,7 +9,6 @@ import { z } from 'zod'
 import type { Platform } from '@prisma/client'
 import type { AuthUser } from '../middleware/auth'
 import { assertBusinessAccess } from '../middleware/resource-access'
-import { log } from '../utils/logger'
 
 export const autoPost = new Hono()
 
@@ -158,71 +157,12 @@ autoPost.post('/:id/approve-publish', async (c) => {
   const { when, scheduledAt, platforms } = parsed.data
   if (when === 'schedule' && !scheduledAt) return c.json({ error: 'scheduledAt обязателен для планирования' }, 400)
 
-  // Baked (дизайн вшит satori) → skipOverlay: публикуем картинку как есть, без наложения текста
-  let skipOverlay = false
-  if (task.mediaFileId) {
-    const mf = await db.mediaFile.findUnique({ where: { id: task.mediaFileId }, select: { tags: true } })
-    skipOverlay = !!mf?.tags?.includes('story-design')
-  }
-
-  // Одобрить → Post(DRAFT) + per-platform PostVersion (та же логика, что обычное одобрение)
-  const { approveDigestTask } = await import('../services/daily-digest')
-  const { postId } = await approveDigestTask(task)
-
-  const versions = await db.postVersion.findMany({ where: { postId }, include: { platformAccount: true } })
-  const targetPlatforms = platforms && platforms.length ? platforms : (task.platforms || [])
-  const chosen = versions.filter(v => !targetPlatforms.length || targetPlatforms.includes(v.platformAccount.platform))
-  if (!chosen.length) return c.json({ error: 'Нет версий для выбранных каналов' }, 400)
-
-  const { publishPostVersion, schedulePostVersion } = await import('../services/publish-runner')
+  // Публикация делегируется общему publishDigestTask (тот же код, что и у автопилота дайджеста) —
+  // никакой дублирующей publish-логики. Пустой results = не нашлось версий под выбранные каналы.
+  const { publishDigestTask } = await import('../services/publish-digest-task')
   const tabId = c.req.header('X-Tab-ID') || ''
-
-  // VK-сторис из дайджеста (прямая публикация): вернуть нативную кнопку «Забронировать».
-  // В редакторе ссылка подставляется (applyDefaultBookingLink), а прямой путь раньше слал
-  // storiesOptions без linkUrl → кнопка пропадала (баг B). Берём дефолт-ссылку из НаWоде ERP
-  // (scope story+vk → vk → story). UTM добавится дальше в applyUtmForPublish.
-  // ERP недоступен / ссылок нет → публикуем как раньше (без кнопки), не падаем.
-  const storiesOptions: { skipOverlay: boolean; linkText?: string; linkUrl?: string } = { skipOverlay }
-  const hasVkStory = (task.postType || '').toUpperCase() === 'STORIES'
-    && chosen.some(v => v.platformAccount.platform === 'VK')
-  if (hasVkStory) {
-    try {
-      const baseUrl = (await db.appConfig.findUnique({ where: { key: 'nawode_booking_base_url' } }))?.value || undefined
-      const { getBookingLinks } = await import('../services/nawode-data')
-      const links = await getBookingLinks(baseUrl)
-      const pick = links.find(l => l.scope.includes('story') && l.scope.includes('vk'))
-        || links.find(l => l.scope.includes('vk'))
-        || links.find(l => l.scope.includes('story'))
-      if (pick) {
-        storiesOptions.linkText = 'book'
-        storiesOptions.linkUrl = pick.url
-        log.info('[AutoPost] VK story booking link attached', { ref: pick.ref })
-      }
-    } catch (e: any) {
-      log.warn('[AutoPost] booking link resolve failed', { error: e?.message })
-    }
-  }
-
-  const results: { platform: string; success: boolean; externalUrl: string | null; error: string | null }[] = []
-
-  for (const v of chosen) {
-    try {
-      if (when === 'schedule') {
-        await schedulePostVersion(v.id, scheduledAt!, storiesOptions)
-        results.push({ platform: v.platformAccount.platform, success: true, externalUrl: null, error: null })
-      } else {
-        const r = await publishPostVersion(v.id, { storiesOptions, tabId })
-        results.push({ platform: v.platformAccount.platform, success: r.success, externalUrl: r.externalUrl, error: r.error })
-      }
-    } catch (e: any) {
-      results.push({ platform: v.platformAccount.platform, success: false, externalUrl: null, error: e?.message || String(e) })
-    }
-  }
-
-  // now + хоть один успех → задача published; schedule → пост уже SCHEDULED (задача остаётся approved)
-  if (when === 'now' && results.some(r => r.success)) {
-    await db.autoPostTask.update({ where: { id: task.id }, data: { status: 'published' } })
-  }
+  const { postId, results } = await publishDigestTask(task, { when, scheduledAt, platforms, tabId })
+  if (!results.length) return c.json({ error: 'Нет версий для выбранных каналов' }, 400)
 
   return c.json({ ok: true, postId, when, results })
 })

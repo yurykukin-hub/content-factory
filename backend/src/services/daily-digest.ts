@@ -31,6 +31,7 @@ import { detectRouteFolder, searchGalleryPhotos, getRecentlyUsedPhotoIds } from 
 import { getStrategyBlock, getSeasonHint, getRubricNames } from './ai/strategy'
 import { getViralCompetitorPosts } from './competitor-poller'
 import { renderAndSaveStoryDesign } from './story-design'
+import { publishDigestTask } from './publish-digest-task'
 import { stripInlineHashtags } from '../utils/hashtags'
 import { cleanStoryTitle } from '../utils/story-title'
 import { evaluateWeatherFlash, type FlashSignal } from './promo/weather-flash'
@@ -388,6 +389,10 @@ async function generateDigestForBusiness(biz: any, force: boolean, role: DigestR
   }
   if (!suggestions.length) return 0
 
+  // Автопилот (human-in-loop → auto). Default OFF (ключ отсутствует). При ON — каждое предложение
+  // сразу публикуется через общий publishDigestTask (тот же путь, что и кнопка «Опубликовать сейчас»).
+  const autopilot = (await getConfig('digest_autopilot_enabled')) === 'true'
+
   let created = 0
   for (const s of suggestions) {
     const validPlatforms = (s.platforms || platforms).filter((p: string) => platforms.includes(p))
@@ -409,6 +414,23 @@ async function generateDigestForBusiness(biz: any, force: boolean, role: DigestR
       },
     })
     created++
+
+    // Автопилот: сразу публикуем предложение (в дополнение к Telegram-уведомлению ниже).
+    // Планировщик НЕ должен падать из-за автопилота — любая ошибка логируется и глотается.
+    if (autopilot) {
+      try {
+        const { postId, results } = await publishDigestTask(task, { when: 'now', platforms: task.platforms })
+        log.info('[Digest] autopilot published', {
+          business: biz.slug,
+          taskId: task.id,
+          postId,
+          ok: results.filter(r => r.success).map(r => r.platform),
+          failed: results.filter(r => !r.success).map(r => r.platform),
+        })
+      } catch (err: any) {
+        log.warn('[Digest] autopilot publish failed', { business: biz.slug, taskId: task.id, error: err?.message })
+      }
+    }
 
     // Доставка в Telegram (graceful — если не настроен, тихо пропустится)
     try {
