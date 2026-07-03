@@ -40,9 +40,9 @@ const router = useRouter()
 // Возврат «Назад» — туда, откуда пришли (дайджест / контент-план / список контента)
 const backTo = computed(() => {
   switch (route.query.from) {
-    case 'digest': return { path: '/digest', label: 'Назад в дайджест' }
+    case 'feed': case 'digest': return { path: '/feed', label: 'Назад в ленту' }
     case 'plans': return { path: '/content-plans', label: 'Назад к плану' }
-    default: return { path: '/posts', label: 'Назад к контенту' }
+    default: return { path: '/feed', label: 'Назад в ленту' }
   }
 })
 const toast = useToast()

@@ -22,16 +22,19 @@ const routes: RouteRecordRaw[] = [
     meta: { section: 'dashboard' },
   },
   {
-    path: '/digest',
-    name: 'digest',
-    component: () => import('@/views/DigestView.vue'),
+    // Фаза C1 — единый кокпит «Лента» заменяет Дайджест + Контент. Старые пути — редирект (обратная совместимость).
+    path: '/feed',
+    name: 'feed',
+    component: () => import('@/views/FeedView.vue'),
     meta: { section: 'posts' },
   },
   {
+    path: '/digest',
+    redirect: '/feed',
+  },
+  {
     path: '/posts',
-    name: 'posts',
-    component: () => import('@/views/PostsView.vue'),
-    meta: { section: 'posts' },
+    redirect: '/feed',
   },
   {
     path: '/posts/:id',

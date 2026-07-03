@@ -41,8 +41,8 @@ const router = useRouter()
 // Возврат «Назад» — туда, откуда пришли (дайджест / истории)
 const backTo = computed(() => {
   switch (route.query.from) {
-    case 'digest': return { path: '/digest', label: 'Назад в дайджест' }
-    default: return { path: '/posts', label: 'Назад к историям' }
+    case 'feed': case 'digest': return { path: '/feed', label: 'Назад в ленту' }
+    default: return { path: '/feed', label: 'Назад в ленту' }
   }
 })
 const auth = useAuthStore()

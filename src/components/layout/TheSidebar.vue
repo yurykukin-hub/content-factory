@@ -20,7 +20,6 @@ import {
   Camera,
   Activity,
   Music,
-  Sunrise,
   Newspaper,
   Plus,
   X,
@@ -85,8 +84,7 @@ const navGroups: NavGroup[] = [
   {
     title: 'Контент',
     items: [
-      { name: 'digest', label: 'Дайджест', icon: Sunrise, path: '/digest', section: 'posts' },
-      { name: 'posts', label: 'Контент', icon: Newspaper, path: '/posts', section: 'posts' },
+      { name: 'feed', label: 'Лента', icon: Newspaper, path: '/feed', section: 'posts' },
       { name: 'ideas', label: 'Идеи', icon: Lightbulb, path: '/ideas', section: 'ideas' },
       { name: 'scenarios', label: 'Сценарии', icon: Clapperboard, path: '/scenarios', section: 'scenarios' },
       { name: 'plans', label: 'Контент-планы', icon: ClipboardList, path: '/plans', section: 'plans' },
@@ -121,8 +119,8 @@ function isActive(item: NavItem): boolean {
   if (item.path === '/') return path === '/'
   // Точное совпадение или вложенный путь (/posts → /posts/:id, /businesses → /businesses/:id)
   if (path === item.path || path.startsWith(item.path + '/')) return true
-  // Редактор сторис (/stories/:id) относится к разделу «Контент»
-  if (item.name === 'posts' && path.startsWith('/stories/')) return true
+  // Редактор постов/сторис (/posts/:id, /stories/:id) относится к разделу «Лента»
+  if (item.name === 'feed' && (path.startsWith('/posts/') || path.startsWith('/stories/'))) return true
   return false
 }
 
