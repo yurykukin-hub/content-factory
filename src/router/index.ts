@@ -124,6 +124,13 @@ const routes: RouteRecordRaw[] = [
     name: 'ui-kit',
     component: () => import('@/views/UiKitView.vue'),
   },
+  {
+    // Фаза B — dev-стенд единого модуля запекания (OverlayEditor/useOverlaySpec), Playwright-only.
+    // Без meta.section (не завязан на sectionAccess), требует логин через обычный auth guard ниже.
+    path: '/overlay-lab',
+    name: 'overlay-lab',
+    component: () => import('@/views/OverlayLabView.vue'),
+  },
 ]
 
 const router = createRouter({
