@@ -40,6 +40,8 @@ export interface StoryDesignOpts {
   photoPosition?: string    // objectPosition фото '50% 50%' (вертикальный фокус кадра — чтобы объект не обрезался)
   font?: StoryFont          // семейство заголовков (montserrat=Montserrat / cormorant=Cormorant)
   template?: StoryTemplate  // пресет раскладки: story (текущий) / clean (минимал) / bold (крупный низ)
+  cleanTitle?: boolean      // чистить заголовок cleanStoryTitle (день недели/температура). default true = АВТО-дайджест;
+                            // ручной OverlayEditor передаёт false — пользователь пишет ровно что хочет (эмодзи всё равно стрипаем — satori)
 }
 
 /**
@@ -53,8 +55,9 @@ export function buildStoryDesign(o: StoryDesignOpts): any {
   const isBold = template === 'bold'
   const headFamily = fontFamilyOf(o.font)
 
-  const title = cleanStoryTitle(stripEmoji(o.title)) // чистим температуру/день/«температура» — единая утилита
-  const topText = o.topText ? cleanStoryTitle(stripEmoji(o.topText)) : null
+  const doClean = o.cleanTitle !== false // default: чистим (авто-дайджест); ручной путь передаёт false
+  const title = doClean ? cleanStoryTitle(stripEmoji(o.title)) : stripEmoji(o.title)
+  const topText = o.topText ? (doClean ? cleanStoryTitle(stripEmoji(o.topText)) : stripEmoji(o.topText)) : null
   const weather = o.weather ? stripEmoji(o.weather) : null
   const cta = o.cta ? stripEmoji(o.cta) : null
   const promo = o.promo ? stripEmoji(o.promo) : null

@@ -49,6 +49,7 @@ function nodeFromSpec(spec: OverlaySpec, photoUri: string | null): any {
     photoPosition: spec.photoPosition,
     font: spec.font,
     template: spec.template,
+    cleanTitle: false, // ручной OverlayEditor: не срезаем день недели/температуру — пользователь пишет ровно что хочет
   })
 }
 
