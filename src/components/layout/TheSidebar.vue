@@ -10,10 +10,7 @@ import {
   LayoutDashboard,
   BarChart3,
   Film,
-  Lightbulb,
-  Clapperboard,
   UserCircle,
-  ClipboardList,
   Building2,
   Settings,
   Image,
@@ -85,9 +82,8 @@ const navGroups: NavGroup[] = [
     title: 'Контент',
     items: [
       { name: 'feed', label: 'Лента', icon: Newspaper, path: '/feed', section: 'posts' },
-      { name: 'ideas', label: 'Идеи', icon: Lightbulb, path: '/ideas', section: 'ideas' },
-      { name: 'scenarios', label: 'Сценарии', icon: Clapperboard, path: '/scenarios', section: 'scenarios' },
-      { name: 'plans', label: 'Контент-планы', icon: ClipboardList, path: '/plans', section: 'plans' },
+      // Идеи / Сценарии / Контент-планы убраны из навигации (решение Юрия 03.07): мёртвые разделы.
+      // Роуты/вьюхи пока сохранены (прямые ссылки работают) — Сценарии вернём когда студия готова.
     ],
   },
   {
