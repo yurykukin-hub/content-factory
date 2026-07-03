@@ -13,6 +13,8 @@ import { extractVideoThumbnail } from '../utils/video-thumbnail'
 import { overlayImageOnVideo, overlayAudioOnVideo } from '../services/video-overlay'
 import { bakeDesignLayer } from '../services/design-layer'
 import { renderAndSaveStoryDesign, renderAndSaveCarousel } from '../services/story-design'
+import { renderOverlay } from '../services/overlay/render-overlay'
+import { normalizeOverlaySpec } from '../services/overlay/overlay-spec'
 
 const media = new Hono()
 
@@ -383,6 +385,59 @@ media.post('/render-design', async (c) => {
   } catch (e: any) {
     console.error('[render-design] failed:', e)
     return c.json({ error: 'Ошибка рендера дизайна: ' + String(e?.message || e).slice(0, 200) }, 500)
+  }
+})
+
+// POST /api/media/render-overlay — Фаза B: единое запекание из OverlaySpec (фото satori / видео ffmpeg-слой).
+// Всегда бейкает из ОРИГИНАЛА (spec.sourceMediaId / fallback mediaId), никогда design-over-design. Идемпотентно.
+media.post('/render-overlay', async (c) => {
+  const { postId, mediaId, spec, audioMediaFileId, musicSessionId } = await c.req.json<{
+    postId?: string; mediaId: string; spec: any; audioMediaFileId?: string; musicSessionId?: string
+  }>()
+  if (!mediaId) return c.json({ error: 'mediaId обязателен' }, 400)
+
+  const media0 = await db.mediaFile.findUnique({ where: { id: mediaId } })
+  if (!media0) return c.json({ error: 'Медиа не найдено' }, 404)
+  const businessId = media0.businessId
+
+  const user = c.get('user') as AuthUser
+  try {
+    await assertBusinessAccess(user, businessId)
+  } catch (e: any) {
+    if (e.message === 'FORBIDDEN') return c.json({ error: 'Нет доступа' }, 403)
+    throw e
+  }
+
+  // Нормализуем spec; sourceMediaId по умолчанию — оригинал (если mediaId baked-дизайн, берём его исходник)
+  const normalized = normalizeOverlaySpec(spec)
+  if (!normalized.sourceMediaId) {
+    normalized.sourceMediaId = media0.sourceMediaId || media0.id
+  }
+
+  // Если постом управляем — проверяем принадлежность бизнесу
+  if (postId) {
+    const post = await db.post.findUnique({ where: { id: postId }, select: { businessId: true } })
+    if (!post) return c.json({ error: 'Пост не найден' }, 404)
+    if (post.businessId !== businessId) return c.json({ error: 'Пост принадлежит другому бизнесу' }, 403)
+  }
+
+  try {
+    const baked = await renderOverlay(businessId, normalized, { audioMediaFileId, musicSessionId })
+
+    let mediaFileId = baked.id
+    if (postId) {
+      // Персистим spec на пост + перепривязываем baked-медиа (старые overlay открепляем, не удаляя — без сирот)
+      await db.$transaction([
+        db.post.update({ where: { id: postId }, data: { overlaySpec: normalized as any } }),
+        db.mediaFile.updateMany({ where: { postId, tags: { has: 'overlay' } }, data: { postId: null } }),
+        db.mediaFile.update({ where: { id: baked.id }, data: { postId } }),
+      ])
+    }
+
+    return c.json({ id: baked.id, url: baked.url, thumbUrl: baked.thumbUrl, mimeType: baked.mimeType, mediaFileId, spec: normalized }, 201)
+  } catch (e: any) {
+    console.error('[render-overlay] failed:', e)
+    return c.json({ error: 'Ошибка запекания: ' + String(e?.message || e).slice(0, 200) }, 500)
   }
 })
 

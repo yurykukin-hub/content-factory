@@ -18,51 +18,81 @@ function stripEmoji(s: string): string {
     .trim()
 }
 
+export type StoryTemplate = 'story' | 'clean' | 'bold'
+export type StoryFont = 'montserrat' | 'cormorant'
+
+/** Семейство satori-шрифта по имени из OverlaySpec. */
+export function fontFamilyOf(font?: StoryFont | null): 'Montserrat' | 'Cormorant' {
+  return font === 'cormorant' ? 'Cormorant' : 'Montserrat'
+}
+
 export interface StoryDesignOpts {
-  photoUri: string          // data URI фото-фона
-  title: string             // заголовок-оверлей (короткий, для сторис)
+  photoUri?: string | null  // data URI фото-фона (null/undefined = прозрачный слой для видео)
+  title: string             // заголовок-оверлей (короткий, для сторис) = низ
+  topText?: string | null   // редактируемый верхний заголовок (над/вместо погоды)
   temp?: string | null      // "+21°"
   weather?: string | null   // "тепло · слабый ветер"
+  weatherShow?: boolean     // показывать погодный виджет (default: показывать если есть temp/weather)
   cta?: string | null       // "Записаться · nawode.ru"
   promo?: string | null     // "Прокат −10% · 900₽" — плашка действующей скидки (Фаза 3)
   brandInitial?: string     // буква бренда в кружке (если нет лого)
   logoUri?: string          // data URI лого (приоритет над буквой)
   photoPosition?: string    // objectPosition фото '50% 50%' (вертикальный фокус кадра — чтобы объект не обрезался)
+  font?: StoryFont          // семейство заголовков (montserrat=Montserrat / cormorant=Cormorant)
+  template?: StoryTemplate  // пресет раскладки: story (текущий) / clean (минимал) / bold (крупный низ)
 }
 
-/** Сторис 9:16: фото-фон + погодный виджет + заголовок-оверлей + CTA. Эмодзи убираются (satori их не рисует). */
+/**
+ * Сторис 9:16: фото-фон + погодный виджет + верхний/нижний заголовок + CTA. Эмодзи убираются (satori их не рисует).
+ * Обратная совместимость: без новых полей (topText/font/template/weatherShow) вывод идентичен прежнему.
+ * Видео: photoUri пустой → прозрачный слой (без фото), градиенты сохраняются для читаемости.
+ */
 export function buildStoryDesign(o: StoryDesignOpts): any {
+  const template: StoryTemplate = o.template || 'story'
+  const isClean = template === 'clean'
+  const isBold = template === 'bold'
+  const headFamily = fontFamilyOf(o.font)
+
   const title = cleanStoryTitle(stripEmoji(o.title)) // чистим температуру/день/«температура» — единая утилита
+  const topText = o.topText ? cleanStoryTitle(stripEmoji(o.topText)) : null
   const weather = o.weather ? stripEmoji(o.weather) : null
   const cta = o.cta ? stripEmoji(o.cta) : null
   const promo = o.promo ? stripEmoji(o.promo) : null
+  const weatherShow = o.weatherShow !== false // погода видна, если явно не скрыта
+  const hasPhoto = !!o.photoUri
 
-  const children: any[] = [
-    { type: 'img', props: { src: o.photoUri, style: { position: 'absolute', top: 0, left: 0, width: STORY_W, height: STORY_H, objectFit: 'cover', objectPosition: o.photoPosition || '50% 50%' } } },
-    el('div', { position: 'absolute', top: 0, left: 0, width: STORY_W, height: 520, display: 'flex', backgroundImage: 'linear-gradient(to bottom, rgba(0,0,0,0.55), rgba(0,0,0,0))' }),
-    el('div', { position: 'absolute', bottom: 0, left: 0, width: STORY_W, height: 980, display: 'flex', backgroundImage: 'linear-gradient(to top, rgba(0,0,0,0.9), rgba(0,0,0,0))' }),
-  ]
+  const children: any[] = []
+  if (hasPhoto) {
+    children.push({ type: 'img', props: { src: o.photoUri, style: { position: 'absolute', top: 0, left: 0, width: STORY_W, height: STORY_H, objectFit: 'cover', objectPosition: o.photoPosition || '50% 50%' } } })
+  }
+  // Градиенты для читаемости текста (и на фото, и на прозрачном видео-слое)
+  children.push(el('div', { position: 'absolute', top: 0, left: 0, width: STORY_W, height: 520, display: 'flex', backgroundImage: 'linear-gradient(to bottom, rgba(0,0,0,0.55), rgba(0,0,0,0))' }))
+  children.push(el('div', { position: 'absolute', bottom: 0, left: 0, width: STORY_W, height: 980, display: 'flex', backgroundImage: 'linear-gradient(to top, rgba(0,0,0,0.9), rgba(0,0,0,0))' }))
 
-  // Погодный виджет (только если есть данные)
-  if (o.temp || weather) {
-    const widget: any[] = []
-    if (o.temp) widget.push(el('div', { display: 'flex', fontFamily: 'Cormorant', fontWeight: 700, fontSize: 130, color: 'white', lineHeight: 1 }, o.temp))
-    if (weather) widget.push(el('div', { display: 'flex', fontFamily: 'Montserrat', fontWeight: 600, fontSize: 36, color: 'white', marginTop: 6 }, weather))
+  // Верхняя зона: погодный виджет (если показан и есть данные) + редактируемый topText
+  const topZone: any[] = []
+  if (weatherShow && (o.temp || weather)) {
+    if (o.temp) topZone.push(el('div', { display: 'flex', fontFamily: 'Cormorant', fontWeight: 700, fontSize: 130, color: 'white', lineHeight: 1 }, o.temp))
+    if (weather) topZone.push(el('div', { display: 'flex', fontFamily: 'Montserrat', fontWeight: 600, fontSize: 36, color: 'white', marginTop: 6 }, weather))
+  }
+  if (topText) topZone.push(el('div', { display: 'flex', fontFamily: headFamily, fontWeight: 700, fontSize: 56, color: 'white', lineHeight: 1.1, marginTop: topZone.length ? 18 : 0 }, topText))
+  if (topZone.length) {
     // top:230 — ниже шапки соцсети (аватар/название/время занимают верхние ~200px), чтобы виджет не залезал под UI
-    children.push(el('div', { position: 'absolute', top: 230, left: 64, display: 'flex', flexDirection: 'column' }, widget))
+    children.push(el('div', { position: 'absolute', top: 230, left: 64, width: 952, display: 'flex', flexDirection: 'column' }, topZone))
   }
 
   // Лого НЕ рисуем: сторис идут в собственные аккаунты НаWоде (и так брендировано) — лишний шум.
   // logoUri/brandInitial оставлены в opts для обратной совместимости (можно вернуть при желании).
 
-  // Плашка действующей скидки (если есть) + заголовок + CTA внизу
+  // Нижняя зона: плашка скидки + заголовок + CTA (clean — без плашки/CTA, bold — крупнее заголовок)
   const bottom: any[] = []
-  if (promo) bottom.push(el('div', { display: 'flex', alignSelf: 'flex-start', marginBottom: 22, paddingTop: 14, paddingBottom: 14, paddingLeft: 30, paddingRight: 30, backgroundColor: 'white', borderRadius: 14, fontFamily: 'Montserrat', fontWeight: 700, fontSize: 46, color: BRAND.teal }, promo))
-  bottom.push(el('div', { display: 'flex', fontFamily: 'Montserrat', fontWeight: 700, fontSize: 78, color: 'white', lineHeight: 1.12 }, title))
-  if (cta) bottom.push(el('div', { display: 'flex', marginTop: 36, paddingTop: 22, paddingBottom: 22, paddingLeft: 44, paddingRight: 44, backgroundColor: BRAND.teal, borderRadius: 18, fontFamily: 'Montserrat', fontWeight: 700, fontSize: 38, color: 'white' }, cta))
+  if (promo && !isClean) bottom.push(el('div', { display: 'flex', alignSelf: 'flex-start', marginBottom: 22, paddingTop: 14, paddingBottom: 14, paddingLeft: 30, paddingRight: 30, backgroundColor: 'white', borderRadius: 14, fontFamily: 'Montserrat', fontWeight: 700, fontSize: 46, color: BRAND.teal }, promo))
+  bottom.push(el('div', { display: 'flex', fontFamily: headFamily, fontWeight: 700, fontSize: isBold ? 104 : 78, color: 'white', lineHeight: 1.12 }, title))
+  if (cta && !isClean) bottom.push(el('div', { display: 'flex', marginTop: 36, paddingTop: 22, paddingBottom: 22, paddingLeft: 44, paddingRight: 44, backgroundColor: BRAND.teal, borderRadius: 18, fontFamily: 'Montserrat', fontWeight: 700, fontSize: 38, color: 'white' }, cta))
   children.push(el('div', { position: 'absolute', bottom: 130, left: 64, width: 952, display: 'flex', flexDirection: 'column' }, bottom))
 
-  return el('div', { display: 'flex', position: 'relative', width: STORY_W, height: STORY_H, backgroundColor: '#1a1a1a' }, children)
+  // Прозрачный root для видео-слоя (без фото), непрозрачный fallback-фон для фото.
+  return el('div', { display: 'flex', position: 'relative', width: STORY_W, height: STORY_H, ...(hasPhoto ? { backgroundColor: '#1a1a1a' } : {}) }, children)
 }
 
 // ─── Карусель (4:5 слайды) ───

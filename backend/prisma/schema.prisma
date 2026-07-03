@@ -323,6 +323,7 @@ model Post {
   aiPromptUsed      String?    @map("ai_prompt_used")
   aiPromptHistory   Json?      @map("ai_prompt_history")
   contentPlanItemId String?    @map("content_plan_item_id")
+  overlaySpec       Json?      @map("overlay_spec") // единый OverlaySpec запекания (Фаза B)
   createdAt         DateTime   @default(now()) @map("created_at")
   updatedAt         DateTime   @updatedAt @map("updated_at")
 
