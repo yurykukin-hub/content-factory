@@ -71,6 +71,9 @@ const fileInputRef = ref<HTMLInputElement | null>(null)
 
 // Max reference images per model
 const maxRefs = computed(() => photoModel.value === 'nano-banana-pro' ? 8 : 14)
+// Короткая метка модели (все три варианта) — для сводки контекста и тостов
+const PHOTO_MODEL_LABELS: Record<string, string> = { 'nano-banana-2': 'NB2', 'nano-banana-pro': 'NB Pro', 'gpt-image-2': 'GPT Image 2' }
+const photoModelLabel = computed(() => PHOTO_MODEL_LABELS[photoModel.value] || 'NB2')
 
 // --- Characters ---
 const characters = ref<any[]>([])
@@ -542,7 +545,7 @@ function connectSSE() {
 // --- Reference images ---
 function onAddRefFromLibrary(file: { url: string; thumbUrl: string | null; filename: string; altText?: string | null }) {
   if (referenceImages.value.length >= maxRefs.value) {
-    toast.error(`Максимум ${maxRefs.value} референсов для ${photoModel.value === 'nano-banana-pro' ? 'Pro' : 'NB2'}`)
+    toast.error(`Максимум ${maxRefs.value} референсов для ${photoModelLabel.value}`)
     return
   }
   referenceImages.value.push({
@@ -633,8 +636,7 @@ async function describeRefImage(img: { url: string; thumbUrl?: string | null; fi
 // Agent context summary
 const contextSummary = computed(() => {
   const parts: string[] = []
-  const modelLabel = photoModel.value === 'nano-banana-pro' ? 'NB Pro' : 'NB2'
-  parts.push(modelLabel)
+  parts.push(photoModelLabel.value)
   parts.push(photoResolution.value)
   parts.push(photoAspectRatio.value)
   if (batchSize.value > 1) parts.push(`x${batchSize.value}`)

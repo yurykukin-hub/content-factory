@@ -577,7 +577,12 @@ interface GenerateVideoParams {
   lastFrameUrl?: string | null   // URL последнего кадра (interpolation)
   referenceImageUrls?: string[] // До 9 reference-изображений (multimodal)
   userId?: string
+  model?: string               // модель KIE (опц.) — default seedance-2; невалидная → default
 }
+
+// Допустимые видео-модели KIE. UI может прислать выбор; невалидное значение → DEFAULT.
+export const VIDEO_MODELS = ['bytedance/seedance-2'] as const
+const DEFAULT_VIDEO_MODEL = 'bytedance/seedance-2'
 
 interface GenerateVideoResult {
   mediaFile: {
@@ -625,7 +630,9 @@ export interface CreateVideoTaskResult {
 
 export async function createVideoTask(params: GenerateVideoParams): Promise<CreateVideoTaskResult> {
   const { prompt: rawPrompt, businessId, duration = 5, aspectRatio = '9:16', resolution = '720p', generateAudio = true, firstFrameUrl, lastFrameUrl, referenceImageUrls } = params
-  const model = 'bytedance/seedance-2'
+  const model = params.model && (VIDEO_MODELS as readonly string[]).includes(params.model)
+    ? params.model
+    : DEFAULT_VIDEO_MODEL
 
   const hasImageInput = !!firstFrameUrl || (referenceImageUrls && referenceImageUrls.length > 0)
   const PRICING: Record<string, { withImage: number; textOnly: number }> = {

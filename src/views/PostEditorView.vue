@@ -666,7 +666,7 @@ onMounted(loadPost)
                 <p class="text-[10px] text-gray-400 mb-1.5">Нажми на текст в превью и редактируй прямо там · {{ platformLabel(ch.platform) }}</p>
                 <PostPreview class="mb-2" :platform="ch.platform" :account-name="ch.accountName"
                   :text="effectiveText(ch.id)" :hashtags="effectiveHashtags(ch.id)" :media-files="post.mediaFiles" :post-type="post.postType"
-                  :editable="!['PUBLISHED','SCHEDULED'].includes(versionFor(ch.id)?.status || '')"
+                  :editable="versionFor(ch.id)?.status !== 'PUBLISHED'"
                   @update:text="onPreviewEdit(ch.id, $event)" />
 
                 <!-- Статус публикации -->
@@ -692,7 +692,7 @@ onMounted(loadPost)
                     class="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-medium border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800">
                     <RefreshCw :size="12" /> Сбросить
                   </button>
-                  <button v-if="!['PUBLISHED','SCHEDULED'].includes(versionFor(ch.id)?.status || '')"
+                  <button v-if="versionFor(ch.id)?.status !== 'PUBLISHED'"
                     @click="publishOneChannel(ch.id)" :disabled="publishingOne === ch.id || channelOverLimit(ch)"
                     class="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-medium bg-green-50 dark:bg-green-950 text-green-700 dark:text-green-300 hover:bg-green-100 dark:hover:bg-green-900 disabled:opacity-50">
                     <Loader2 v-if="publishingOne === ch.id" :size="12" class="animate-spin" /><Send v-else :size="12" /> {{ versionFor(ch.id)?.status === 'FAILED' ? 'Повторить' : 'Только сюда' }}

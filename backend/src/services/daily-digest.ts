@@ -285,7 +285,11 @@ async function generateDigestForBusiness(biz: any, force: boolean, role: DigestR
   }
 
   // Дедуп фото МЕЖДУ ДНЯМИ: кадры из предложений за 10 дней → не повторять (исходные фото дизайн-сторис тоже)
-  const recentPhotoIds = await getRecentlyUsedPhotoIds(biz.id, 10).catch(() => new Set<string>())
+  const recentPhotoIds = await getRecentlyUsedPhotoIds(biz.id, 10).catch((err) => {
+    // Не роняем дайджест из-за сбоя дедупа, но и не глушим тихо — иначе повторы фото незаметны.
+    log.warn('[Digest] getRecentlyUsedPhotoIds failed — dedup skipped this run', { businessId: biz.id, error: err?.message || String(err) })
+    return new Set<string>()
+  })
 
   const rubrics = await getRubricNames(biz.id)
   const ctx: DigestContext = {
@@ -437,11 +441,16 @@ async function pickPhotoForPost(
   // Маршрут из ТЕМЫ/ТЕКСТА поста (не из keywords) → фото жёстко из папки маршрута (Беличьи≠Монрепо)
   const routeFolder = await detectRouteFolder(businessId, `${brief.theme} ${brief.text}`).catch(() => null)
   const found = await searchGalleryPhotos(businessId, brief.photoKeywords, 16, routeFolder)
-  let candidates = found.filter(c => !excludeIds.has(c.id)) // дедуп: не повторять недавние/уже выбранные фото
-  // Дедуп исчерпал всех кандидатов под тему → лучше ПОВТОРИТЬ фото, чем оставить пост без картинки.
+  const candidates = found.filter(c => !excludeIds.has(c.id)) // дедуп: не повторять недавние/уже выбранные фото
+  // Дедуп исчерпал всех кандидатов под тему (все found — недавние) → лучше ПОВТОРИТЬ фото, чем
+  // оставить пост без картинки. Но НЕ повторять всегда один и тот же топовый кадр: ротируем по
+  // календарному дню, чтобы вариант менялся день ото дня (found отсортирован по релевантности —
+  // ротация даёт другой, но всё ещё релевантный кадр). Детерминированно, без AI-вызова.
   if (!candidates.length && found.length) {
-    log.info('[Digest] dedup exhausted candidates — allowing reuse', { businessId, keywords: brief.photoKeywords })
-    candidates = found
+    const rotateBy = new Date().getUTCDate() % found.length
+    const picked = found[rotateBy]
+    log.info('[Digest] dedup exhausted — rotating reuse', { businessId, keywords: brief.photoKeywords, rotateBy, pickedId: picked.id })
+    return picked.id
   }
   if (!candidates.length) return null
   if (candidates.length === 1) return candidates[0].id

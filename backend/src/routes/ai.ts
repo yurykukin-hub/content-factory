@@ -906,6 +906,7 @@ const generateVideoSchema = z.object({
   firstFrameUrl: z.string().optional().nullable(),
   lastFrameUrl: z.string().optional().nullable(),
   referenceImageUrls: z.array(z.string()).max(9).optional(),
+  model: z.string().max(100).optional(), // опц. выбор видео-модели; невалидное → default в createVideoTask
 })
 
 ai.post('/generate-video', async (c) => {
@@ -949,6 +950,7 @@ ai.post('/generate-video', async (c) => {
       firstFrameUrl: data.firstFrameUrl || null,
       lastFrameUrl: data.lastFrameUrl || null,
       referenceImageUrls: data.referenceImageUrls || undefined,
+      model: data.model || undefined,
       userId: user.userId,
     })
 

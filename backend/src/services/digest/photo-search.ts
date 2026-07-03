@@ -76,15 +76,34 @@ export async function searchGalleryPhotos(businessId: string, keywords: string[]
  */
 export async function getRecentlyUsedPhotoIds(businessId: string, days = 10): Promise<Set<string>> {
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000)
+  const used = new Set<string>()
+
+  // 1) Фото из предложений дайджеста (AutoPostTask.mediaFileId)
   const tasks = await db.autoPostTask.findMany({
     where: { businessId, mediaFileId: { not: null }, createdAt: { gte: since } },
     select: { mediaFileId: true },
   })
-  const ids = tasks.map(t => t.mediaFileId).filter((x): x is string => !!x)
-  const used = new Set<string>(ids)
-  if (ids.length) {
+  const taskIds = tasks.map(t => t.mediaFileId).filter((x): x is string => !!x)
+  for (const id of taskIds) used.add(id)
+
+  // 2) Фото, реально прикреплённые к недавним постам (Post.mediaFiles) — дайджест «не видел»
+  //    их в AutoPostTask, но публиковались именно они → тоже не повторять.
+  const posts = await db.post.findMany({
+    where: { businessId, createdAt: { gte: since } },
+    select: { mediaFiles: { select: { id: true, sourceMediaId: true } } },
+  })
+  const postMediaIds: string[] = []
+  for (const p of posts) for (const m of p.mediaFiles) {
+    used.add(m.id)
+    if (m.sourceMediaId) used.add(m.sourceMediaId) // исходное фото baked-дизайна
+    postMediaIds.push(m.id)
+  }
+
+  // 3) Развернуть baked-сторис (AutoPostTask + Post) → исходное фото (sourceMediaId)
+  const lookupIds = [...taskIds, ...postMediaIds]
+  if (lookupIds.length) {
     const files = await db.mediaFile.findMany({
-      where: { id: { in: ids }, sourceMediaId: { not: null } },
+      where: { id: { in: lookupIds }, sourceMediaId: { not: null } },
       select: { sourceMediaId: true },
     })
     for (const f of files) if (f.sourceMediaId) used.add(f.sourceMediaId) // исходное фото дизайн-сторис
