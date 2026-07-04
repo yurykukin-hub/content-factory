@@ -6,7 +6,7 @@
  * Brand color: fuchsia (matching Content Factory).
  */
 import { ref, computed, onMounted } from 'vue'
-import { ChevronUp, Camera, Plus, Upload, FolderOpen, X, Sparkles, Loader2 } from 'lucide-vue-next'
+import { ChevronUp, Camera, Plus, Upload, FolderOpen, X, Sparkles, Loader2, Palette, Lightbulb, Grid3x3, Rainbow, Search, Globe, Scissors } from 'lucide-vue-next'
 import MediaPickerModal from '@/components/MediaPickerModal.vue'
 import { http, TAB_ID } from '@/api/client'
 import { useBusinessesStore } from '@/stores/businesses'
@@ -122,14 +122,14 @@ const mobileGalleryOpen = ref(false)
 
 // Enhance-режимы фото (доменные → SharedEnhanceMenu; main-клик = 'enhance')
 const PHOTO_ENHANCE_MODES: EnhanceModeItem[] = [
-  { id: 'enhance', label: 'Улучшить', group: 'basic' },
-  { id: 'style', label: 'Стиль', group: 'basic' },
-  { id: 'lighting', label: 'Освещение', group: 'basic' },
-  { id: 'composition', label: 'Композиция', group: 'pro' },
-  { id: 'mood', label: 'Настроение', group: 'pro' },
-  { id: 'detail', label: 'Детали', group: 'pro' },
-  { id: 'translate', label: 'Перевести', group: 'pro' },
-  { id: 'simplify', label: 'Упростить', group: 'pro' },
+  { id: 'enhance', label: 'Улучшить', group: 'basic', icon: Sparkles, desc: 'Обогатить описание' },
+  { id: 'style', label: 'Стиль', group: 'basic', icon: Palette, desc: 'Художественный стиль' },
+  { id: 'lighting', label: 'Освещение', group: 'basic', icon: Lightbulb, desc: 'Свет и тени' },
+  { id: 'composition', label: 'Композиция', group: 'pro', icon: Grid3x3, desc: 'Расположение и кадр' },
+  { id: 'mood', label: 'Настроение', group: 'pro', icon: Rainbow, desc: 'Атмосфера и цвет' },
+  { id: 'detail', label: 'Детали', group: 'pro', icon: Search, desc: 'Текстуры и элементы' },
+  { id: 'translate', label: 'Перевести', group: 'pro', icon: Globe, desc: 'RU / EN' },
+  { id: 'simplify', label: 'Упростить', group: 'pro', icon: Scissors, desc: 'Сжать описание' },
 ]
 
 // --- Pricing ---
@@ -168,7 +168,7 @@ const contextSummary = computed(() => {
 
 // Welcome-бабл чата (несёт сводку контекста)
 const welcomeText = computed(() =>
-  `Настройки: ${contextSummary.value}\nОпиши, какое изображение хочешь создать`
+  `Опиши, какое изображение хочешь создать\nНастройки: ${contextSummary.value}`
 )
 
 // --- Session <-> domain mapping (для useStudioSession) ---

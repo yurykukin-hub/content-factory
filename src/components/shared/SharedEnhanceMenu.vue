@@ -20,6 +20,8 @@ export interface EnhanceModeItem {
   id: string
   label: string
   group: 'basic' | 'pro'
+  icon?: any
+  desc?: string
 }
 
 const props = withDefaults(defineProps<{
@@ -64,6 +66,7 @@ const c = computed(() => props.accent === 'emerald'
       item: 'hover:bg-emerald-50 dark:hover:bg-emerald-900/20',
       sep: 'border-emerald-100 dark:border-emerald-800',
       sepText: 'text-emerald-400',
+      icon: 'text-emerald-500',
     }
   : {
       btn: 'border-fuchsia-300 text-fuchsia-600 hover:bg-fuchsia-50 dark:hover:bg-fuchsia-900/20',
@@ -71,6 +74,7 @@ const c = computed(() => props.accent === 'emerald'
       item: 'hover:bg-fuchsia-50 dark:hover:bg-fuchsia-900/20',
       sep: 'border-fuchsia-100 dark:border-fuchsia-800',
       sepText: 'text-fuchsia-400',
+      icon: 'text-fuchsia-500',
     })
 
 function selectMode(mode: string) {
@@ -109,9 +113,13 @@ function onMainClick() {
       :class="c.dropdown">
       <button v-for="m in basicModes" :key="m.id"
         @click="selectMode(m.id)"
-        class="w-full flex items-center px-3 py-2 text-left text-xs font-medium text-gray-800 dark:text-gray-200 transition-colors"
+        class="w-full flex items-center gap-2.5 px-3 py-2 text-left transition-colors"
         :class="c.item">
-        {{ m.label }}
+        <component :is="m.icon" v-if="m.icon" :size="14" class="shrink-0" :class="c.icon" />
+        <div class="min-w-0">
+          <div class="text-xs font-medium text-gray-800 dark:text-gray-200">{{ m.label }}</div>
+          <span v-if="m.desc" class="text-[10px] text-gray-500 dark:text-gray-400">{{ m.desc }}</span>
+        </div>
       </button>
 
       <template v-if="showPro">
@@ -120,9 +128,13 @@ function onMainClick() {
         </div>
         <button v-for="m in proModes" :key="m.id"
           @click="selectMode(m.id)"
-          class="w-full flex items-center px-3 py-2 text-left text-xs font-medium text-gray-800 dark:text-gray-200 transition-colors"
+          class="w-full flex items-center gap-2.5 px-3 py-2 text-left transition-colors"
           :class="c.item">
-          {{ m.label }}
+          <component :is="m.icon" v-if="m.icon" :size="14" class="shrink-0" :class="c.icon" />
+          <div class="min-w-0">
+            <div class="text-xs font-medium text-gray-800 dark:text-gray-200">{{ m.label }}</div>
+            <span v-if="m.desc" class="text-[10px] text-gray-500 dark:text-gray-400">{{ m.desc }}</span>
+          </div>
         </button>
       </template>
     </div>

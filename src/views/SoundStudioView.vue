@@ -6,7 +6,7 @@
  * Brand color: fuchsia (matching Content Factory).
  */
 import { ref, computed } from 'vue'
-import { ChevronUp, Music } from 'lucide-vue-next'
+import { ChevronUp, Music, Wand2, FileText, Sparkles, LayoutTemplate, Repeat, Globe, Eraser } from 'lucide-vue-next'
 import { http } from '@/api/client'
 import { useBusinessesStore } from '@/stores/businesses'
 import { useToast } from '@/composables/useToast'
@@ -63,14 +63,14 @@ const selectedPersonaId = ref<string | null>(null)
 
 // Enhance-режимы музыки (доменные → SharedEnhanceMenu)
 const SOUND_ENHANCE_MODES: EnhanceModeItem[] = [
-  { id: 'enhance', label: 'Улучшить промпт', group: 'basic' },
-  { id: 'lyrics', label: 'Написать текст', group: 'basic' },
-  { id: 'style', label: 'Подобрать стиль', group: 'basic' },
-  { id: 'improve', label: 'Улучшить текст', group: 'pro' },
-  { id: 'structure', label: 'Структурировать', group: 'pro' },
-  { id: 'rhyme', label: 'Рифмы', group: 'pro' },
-  { id: 'translate', label: 'Перевести', group: 'pro' },
-  { id: 'simplify', label: 'Упростить', group: 'pro' },
+  { id: 'enhance', label: 'Улучшить промпт', group: 'basic', icon: Wand2, desc: 'Обогатить описание' },
+  { id: 'lyrics', label: 'Написать текст', group: 'basic', icon: FileText, desc: 'AI-генерация из темы' },
+  { id: 'style', label: 'Подобрать стиль', group: 'basic', icon: Music, desc: 'Жанр + mood + BPM' },
+  { id: 'improve', label: 'Улучшить текст', group: 'pro', icon: Sparkles, desc: 'Рифмы, ритм, образы' },
+  { id: 'structure', label: 'Структурировать', group: 'pro', icon: LayoutTemplate, desc: '[Verse]/[Chorus] секции' },
+  { id: 'rhyme', label: 'Рифмы', group: 'pro', icon: Repeat, desc: 'Найти и улучшить' },
+  { id: 'translate', label: 'Перевести', group: 'pro', icon: Globe, desc: 'RU ↔ EN для Suno' },
+  { id: 'simplify', label: 'Упростить', group: 'pro', icon: Eraser, desc: 'Сжать описание' },
 ]
 // main-клик enhance-меню: есть текст → «Улучшить текст» (improve), иначе «Улучшить промпт»
 const soundMainMode = computed(() => lyrics.value.trim() ? 'improve' : 'enhance')
@@ -91,8 +91,8 @@ const canGenerate = computed(() => {
 // Agent context summary
 const contextSummary = computed(() => {
   const parts: string[] = []
-  if (musicMode.value === 'custom') parts.push('Полный режим')
-  else parts.push('Простой режим')
+  // musicMode всегда 'custom' (Simple-режим деприкейт, форсирован выше) — лейбл режима не несёт
+  // информации и был убран, оставлены только реально различающиеся настройки
   if (instrumental.value) parts.push('инструментал')
   if (sunoModel.value) parts.push(sunoModel.value.replace('suno/', '').replace('_', '.'))
   return parts.join(' · ')
@@ -100,7 +100,7 @@ const contextSummary = computed(() => {
 
 // Welcome-бабл чата (несёт сводку контекста)
 const welcomeText = computed(() =>
-  `Настройки: ${contextSummary.value}\nОпиши, какую музыку хочешь создать`
+  `Опиши, какую музыку хочешь создать\nНастройки: ${contextSummary.value}`
 )
 
 // --- Session <-> domain mapping (для useStudioSession) ---

@@ -32,6 +32,7 @@ import MediaPickerModal from '@/components/MediaPickerModal.vue'
 import {
   Video, Plus, Upload, FolderOpen, X, Image as ImageIcon, Trash2,
   Sparkles, Loader2, ChevronLeft, ChevronRight, ChevronDown, ChevronUp,
+  Wand2, Eraser, Clapperboard, LayoutTemplate, Target, Volume2, Camera, Globe,
 } from 'lucide-vue-next'
 
 defineOptions({ name: 'VideoStudioView' })
@@ -127,14 +128,14 @@ const templatesLoaded = ref(false)
 
 // --- Enhance-режимы видео (доменные → SharedEnhanceMenu; basic = enhance/simplify, pro за гейтом) ---
 const VIDEO_ENHANCE_MODES: EnhanceModeItem[] = [
-  { id: 'enhance', label: 'Улучшить', group: 'basic' },
-  { id: 'simplify', label: 'Упростить', group: 'basic' },
-  { id: 'director', label: 'Режиссёрский', group: 'pro' },
-  { id: 'structure', label: 'Структурировать', group: 'pro' },
-  { id: 'focus', label: 'Фокус', group: 'pro' },
-  { id: 'audio', label: 'Добавить звук', group: 'pro' },
-  { id: 'camera', label: 'Камера', group: 'pro' },
-  { id: 'translate', label: 'Перевести', group: 'pro' },
+  { id: 'enhance', label: 'Улучшить', group: 'basic', icon: Wand2, desc: 'Адаптивное улучшение' },
+  { id: 'simplify', label: 'Упростить', group: 'basic', icon: Eraser, desc: 'Базовая структура' },
+  { id: 'director', label: 'Режиссёрский', group: 'pro', icon: Clapperboard, desc: 'Timeline, мультисцены' },
+  { id: 'structure', label: 'Структурировать', group: 'pro', icon: LayoutTemplate, desc: '6-компонентный шаблон' },
+  { id: 'focus', label: 'Фокус', group: 'pro', icon: Target, desc: 'Убрать мусор, усилить' },
+  { id: 'audio', label: 'Добавить звук', group: 'pro', icon: Volume2, desc: 'Inline-аудио описания' },
+  { id: 'camera', label: 'Камера', group: 'pro', icon: Camera, desc: 'Кадр + движение + угол' },
+  { id: 'translate', label: 'Перевести', group: 'pro', icon: Globe, desc: 'RU → EN для Seedance' },
 ]
 const MODE_LABELS: Record<string, string> = {
   enhance: 'Промпт улучшен',
@@ -176,7 +177,7 @@ const contextSummary = computed(() => {
   return parts.join(' / ')
 })
 const welcomeText = computed(() =>
-  `Настройки: ${contextSummary.value}\nОпиши, какое видео хочешь создать`
+  `Опиши, какое видео хочешь создать\nНастройки: ${contextSummary.value}`
 )
 
 // --- Session <-> domain mapping (для useStudioSession) ---
