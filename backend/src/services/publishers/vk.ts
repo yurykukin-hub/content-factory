@@ -352,20 +352,8 @@ export class VkPublisher implements Publisher {
         }
       }
 
-      // Наложить текст на фото (если не pre-rendered и есть текст)
-      if (!isVideo && text && text.trim() && !storiesOptions?.skipOverlay) {
-        try {
-          const { overlayTextOnImage } = await import('../image-overlay')
-          fileBuffer = Buffer.from(await overlayTextOnImage(fileBuffer, text, {
-            position: storiesOptions?.textPosition || 'bottom',
-          }))
-          log.info('[VK Stories] Text overlay applied (server-side)')
-        } catch (err) {
-          log.error('[VK Stories] Text overlay error', { error: String(err) })
-        }
-      } else if (storiesOptions?.skipOverlay) {
-        log.info('[VK Stories] Using pre-rendered image (client canvas)')
-      }
+      // Текст НЕ накладываем на сервере: сторис приходят уже запечёнными (satori OverlaySpec, Фаза B).
+      // Старый MVP-баке (image-overlay) снесён — он был причиной наложения текста-на-текст.
 
       const formData = new FormData()
       const fieldName = isVideo ? 'video_file' : 'photo'
