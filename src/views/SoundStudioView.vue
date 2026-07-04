@@ -1,16 +1,17 @@
 <script setup lang="ts">
 /**
  * Sound Studio — AI music generation view.
- * Pattern follows VideoStudioView: 50/50 layout, sessions, SSE, auto-save.
+ * Сессии / автосейв / SSE / lifecycle вынесены в useStudioSession (общий движок студий).
+ * Здесь остаётся доменное: music-стейт, маппинг полей, генерация, агент, персоны.
  * Brand color: fuchsia (matching Content Factory).
  */
-import { ref, computed, watch, onMounted, onBeforeUnmount, onDeactivated, nextTick } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { ChevronUp, Music } from 'lucide-vue-next'
-import { http, TAB_ID } from '@/api/client'
+import { http } from '@/api/client'
 import { useBusinessesStore } from '@/stores/businesses'
-import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/composables/useToast'
 import { useRates } from '@/composables/useRates'
+import { useStudioSession } from '@/composables/useStudioSession'
 
 import SsLyricsEditor from '@/components/sound/SsLyricsEditor.vue'
 import SsStylePanel from '@/components/sound/SsStylePanel.vue'
@@ -30,7 +31,6 @@ import type { MusicEnhanceMode } from '@/components/sound/SsEnhanceMenu.vue'
 defineOptions({ name: 'SoundStudioView' })
 
 const businesses = useBusinessesStore()
-const auth = useAuthStore()
 const toast = useToast()
 const { USD_RUB } = useRates()
 const markupPercent = ref(50) // default, loaded from settings
@@ -39,15 +39,6 @@ const markupPercent = ref(50) // default, loaded from settings
 http.get<{ usdRubRate: number; markupPercent: number }>('/settings/public')
   .then((data) => { if (data.markupPercent >= 0) markupPercent.value = data.markupPercent })
   .catch(() => {})
-
-// Business change watcher (global selector in header)
-watch(() => businesses.currentBusinessId, (newId, oldId) => {
-  if (newId && newId !== oldId) onBusinessChange()
-})
-
-// --- Session state ---
-const sessions = ref<MusicSession[]>([])
-const currentSessionId = ref<string | null>(null)
 
 // --- Music generation state ---
 const musicMode = ref<'simple' | 'custom'>('custom') // forced to custom (Simple-режим скрыт)
@@ -62,10 +53,6 @@ const sunoModel = ref('V4_5')
 const styleWeight = ref(0.7)
 const weirdnessConstraint = ref(0.3)
 
-// --- Generation state ---
-const generating = ref(false)
-const generatingStartedAt = ref<string | null>(null)
-
 // --- UI state ---
 const activeTab = ref<'agent' | 'editor'>('editor')
 const chatMessages = ref<AgentMessage[]>([])
@@ -76,9 +63,6 @@ const showPreGenModal = ref(false)
 const showCreatePersonaModal = ref(false)
 const mobileTracksOpen = ref(false)
 const selectedPersonaId = ref<string | null>(null)
-
-// --- Results (from completed sessions) ---
-const trackResults = ref<any[]>([])
 
 // --- Cost ---
 const MUSIC_COST_USD = 0.11
@@ -93,16 +77,17 @@ const canGenerate = computed(() => {
   return (lyrics.value.trim().length > 0 || prompt.value.trim().length > 0)
 })
 
-// --- Auto-save ---
-let autoSaveTimer: ReturnType<typeof setTimeout> | null = null
-let autoSavePaused = false
+// Agent context summary
+const contextSummary = computed(() => {
+  const parts: string[] = []
+  if (musicMode.value === 'custom') parts.push('Полный режим')
+  else parts.push('Простой режим')
+  if (instrumental.value) parts.push('инструментал')
+  if (sunoModel.value) parts.push(sunoModel.value.replace('suno/', '').replace('_', '.'))
+  return parts.join(' · ')
+})
 
-function scheduleAutoSave() {
-  if (autoSavePaused) return
-  if (autoSaveTimer) clearTimeout(autoSaveTimer)
-  autoSaveTimer = setTimeout(saveSession, 2000)
-}
-
+// --- Session <-> domain mapping (для useStudioSession) ---
 function buildSavePayload() {
   return {
     title: musicTitle.value || prompt.value.slice(0, 40) || '',
@@ -122,99 +107,7 @@ function buildSavePayload() {
   }
 }
 
-async function saveSession() {
-  if (!currentSessionId.value || autoSavePaused) return
-  const current = sessions.value.find(s => s.id === currentSessionId.value)
-  // Allow saving for draft (full save) and failed (chat only — so user can continue chatting)
-  if (current && current.status === 'generating' || current?.status === 'completed') return
-
-  try {
-    if (current?.status === 'failed') {
-      // Only save chat for failed sessions (don't overwrite other fields)
-      await http.put(`/sessions/${currentSessionId.value}`, {
-        chatHistory: chatMessages.value.length ? chatMessages.value : null,
-      })
-    } else {
-      await http.put(`/sessions/${currentSessionId.value}`, buildSavePayload())
-    }
-  } catch {}
-}
-
-/** Flush pending save on page unload (F5, tab close) */
-function flushBeforeUnload() {
-  if (autoSaveTimer && currentSessionId.value) {
-    clearTimeout(autoSaveTimer)
-    autoSaveTimer = null
-    const current = sessions.value.find(s => s.id === currentSessionId.value)
-    if (current?.status === 'generating' || current?.status === 'completed') return
-    const payload = current?.status === 'failed'
-      ? { chatHistory: chatMessages.value.length ? chatMessages.value : null }
-      : buildSavePayload()
-    fetch(`/api/sessions/${currentSessionId.value}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json', 'X-Tab-ID': TAB_ID },
-      body: JSON.stringify(payload),
-      credentials: 'include',
-      keepalive: true,
-    })
-  }
-}
-
-watch([prompt, lyrics, musicStyle, musicTitle, negativeTags, instrumental, vocalGender, sunoModel, styleWeight, weirdnessConstraint, musicMode, selectedPersonaId, chatMessages], scheduleAutoSave, { deep: true })
-
-// Flush save immediately when switching tabs
-watch(activeTab, () => {
-  if (autoSaveTimer) {
-    clearTimeout(autoSaveTimer)
-    autoSaveTimer = null
-  }
-  saveSession()
-})
-
-// --- Session CRUD ---
-async function loadSessions() {
-  if (!businesses.currentBusinessId) return
-  try {
-    sessions.value = await http.get<MusicSession[]>(`/sessions?businessId=${businesses.currentBusinessId}&type=music`)
-  } catch {}
-}
-
-async function loadDraftSession() {
-  if (!businesses.currentBusinessId) return
-  autoSavePaused = true
-  // Try loading existing draft first
-  const draft = await http.get<any>(`/sessions/draft?businessId=${businesses.currentBusinessId}&type=music`)
-  if (draft) {
-    loadSessionIntoState(draft)
-    autoSavePaused = false
-    return
-  }
-  // No draft — load the most recent session (any status) instead of auto-creating empty one
-  if (sessions.value.length > 0) {
-    const latest = sessions.value[0] // already sorted by updatedAt desc
-    const full = await http.get<any>(`/sessions/${latest.id}`)
-    loadSessionIntoState(full)
-    autoSavePaused = false
-    return
-  }
-  // Truly empty — create first session
-  await createNewSession()
-  autoSavePaused = false
-}
-
-async function createNewSession() {
-  if (!businesses.currentBusinessId) return
-  resetState()
-  const session = await http.post<any>('/sessions', {
-    businessId: businesses.currentBusinessId,
-    type: 'music',
-  })
-  currentSessionId.value = session.id
-  await loadSessions()
-}
-
-function loadSessionIntoState(session: any) {
-  currentSessionId.value = session.id
+function applySession(session: any) {
   prompt.value = session.prompt || ''
   musicMode.value = session.customMode ? 'custom' : 'simple'
   lyrics.value = session.lyrics || ''
@@ -228,11 +121,6 @@ function loadSessionIntoState(session: any) {
   weirdnessConstraint.value = session.weirdnessConstraint ?? 0.3
   selectedPersonaId.value = session.personaId || null
   chatMessages.value = session.chatHistory || []
-  generating.value = session.status === 'generating'
-  generatingStartedAt.value = session.kieTaskCreatedAt || null
-
-  // Load results from this session and completed sessions
-  loadTrackResults()
 }
 
 function resetState() {
@@ -248,43 +136,40 @@ function resetState() {
   weirdnessConstraint.value = 0.3
   selectedPersonaId.value = null
   chatMessages.value = []
-  generating.value = false
-  generatingStartedAt.value = null
   musicMode.value = 'custom'
 }
 
-async function onLoadSession(session: MusicSession) {
-  // Flush pending auto-save for current session before switching
-  if (autoSaveTimer) {
-    clearTimeout(autoSaveTimer)
-    autoSaveTimer = null
-    await saveSession()
-  }
-  autoSavePaused = true
-  // Fetch full session
-  const full = await http.get<any>(`/sessions/${session.id}`)
-  loadSessionIntoState(full)
-  autoSavePaused = false
-}
+// --- Движок сессий (sessions / автосейв / SSE / lifecycle) ---
+const {
+  sessions,
+  currentSessionId,
+  generating,
+  generatingStartedAt,
+  loadSessions,
+  createNew,
+  onLoadSession,
+  onDeleteSession,
+  onRenameSession,
+  scheduleAutoSave,
+  pauseAutoSave,
+  resumeAutoSave,
+  flush,
+} = useStudioSession<MusicSession>({
+  type: 'music',
+  businessId: computed(() => businesses.currentBusinessId),
+  buildSavePayload,
+  applySession,
+  resetState,
+  watchSources: () => [prompt, lyrics, musicStyle, musicTitle, negativeTags, instrumental, vocalGender, sunoModel, styleWeight, weirdnessConstraint, musicMode, selectedPersonaId, chatMessages],
+  onCompleted: () => toast.success('Трек готов!'),
+  onFailed: () => toast.error('Генерация не удалась'),
+  // Переименование в списке — синхронизируем поле заголовка в редакторе
+  onRenamed: (id, title) => { if (currentSessionId.value === id) musicTitle.value = title },
+})
 
-async function onDeleteSession(id: string) {
-  await http.delete(`/sessions/${id}`)
-  if (currentSessionId.value === id) {
-    currentSessionId.value = null
-    await loadDraftSession()
-  }
-  await loadSessions()
-}
-
-async function onRenameSession(id: string, title: string) {
-  await http.put(`/sessions/${id}`, { title })
-  if (currentSessionId.value === id) musicTitle.value = title
-  await loadSessions()
-}
-
-async function loadTrackResults() {
-  // Collect results from completed sessions (including all variants from results JSON)
-  const tracks: typeof trackResults.value = []
+// --- Results (derived from completed sessions) ---
+const trackResults = computed(() => {
+  const tracks: any[] = []
   const completed = sessions.value.filter(s => s.status === 'completed' && s.audioUrl)
 
   for (const s of completed) {
@@ -292,14 +177,14 @@ async function loadTrackResults() {
     const sessionFallback = {
       prompt: s.prompt || '',
       musicStyle: s.musicStyle || '',
-      lyrics: s.lyrics || '',
+      lyrics: (s as any).lyrics || '',
       sunoModel: s.sunoModel || '',
       instrumental: s.instrumental ?? false,
-      vocalGender: s.vocalGender || null,
+      vocalGender: (s as any).vocalGender || null,
     }
 
     // Check results JSON for multiple variants (new API returns 2 tracks)
-    const results = s.results as any[] | null
+    const results = (s as any).results as any[] | null
     if (Array.isArray(results) && results.length > 0) {
       for (const r of results) {
         tracks.push({
@@ -339,12 +224,15 @@ async function loadTrackResults() {
   }
   // Sort newest first
   tracks.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-  trackResults.value = tracks
-}
+  return tracks
+})
+
+// Flush save immediately when switching tabs
+watch(activeTab, flush)
 
 async function onToggleFavorite(resultUrl: string) {
   for (const s of sessions.value) {
-    const results = s.results as any[] | null
+    const results = (s as any).results as any[] | null
     if (!Array.isArray(results)) continue
     const idx = results.findIndex(r => r.resultUrl === resultUrl)
     if (idx === -1) continue
@@ -355,25 +243,9 @@ async function onToggleFavorite(resultUrl: string) {
     try {
       await http.put(`/sessions/${s.id}`, { results: updated })
       ;(s as any).results = updated
-      loadTrackResults()
     } catch {}
     return
   }
-}
-
-async function onBusinessChange() {
-  // Flush pending auto-save before switching business
-  if (autoSaveTimer) {
-    clearTimeout(autoSaveTimer)
-    autoSaveTimer = null
-    await saveSession()
-  }
-  sessions.value = []
-  trackResults.value = []
-  currentSessionId.value = null
-  resetState()
-  loadSessions()
-  loadDraftSession()
 }
 
 // --- Generation ---
@@ -384,10 +256,9 @@ function requestGenerate() {
 async function confirmGenerate() {
   showPreGenModal.value = false
   if (!businesses.currentBusinessId || !currentSessionId.value) return
+  if (generating.value) return
 
-  autoSavePaused = true
-  generating.value = true
-  generatingStartedAt.value = new Date().toISOString()
+  pauseAutoSave()
 
   try {
     await http.post('/music/generate', {
@@ -407,11 +278,9 @@ async function confirmGenerate() {
     toast.info('Генерация запущена (1-3 мин)...')
     await loadSessions()
   } catch (err: any) {
-    generating.value = false
-    generatingStartedAt.value = null
     toast.error(err.message || 'Ошибка генерации')
   } finally {
-    autoSavePaused = false
+    resumeAutoSave()
   }
 }
 
@@ -512,78 +381,6 @@ async function onSendAgentMessage(userText: string) {
 function onUsePrompt(p: string) { prompt.value = p; activeTab.value = 'editor'; scheduleAutoSave() }
 function onUseLyrics(l: string) { lyrics.value = l; musicMode.value = 'custom'; activeTab.value = 'editor'; scheduleAutoSave() }
 function onUseStyle(s: string) { musicStyle.value = s; musicMode.value = 'custom'; activeTab.value = 'editor'; scheduleAutoSave() }
-
-// --- SSE ---
-let sseSource: EventSource | null = null
-let sseReconnectTimer: ReturnType<typeof setTimeout> | null = null
-
-function connectSSE() {
-  sseSource = new EventSource(`/api/sse?tabId=${TAB_ID}`)
-  sseSource.onmessage = (e) => {
-    if (e.data === 'ping' || e.data === 'connected') return
-    try {
-      const event = JSON.parse(e.data)
-      if (event.type === 'session_updated') {
-        loadSessions().then(loadTrackResults)
-        if (event.sessionId === currentSessionId.value) {
-          if (event.status === 'completed') {
-            generating.value = false
-            generatingStartedAt.value = null
-            toast.success('Трек готов!')
-            // Reload full session to get audioUrl
-            http.get<any>(`/sessions/${currentSessionId.value}`).then(loadSessionIntoState)
-          } else if (event.status === 'failed') {
-            generating.value = false
-            generatingStartedAt.value = null
-            toast.error('Генерация не удалась')
-          }
-        }
-      }
-    } catch {}
-  }
-  sseSource.onerror = () => {
-    sseSource?.close()
-    sseReconnectTimer = setTimeout(connectSSE, 5000)
-  }
-}
-
-// Agent context summary
-const contextSummary = computed(() => {
-  const parts: string[] = []
-  if (musicMode.value === 'custom') parts.push('Полный режим')
-  else parts.push('Простой режим')
-  if (instrumental.value) parts.push('инструментал')
-  if (sunoModel.value) parts.push(sunoModel.value.replace('suno/', '').replace('_', '.'))
-  return parts.join(' · ')
-})
-
-// --- Lifecycle ---
-onMounted(async () => {
-  window.addEventListener('beforeunload', flushBeforeUnload)
-  connectSSE()
-  await loadSessions()
-  await loadDraftSession()
-})
-
-onBeforeUnmount(() => {
-  window.removeEventListener('beforeunload', flushBeforeUnload)
-  sseSource?.close()
-  if (sseReconnectTimer) clearTimeout(sseReconnectTimer)
-  if (autoSaveTimer) {
-    clearTimeout(autoSaveTimer)
-    autoSaveTimer = null
-    saveSession()
-  }
-})
-
-// KeepAlive deactivate — flush save when navigating away
-onDeactivated(() => {
-  if (autoSaveTimer) {
-    clearTimeout(autoSaveTimer)
-    autoSaveTimer = null
-  }
-  saveSession()
-})
 </script>
 
 <template>
@@ -607,7 +404,7 @@ onDeactivated(() => {
           :current-session-id="currentSessionId"
           @load-session="onLoadSession"
           @delete-session="onDeleteSession"
-          @create-new="createNewSession"
+          @create-new="createNew"
           @rename-session="onRenameSession"
         />
 

@@ -1,17 +1,18 @@
 <script setup lang="ts">
 /**
  * Photo Studio — AI image generation view.
- * Pattern follows SoundStudioView: 50/50 layout, sessions, SSE, auto-save.
+ * Сессии / автосейв / SSE / lifecycle вынесены в useStudioSession (общий движок студий).
+ * Здесь остаётся доменное: photo-стейт, маппинг полей, генерация, агент, референсы.
  * Brand color: fuchsia (matching Content Factory).
  */
-import { ref, computed, watch, onMounted, onBeforeUnmount, onDeactivated } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { ChevronUp, Camera, Plus, Upload, FolderOpen, X, Sparkles, Loader2 } from 'lucide-vue-next'
 import MediaPickerModal from '@/components/MediaPickerModal.vue'
 import { http, TAB_ID } from '@/api/client'
 import { useBusinessesStore } from '@/stores/businesses'
-import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/composables/useToast'
 import { useRates } from '@/composables/useRates'
+import { useStudioSession } from '@/composables/useStudioSession'
 
 import SharedCharacterCarousel from '@/components/shared/SharedCharacterCarousel.vue'
 import SharedRefModal from '@/components/shared/SharedRefModal.vue'
@@ -30,7 +31,6 @@ import type { PhotoEnhanceMode } from '@/components/photo/PsEnhanceMenu.vue'
 defineOptions({ name: 'PhotoStudioView' })
 
 const businesses = useBusinessesStore()
-const auth = useAuthStore()
 const toast = useToast()
 const { USD_RUB } = useRates()
 const markupPercent = ref(50) // default, loaded from settings
@@ -39,15 +39,6 @@ const markupPercent = ref(50) // default, loaded from settings
 http.get<{ usdRubRate: number; markupPercent: number }>('/settings/public')
   .then((data) => { if (data.markupPercent >= 0) markupPercent.value = data.markupPercent })
   .catch(() => {})
-
-// Business change watcher (global selector in header)
-watch(() => businesses.currentBusinessId, (newId, oldId) => {
-  if (newId && newId !== oldId) onBusinessChange()
-})
-
-// --- Session state ---
-const sessions = ref<PhotoSession[]>([])
-const currentSessionId = ref<string | null>(null)
 
 // --- Photo generation state ---
 const prompt = ref('')
@@ -123,16 +114,6 @@ function onRefSaved() {
   editingCharacter.value = null
 }
 
-// --- Generation state ---
-const generating = computed(() => {
-  const s = sessions.value.find(s => s.id === currentSessionId.value)
-  return s?.status === 'generating'
-})
-const generatingStartedAt = computed(() => {
-  const s = sessions.value.find(s => s.id === currentSessionId.value)
-  return s?.status === 'generating' ? (s.kieTaskCreatedAt || s.updatedAt) : null
-})
-
 // --- UI state ---
 const activeTab = ref<'agent' | 'editor'>('editor')
 const chatMessages = ref<AgentMessage[]>([])
@@ -141,6 +122,104 @@ const agentLoading = ref(false)
 const enhancing = ref(false)
 const showPreGenModal = ref(false)
 const mobileGalleryOpen = ref(false)
+
+// --- Pricing ---
+const PHOTO_PRICING: Record<string, Record<string, number>> = {
+  'nano-banana-2':   { '1K': 0.04, '2K': 0.06, '4K': 0.09 },
+  'nano-banana-pro': { '1K': 0.07, '2K': 0.09, '4K': 0.12 },
+  'gpt-image-2':     { '1K': 0.03, '2K': 0.05, '4K': 0.08 },
+}
+
+const costUsd = computed(() => {
+  const pricing = PHOTO_PRICING[photoModel.value]
+  if (!pricing) return 0
+  const base = pricing[photoResolution.value] || 0.04
+  return base * batchSize.value
+})
+
+const costRub = computed(() => {
+  const rub = costUsd.value * USD_RUB.value * (1 + markupPercent.value / 100)
+  return Math.round(rub)
+})
+
+const canGenerate = computed(() => {
+  if (!businesses.currentBusinessId) return false
+  return prompt.value.trim().length > 0
+})
+
+// Agent context summary
+const contextSummary = computed(() => {
+  const parts: string[] = []
+  parts.push(photoModelLabel.value)
+  parts.push(photoResolution.value)
+  parts.push(photoAspectRatio.value)
+  if (batchSize.value > 1) parts.push(`x${batchSize.value}`)
+  return parts.join(' / ')
+})
+
+// --- Session <-> domain mapping (для useStudioSession) ---
+function buildSavePayload() {
+  return {
+    title: prompt.value.slice(0, 40) || '',
+    prompt: prompt.value,
+    photoModel: photoModel.value,
+    photoResolution: photoResolution.value,
+    batchSize: batchSize.value,
+    photoAspectRatio: photoAspectRatio.value,
+    characterId: selectedCharacterId.value,
+    referenceImages: referenceImages.value.length ? referenceImages.value : null,
+    chatHistory: chatMessages.value.length ? chatMessages.value : null,
+  }
+}
+
+function applySession(session: any) {
+  prompt.value = session.prompt || ''
+  photoModel.value = session.photoModel || 'nano-banana-2'
+  photoResolution.value = session.photoResolution || '1K'
+  batchSize.value = session.batchSize || 1
+  photoAspectRatio.value = session.photoAspectRatio || '1:1'
+  selectedCharacterId.value = session.characterId || null
+  referenceImages.value = (session.referenceImages as any[]) || []
+  chatMessages.value = session.chatHistory || []
+}
+
+function resetState() {
+  prompt.value = ''
+  photoModel.value = 'nano-banana-2'
+  photoResolution.value = '1K'
+  batchSize.value = 1
+  photoAspectRatio.value = '1:1'
+  selectedCharacterId.value = null
+  referenceImages.value = []
+  chatMessages.value = []
+}
+
+// --- Движок сессий (sessions / автосейв / SSE / lifecycle) ---
+const {
+  sessions,
+  currentSessionId,
+  generating,
+  generatingStartedAt,
+  loadSessions,
+  createNew,
+  onLoadSession,
+  onDeleteSession,
+  onRenameSession,
+  scheduleAutoSave,
+  pauseAutoSave,
+  resumeAutoSave,
+  flush,
+} = useStudioSession<PhotoSession>({
+  type: 'photo',
+  businessId: computed(() => businesses.currentBusinessId),
+  buildSavePayload,
+  applySession,
+  resetState,
+  watchSources: () => [prompt, photoModel, photoResolution, batchSize, photoAspectRatio, referenceImages, chatMessages],
+  onCompleted: () => toast.success('Фото готово!'),
+  onFailed: () => toast.error('Генерация не удалась'),
+  onBusinessChanged: loadCharacters,
+})
 
 // --- Results (derived from completed sessions) ---
 const imageResults = computed(() => {
@@ -170,205 +249,8 @@ const imageResults = computed(() => {
   return images
 })
 
-// --- Pricing ---
-const PHOTO_PRICING: Record<string, Record<string, number>> = {
-  'nano-banana-2':   { '1K': 0.04, '2K': 0.06, '4K': 0.09 },
-  'nano-banana-pro': { '1K': 0.07, '2K': 0.09, '4K': 0.12 },
-  'gpt-image-2':     { '1K': 0.03, '2K': 0.05, '4K': 0.08 },
-}
-
-const costUsd = computed(() => {
-  const pricing = PHOTO_PRICING[photoModel.value]
-  if (!pricing) return 0
-  const base = pricing[photoResolution.value] || 0.04
-  return base * batchSize.value
-})
-
-const costRub = computed(() => {
-  const rub = costUsd.value * USD_RUB.value * (1 + markupPercent.value / 100)
-  return Math.round(rub)
-})
-
-const canGenerate = computed(() => {
-  if (!businesses.currentBusinessId) return false
-  return prompt.value.trim().length > 0
-})
-
-// --- Auto-save ---
-let autoSaveTimer: ReturnType<typeof setTimeout> | null = null
-let autoSavePaused = false
-
-function scheduleAutoSave() {
-  if (autoSavePaused) return
-  if (autoSaveTimer) clearTimeout(autoSaveTimer)
-  autoSaveTimer = setTimeout(saveSession, 2000)
-}
-
-function buildSavePayload() {
-  return {
-    title: prompt.value.slice(0, 40) || '',
-    prompt: prompt.value,
-    photoModel: photoModel.value,
-    photoResolution: photoResolution.value,
-    batchSize: batchSize.value,
-    photoAspectRatio: photoAspectRatio.value,
-    characterId: selectedCharacterId.value,
-    referenceImages: referenceImages.value.length ? referenceImages.value : null,
-    chatHistory: chatMessages.value.length ? chatMessages.value : null,
-  }
-}
-
-async function saveSession() {
-  if (!currentSessionId.value || autoSavePaused) return
-  const current = sessions.value.find(s => s.id === currentSessionId.value)
-  // Allow saving for draft (full save) and failed (chat only)
-  if (current && current.status === 'generating' || current?.status === 'completed') return
-
-  try {
-    if (current?.status === 'failed') {
-      // Only save chat for failed sessions
-      await http.put(`/sessions/${currentSessionId.value}`, {
-        chatHistory: chatMessages.value.length ? chatMessages.value : null,
-      })
-    } else {
-      await http.put(`/sessions/${currentSessionId.value}`, buildSavePayload())
-    }
-  } catch {}
-}
-
-/** Flush pending save on page unload (F5, tab close) */
-function flushBeforeUnload() {
-  if (autoSaveTimer && currentSessionId.value) {
-    clearTimeout(autoSaveTimer)
-    autoSaveTimer = null
-    const current = sessions.value.find(s => s.id === currentSessionId.value)
-    if (current?.status === 'generating' || current?.status === 'completed') return
-    const payload = current?.status === 'failed'
-      ? { chatHistory: chatMessages.value.length ? chatMessages.value : null }
-      : buildSavePayload()
-    fetch(`/api/sessions/${currentSessionId.value}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json', 'X-Tab-ID': TAB_ID },
-      body: JSON.stringify(payload),
-      credentials: 'include',
-      keepalive: true,
-    })
-  }
-}
-
-watch([prompt, photoModel, photoResolution, batchSize, photoAspectRatio, referenceImages, chatMessages], scheduleAutoSave, { deep: true })
-
 // Flush save immediately when switching tabs (don't wait 2s debounce)
-watch(activeTab, () => {
-  if (autoSaveTimer) {
-    clearTimeout(autoSaveTimer)
-    autoSaveTimer = null
-  }
-  saveSession()
-})
-
-// --- Session CRUD ---
-async function loadSessions() {
-  if (!businesses.currentBusinessId) return
-  try {
-    sessions.value = await http.get<PhotoSession[]>(`/sessions?businessId=${businesses.currentBusinessId}&type=photo`)
-  } catch {}
-}
-
-async function loadDraftSession() {
-  if (!businesses.currentBusinessId) return
-  autoSavePaused = true
-  // Try loading existing draft first
-  const draft = await http.get<any>(`/sessions/draft?businessId=${businesses.currentBusinessId}&type=photo`).catch(() => null)
-  if (draft) {
-    loadSessionIntoState(draft)
-    autoSavePaused = false
-    return
-  }
-  // No draft — load the most recent session instead of auto-creating empty one
-  if (sessions.value.length > 0) {
-    const latest = sessions.value[0] // already sorted by updatedAt desc
-    const full = await http.get<any>(`/sessions/${latest.id}`).catch(() => null)
-    if (full) {
-      loadSessionIntoState(full)
-      autoSavePaused = false
-      return
-    }
-  }
-  // Truly empty — create first session
-  await createNewSession()
-  autoSavePaused = false
-}
-
-async function createNewSession() {
-  if (!businesses.currentBusinessId) return
-  resetState()
-  try {
-    const session = await http.post<any>('/sessions', {
-      businessId: businesses.currentBusinessId,
-      type: 'photo',
-    })
-    currentSessionId.value = session.id
-    await loadSessions()
-  } catch {}
-}
-
-function loadSessionIntoState(session: any) {
-  currentSessionId.value = session.id
-  prompt.value = session.prompt || ''
-  photoModel.value = session.photoModel || 'nano-banana-2'
-  photoResolution.value = session.photoResolution || '1K'
-  batchSize.value = session.batchSize || 1
-  photoAspectRatio.value = session.photoAspectRatio || '1:1'
-  selectedCharacterId.value = session.characterId || null
-  referenceImages.value = (session.referenceImages as any[]) || []
-  chatMessages.value = session.chatHistory || []
-}
-
-function resetState() {
-  prompt.value = ''
-  photoModel.value = 'nano-banana-2'
-  photoResolution.value = '1K'
-  batchSize.value = 1
-  photoAspectRatio.value = '1:1'
-  selectedCharacterId.value = null
-  referenceImages.value = []
-  chatMessages.value = []
-}
-
-async function onLoadSession(session: PhotoSession) {
-  // Flush pending auto-save for current session before switching
-  if (autoSaveTimer) {
-    clearTimeout(autoSaveTimer)
-    autoSaveTimer = null
-    await saveSession()
-  }
-  autoSavePaused = true
-  // Fetch full session
-  const full = await http.get<any>(`/sessions/${session.id}`).catch(() => null)
-  if (full) loadSessionIntoState(full)
-  autoSavePaused = false
-}
-
-async function onDeleteSession(id: string) {
-  try {
-    await http.delete(`/sessions/${id}`)
-    if (currentSessionId.value === id) {
-      currentSessionId.value = null
-      await loadDraftSession()
-    }
-    await loadSessions()
-  } catch (e: any) {
-    toast.error(e.message || 'Ошибка удаления')
-  }
-}
-
-async function onRenameSession(id: string, title: string) {
-  try {
-    await http.put(`/sessions/${id}`, { title })
-    await loadSessions()
-  } catch {}
-}
+watch(activeTab, flush)
 
 async function onToggleFavorite(resultUrl: string) {
   for (const s of sessions.value) {
@@ -388,21 +270,6 @@ async function onToggleFavorite(resultUrl: string) {
   }
 }
 
-async function onBusinessChange() {
-  // Flush pending auto-save before switching business
-  if (autoSaveTimer) {
-    clearTimeout(autoSaveTimer)
-    autoSaveTimer = null
-    await saveSession()
-  }
-  sessions.value = []
-  currentSessionId.value = null
-  resetState()
-  loadSessions()
-  loadDraftSession()
-  loadCharacters()
-}
-
 // --- Generation ---
 function requestGenerate() {
   showPreGenModal.value = true
@@ -413,7 +280,7 @@ async function confirmGenerate() {
   if (!businesses.currentBusinessId || !currentSessionId.value) return
   if (generating.value) return
 
-  autoSavePaused = true
+  pauseAutoSave()
 
   try {
     await http.post('/photos/generate', {
@@ -433,7 +300,7 @@ async function confirmGenerate() {
     toast.error(err.message || 'Ошибка генерации')
     await loadSessions()
   } finally {
-    autoSavePaused = false
+    resumeAutoSave()
   }
 }
 
@@ -509,37 +376,6 @@ function onUsePrompt(p: string) {
   prompt.value = p
   activeTab.value = 'editor'
   scheduleAutoSave()
-}
-
-// --- SSE ---
-let sseSource: EventSource | null = null
-let sseReconnectTimer: ReturnType<typeof setTimeout> | null = null
-
-function connectSSE() {
-  sseSource = new EventSource(`/api/sse?tabId=${TAB_ID}`)
-  sseSource.onmessage = (e) => {
-    if (e.data === 'ping' || e.data === 'connected') return
-    try {
-      const event = JSON.parse(e.data)
-      if (event.type === 'session_updated') {
-        loadSessions()
-        if (event.sessionId === currentSessionId.value) {
-          if (event.status === 'completed') {
-            autoSavePaused = false
-            toast.success('Фото готово!')
-            http.get<any>(`/sessions/${currentSessionId.value}`).then(loadSessionIntoState)
-          } else if (event.status === 'failed') {
-            autoSavePaused = false
-            toast.error('Генерация не удалась')
-          }
-        }
-      }
-    } catch {}
-  }
-  sseSource.onerror = () => {
-    sseSource?.close()
-    sseReconnectTimer = setTimeout(connectSSE, 5000)
-  }
 }
 
 // --- Reference images ---
@@ -633,45 +469,8 @@ async function describeRefImage(img: { url: string; thumbUrl?: string | null; fi
   }
 }
 
-// Agent context summary
-const contextSummary = computed(() => {
-  const parts: string[] = []
-  parts.push(photoModelLabel.value)
-  parts.push(photoResolution.value)
-  parts.push(photoAspectRatio.value)
-  if (batchSize.value > 1) parts.push(`x${batchSize.value}`)
-  return parts.join(' / ')
-})
-
-// --- Lifecycle ---
-onMounted(async () => {
-  window.addEventListener('beforeunload', flushBeforeUnload)
-  connectSSE()
-  await loadSessions()
-  await loadDraftSession()
-  loadCharacters()
-})
-
-onBeforeUnmount(() => {
-  window.removeEventListener('beforeunload', flushBeforeUnload)
-  sseSource?.close()
-  if (sseReconnectTimer) clearTimeout(sseReconnectTimer)
-  // Flush pending auto-save before unmount
-  if (autoSaveTimer) {
-    clearTimeout(autoSaveTimer)
-    autoSaveTimer = null
-    saveSession()
-  }
-})
-
-// KeepAlive deactivate — flush save when navigating away
-onDeactivated(() => {
-  if (autoSaveTimer) {
-    clearTimeout(autoSaveTimer)
-    autoSaveTimer = null
-  }
-  saveSession()
-})
+// --- Lifecycle (доменное: персонажи; сессии/SSE/автосейв — в useStudioSession) ---
+onMounted(loadCharacters)
 </script>
 
 <template>
@@ -696,7 +495,7 @@ onDeactivated(() => {
           :generating="generating"
           @select="onLoadSession"
           @delete="onDeleteSession"
-          @create="createNewSession"
+          @create="createNew"
           @rename="onRenameSession"
         />
 
