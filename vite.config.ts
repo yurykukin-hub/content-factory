@@ -11,6 +11,8 @@ export default defineConfig({
   },
   server: {
     port: 5176,
+    // Опционально принимать внешние Host'ы (для временного дев-превью по IP). По умолчанию выкл.
+    allowedHosts: process.env.VITE_ALLOW_ALL_HOSTS ? true : undefined,
     proxy: {
       // Цель бэкенда конфигурируема через env (по умолчанию 3800). Позволяет
       // указывать на локальный dev-бэкенд (напр. 3801) не трогая прод-контейнер.
