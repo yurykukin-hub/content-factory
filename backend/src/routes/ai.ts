@@ -564,7 +564,7 @@ const editImageSchema = z.object({
   mediaId: z.string(),
   prompt: z.string().min(1).max(10000),
   postId: z.string().optional(),
-  model: z.enum(['flux-kontext-pro', 'nano-banana-2'] as const).default('flux-kontext-pro'),
+  model: z.enum(['nano-banana-2'] as const).default('nano-banana-2'),
 })
 
 ai.post('/edit-image', async (c) => {

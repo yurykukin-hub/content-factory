@@ -323,12 +323,11 @@ export async function generateImage(params: GenerateImageParams): Promise<Genera
 }
 
 // =====================
-// Edit Image (FLUX Kontext Pro via KIE.ai)
+// Edit Image (Nano Banana 2 via KIE.ai)
 // =====================
 
 // Available edit models
 export const EDIT_MODELS = {
-  'flux-kontext-pro': { label: 'FLUX Kontext', cost: 0.04 },
   'nano-banana-2': { label: 'Nano Banana 2', cost: 0.06 },
 } as const
 
@@ -358,7 +357,7 @@ export async function editImage(params: EditImageParams): Promise<KieImageResult
   const start = Date.now()
   const { imageUrl, prompt: rawPrompt, businessId, postId, model: modelId } = params
   const model = modelId || config.models.kieEditImage
-  const modelInfo = EDIT_MODELS[model as EditModelId] || EDIT_MODELS['flux-kontext-pro']
+  const modelInfo = EDIT_MODELS[model as EditModelId] || EDIT_MODELS['nano-banana-2']
 
   // Auto-translate to English
   const prompt = await translatePrompt(rawPrompt, businessId, params.userId)
@@ -367,28 +366,16 @@ export async function editImage(params: EditImageParams): Promise<KieImageResult
 
   const publicUrl = resolvePublicUrl(imageUrl)
 
-  // Different endpoints for different models
-  let response: any
-  if (model === 'nano-banana-2') {
-    // Nano Banana 2 uses /api/v1/jobs/createTask
-    response = await kiePost('/api/v1/jobs/createTask', {
-      model,
-      input: {
-        prompt,
-        image_input: [publicUrl],
-        resolution: '2K',
-        output_format: 'png',
-      },
-    })
-  } else {
-    // FLUX Kontext uses /api/v1/flux/kontext/generate
-    response = await kiePost('/api/v1/flux/kontext/generate', {
+  // Nano Banana 2 uses /api/v1/jobs/createTask
+  const response = await kiePost('/api/v1/jobs/createTask', {
+    model,
+    input: {
       prompt,
-      model,
-      inputImage: publicUrl,
-      outputFormat: 'png',
-    })
-  }
+      image_input: [publicUrl],
+      resolution: '2K',
+      output_format: 'png',
+    },
+  })
 
   const taskId = response?.data?.taskId || response?.taskId
   if (!taskId) throw new Error('KIE.ai не вернул taskId')

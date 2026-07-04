@@ -328,7 +328,7 @@ const editSchema = z.object({
   imageUrl: z.string(),
   prompt: z.string().min(1),
   businessId: z.string(),
-  model: z.enum(['nano-banana-2', 'flux-kontext-pro']).default('nano-banana-2'),
+  model: z.enum(['nano-banana-2']).default('nano-banana-2'),
 })
 
 photos.post('/edit-image', async (c) => {

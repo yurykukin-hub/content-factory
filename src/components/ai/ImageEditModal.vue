@@ -2,10 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { http } from '@/api/client'
 import { useToast } from '@/composables/useToast'
-import { useThemeStore } from '@/stores/theme'
 import { Sparkles, Loader2, Wand2, X, ChevronLeft, ChevronRight } from 'lucide-vue-next'
-
-const theme = useThemeStore()
 
 interface MediaFile {
   id: string; url: string; thumbUrl: string | null
@@ -29,16 +26,11 @@ const emit = defineEmits<{
 const toast = useToast()
 const prompt = ref('')
 const enhancing = ref(false)
-const selectedModel = ref<'flux-kontext-pro' | 'nano-banana-2'>('nano-banana-2')
+const EDIT_MODEL = 'nano-banana-2'
 
 // Prompt history
 const promptHistory = ref<string[]>([])
 const historyIndex = ref(-1)
-
-const MODELS = [
-  { id: 'flux-kontext-pro' as const, label: 'FLUX Kontext', desc: 'Точное редактирование', cost: '$0.04' },
-  { id: 'nano-banana-2' as const, label: 'Nano Banana 2', desc: 'Креативная стилизация', cost: '$0.06' },
-]
 
 // Templates — простая подстановка текста (как раньше)
 const EDIT_TEMPLATES = [
@@ -112,7 +104,7 @@ function submit() {
   if (!prompt.value.trim()) return
   emit('submitted', {
     prompt: prompt.value,
-    model: selectedModel.value,
+    model: EDIT_MODEL,
     mediaId: props.mediaId,
   })
   emit('close')
@@ -137,21 +129,6 @@ function submit() {
       </div>
 
       <div class="space-y-3">
-        <!-- Model selector (dev mode only) -->
-        <div v-if="theme.devMode">
-          <label class="block text-sm font-medium mb-1.5">Модель</label>
-          <div class="flex gap-2">
-            <button v-for="m in MODELS" :key="m.id" @click="selectedModel = m.id"
-              :class="['flex-1 px-3 py-2 rounded-lg text-xs font-medium border-2 transition-colors text-left',
-                selectedModel === m.id
-                  ? 'border-purple-500 bg-purple-50 dark:bg-purple-950 text-purple-700 dark:text-purple-300'
-                  : 'border-gray-200 dark:border-gray-700 text-gray-500 hover:border-gray-300']">
-              <div class="font-semibold">{{ m.label }}</div>
-              <div class="text-[10px] opacity-70 mt-0.5">{{ m.desc }}</div>
-            </button>
-          </div>
-        </div>
-
         <!-- Template pills — простая подстановка текста -->
         <div>
           <label class="block text-sm font-medium mb-1.5">Шаблоны</label>
@@ -188,8 +165,8 @@ function submit() {
             {{ enhancing ? 'Улучшаю...' : 'Улучшить промпт' }}
           </button>
           <div class="flex items-center gap-2 text-[10px] text-gray-400 mt-1.5">
-            <span class="px-1.5 py-0.5 bg-purple-100 dark:bg-purple-900/50 text-purple-600 dark:text-purple-400 rounded font-medium">{{ MODELS.find(m => m.id === selectedModel)?.label || selectedModel }}</span>
-            <span>{{ MODELS.find(m => m.id === selectedModel)?.cost || '' }}</span>
+            <span class="px-1.5 py-0.5 bg-purple-100 dark:bg-purple-900/50 text-purple-600 dark:text-purple-400 rounded font-medium">Nano Banana 2</span>
+            <span>$0.06</span>
             <span>·</span>
             <span>~30 сек</span>
             <span>·</span>
