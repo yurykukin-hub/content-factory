@@ -3,7 +3,8 @@
  * Photo generation settings panel.
  * Model selector, resolution, batch size, aspect ratio, cost display, generate button.
  */
-import { ref, watch, computed } from 'vue'
+import { computed, toRef } from 'vue'
+import { useElapsedTimer } from '@/composables/useElapsedTimer'
 import { Camera, Loader2 } from 'lucide-vue-next'
 
 const props = defineProps<{
@@ -49,31 +50,11 @@ const ASPECT_RATIOS = [
   '1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9',
 ]
 
-// Timer
-const elapsedSec = ref(0)
-let timerInterval: ReturnType<typeof setInterval> | null = null
-
-function updateElapsed() {
-  if (props.generatingStartedAt) {
-    elapsedSec.value = Math.max(0, Math.floor((Date.now() - new Date(props.generatingStartedAt).getTime()) / 1000))
-  }
-}
-
-watch(() => props.generating, (val) => {
-  if (val) {
-    updateElapsed()
-    timerInterval = setInterval(updateElapsed, 1000)
-  } else {
-    if (timerInterval) clearInterval(timerInterval)
-    timerInterval = null
-  }
-}, { immediate: true })
-
-function formatTime(sec: number): string {
-  const m = Math.floor(sec / 60)
-  const s = sec % 60
-  return `${m}:${s.toString().padStart(2, '0')}`
-}
+// Тикающий таймер генерации (общий composable)
+const { formatted: elapsedLabel } = useElapsedTimer(
+  toRef(props, 'generating'),
+  toRef(props, 'generatingStartedAt'),
+)
 
 const batchLabel = computed(() => {
   if (props.batchSize === 1) return '1 фото'
@@ -160,7 +141,7 @@ const batchLabel = computed(() => {
           ]">
           <Loader2 v-if="generating" :size="14" class="animate-spin" />
           <Camera v-else :size="14" />
-          {{ generating ? formatTime(elapsedSec) : 'Сгенерировать' }}
+          {{ generating ? elapsedLabel : 'Сгенерировать' }}
         </button>
       </div>
     </div>

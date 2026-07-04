@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Video, Loader2, Volume2, VolumeX, Smartphone, Monitor, Square } from 'lucide-vue-next'
-import { ref, watch } from 'vue'
+import { toRef } from 'vue'
+import { useElapsedTimer } from '@/composables/useElapsedTimer'
 
 type Resolution = '480p' | '720p'
 type AspectRatio = '9:16' | '1:1' | '16:9'
@@ -32,31 +33,11 @@ const ratios: { id: AspectRatio; label: string; icon: any }[] = [
   { id: '16:9', label: '16:9', icon: Monitor },
 ]
 
-// Generation timer — считает от реального времени начала, не с нуля
-const elapsedSec = ref(0)
-let timerInterval: ReturnType<typeof setInterval> | null = null
-
-function updateElapsed() {
-  if (props.generatingStartedAt) {
-    elapsedSec.value = Math.max(0, Math.floor((Date.now() - new Date(props.generatingStartedAt).getTime()) / 1000))
-  }
-}
-
-watch(() => props.generating, (val) => {
-  if (val) {
-    updateElapsed()
-    timerInterval = setInterval(updateElapsed, 1000)
-  } else {
-    if (timerInterval) clearInterval(timerInterval)
-    timerInterval = null
-  }
-}, { immediate: true })
-
-function formatTime(sec: number): string {
-  const m = Math.floor(sec / 60)
-  const s = sec % 60
-  return `${m}:${s.toString().padStart(2, '0')}`
-}
+// Тикающий таймер генерации (общий composable)
+const { formatted: elapsedLabel } = useElapsedTimer(
+  toRef(props, 'generating'),
+  toRef(props, 'generatingStartedAt'),
+)
 </script>
 
 <template>
@@ -138,7 +119,7 @@ function formatTime(sec: number): string {
         ]">
         <Loader2 v-if="generating" :size="14" class="animate-spin" />
         <Video v-else :size="14" />
-        {{ generating ? `${formatTime(elapsedSec)}` : 'Сгенерировать' }}
+        {{ generating ? elapsedLabel : 'Сгенерировать' }}
       </button>
     </div>
   </div>
