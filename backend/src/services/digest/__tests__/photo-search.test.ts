@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 
 const { mockDb } = vi.hoisted(() => {
   const m = () => ({ findMany: vi.fn().mockResolvedValue([]) })
-  return { mockDb: { mediaFolder: m(), mediaFile: m(), autoPostTask: m() } }
+  return { mockDb: { mediaFolder: m(), mediaFile: m(), autoPostTask: m(), post: m() } }
 })
 vi.mock('../../../db', () => ({ db: mockDb }))
 
