@@ -962,6 +962,7 @@ ai.post('/generate-video', async (c) => {
           kieTaskId: task.kieTaskId,
           kieTaskCreatedAt: new Date(),
           costUsd: task.costUsd,
+          model: task.model, // персистим реально выбранную/зарезолвленную модель (было: колонка всегда = дефолт)
         },
       })
     }
