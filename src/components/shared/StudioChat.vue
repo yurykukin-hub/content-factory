@@ -1,10 +1,15 @@
 <script setup lang="ts">
 /**
- * AI Agent chat for Sound Studio.
- * Pattern from VsAgentChat.vue, adapted for music context.
+ * StudioChat — единый «слитый» чат агента для Photo + Sound студий (Волна 2, C3).
+ * Поглощает PsAgentChat + SsAgentChat: история сообщений, карточки-промпты (кнопка «Взять»),
+ * quick-replies, typing-indicator, голосовой ввод (Whisper), welcome-бабл, авто-скролл.
+ * Sound-специфика (lyrics/style карточки) включается пропом showLyricsStyles.
+ * Режим/вкладки убраны — экран один, композер виден рядом (в самой view).
+ * accent — API на будущее; v1 всегда fuchsia (Tailwind не интерполирует классы,
+ * поэтому строки зашиты целиком, как colorScheme в SharedCharacterCarousel).
  */
 import { ref, computed, watch, nextTick } from 'vue'
-import { SendHorizontal, ChevronDown, Loader2, Bot, Sparkles, Music, Mic, Square } from 'lucide-vue-next'
+import { SendHorizontal, Loader2, Bot, Sparkles, Mic, Square } from 'lucide-vue-next'
 import { useVoiceInput } from '../../composables/useVoiceInput'
 import { useRates } from '../../composables/useRates'
 import { useToast } from '../../composables/useToast'
@@ -19,25 +24,28 @@ export interface AgentMessage {
   createdAt: string
 }
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   messages: AgentMessage[]
   loading: boolean
-  mode: 'simple' | 'advanced'
-  disabled: boolean
-  contextSummary: string
-}>()
+  agentTitle: string
+  placeholder: string
+  welcomeText: string
+  accent?: string
+  showLyricsStyles?: boolean
+}>(), {
+  accent: 'fuchsia',
+  showLyricsStyles: false,
+})
 
 const emit = defineEmits<{
   send: [message: string]
   usePrompt: [prompt: string]
   useLyrics: [lyrics: string]
   useStyle: [style: string]
-  'update:mode': [mode: 'simple' | 'advanced']
 }>()
 
 const inputText = ref('')
 const messagesContainer = ref<HTMLDivElement | null>(null)
-const showModeMenu = ref(false)
 const textareaRef = ref<HTMLTextAreaElement | null>(null)
 const expandedBlocks = ref<Set<string>>(new Set())
 
@@ -75,8 +83,6 @@ function isExpanded(key: string): boolean {
   return expandedBlocks.value.has(key)
 }
 
-const modeLabel = computed(() => props.mode === 'simple' ? 'Простой' : 'Продвинутый')
-
 const lastSuggestions = computed(() => {
   for (let i = props.messages.length - 1; i >= 0; i--) {
     if (props.messages[i].suggestions?.length) return props.messages[i].suggestions!
@@ -86,7 +92,7 @@ const lastSuggestions = computed(() => {
 
 function sendMessage(text?: string) {
   const msg = (text || inputText.value).trim()
-  if (!msg || props.loading || props.disabled) return
+  if (!msg || props.loading) return
   emit('send', msg)
   inputText.value = ''
 }
@@ -121,7 +127,6 @@ function renderContent(text: string): string {
   html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
   html = html.replace(/\*(.*?)\*/g, '<em>$1</em>')
   html = html.replace(/\n/g, '<br>')
-  // Collapse 3+ consecutive <br> into max 2 (one blank line)
   html = html.replace(/(<br\s*\/?>){3,}/gi, '<br><br>')
   return html
 }
@@ -130,34 +135,9 @@ function renderContent(text: string): string {
 <template>
   <div class="flex flex-col flex-1 min-h-0">
     <!-- Header -->
-    <div class="flex items-center justify-between px-4 py-2 border-b border-gray-100 dark:border-gray-800">
-      <div class="flex items-center gap-2">
-        <Music :size="13" class="text-fuchsia-500" />
-        <span class="text-[11px] font-medium text-gray-500">AI-агент звуковой студии</span>
-      </div>
-      <div class="relative">
-        <button @click="showModeMenu = !showModeMenu"
-          class="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800">
-          {{ modeLabel }}
-          <ChevronDown :size="11" :class="['transition-transform', showModeMenu ? 'rotate-180' : '']" />
-        </button>
-        <div v-if="showModeMenu" class="fixed inset-0 z-10" @click="showModeMenu = false" />
-        <div v-if="showModeMenu"
-          class="absolute right-0 top-full mt-1 w-44 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl z-20 py-1">
-          <button @click="emit('update:mode', 'simple'); showModeMenu = false"
-            :class="[mode === 'simple' ? 'text-fuchsia-600 font-medium' : 'text-gray-600']"
-            class="w-full text-left px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
-            Простой
-            <span class="block text-[10px] text-gray-400 mt-0.5">Автопилот, 1 трек сразу</span>
-          </button>
-          <button @click="emit('update:mode', 'advanced'); showModeMenu = false"
-            :class="[mode === 'advanced' ? 'text-fuchsia-600 font-medium' : 'text-gray-600']"
-            class="w-full text-left px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
-            Продвинутый
-            <span class="block text-[10px] text-gray-400 mt-0.5">Продюсерский, варианты, детали</span>
-          </button>
-        </div>
-      </div>
+    <div class="flex items-center gap-2 px-4 py-2 border-b border-gray-100 dark:border-gray-800 shrink-0">
+      <Bot :size="13" class="text-fuchsia-500" />
+      <span class="text-[11px] font-medium text-gray-500">{{ agentTitle }}</span>
     </div>
 
     <!-- Messages -->
@@ -168,8 +148,7 @@ function renderContent(text: string): string {
           <Bot :size="14" class="text-fuchsia-600" />
         </div>
         <div class="bg-gray-100 dark:bg-gray-800 px-3 py-2 rounded-2xl rounded-bl-md text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
-          <p>{{ contextSummary }}</p>
-          <p class="mt-1.5 text-gray-500">Опиши, какую музыку хочешь создать</p>
+          <div v-html="renderContent(welcomeText)" />
         </div>
       </div>
 
@@ -196,43 +175,43 @@ function renderContent(text: string): string {
               class="bg-white/20 dark:bg-black/20 rounded-lg px-2 py-1.5 text-xs">
               <p class="opacity-80">{{ isExpanded(`p-${idx}-${pi}`) ? p : p.slice(0, 150) }}{{ !isExpanded(`p-${idx}-${pi}`) && p.length > 150 ? '...' : '' }}</p>
               <div class="flex items-center gap-2 mt-1">
-                <button @click="emit('usePrompt', p)"
-                  class="text-[10px] font-medium underline opacity-80 hover:opacity-100">
-                  Использовать промпт
+                <button @click="emit('usePrompt', p)" title="Взять промпт в композер"
+                  class="px-1 py-0.5 text-[10px] font-medium underline opacity-80 hover:opacity-100">
+                  Взять
                 </button>
                 <button v-if="p.length > 150" @click="toggleBlock(`p-${idx}-${pi}`)"
-                  class="text-[10px] font-medium opacity-60 hover:opacity-100">
+                  class="px-1 py-0.5 text-[10px] font-medium opacity-60 hover:opacity-100">
                   {{ isExpanded(`p-${idx}-${pi}`) ? 'Свернуть' : 'Показать всё' }}
                 </button>
               </div>
             </div>
           </div>
 
-          <!-- Extracted lyrics -->
-          <div v-if="msg.lyrics?.length" class="mt-2 space-y-1">
+          <!-- Extracted lyrics (Sound only) -->
+          <div v-if="showLyricsStyles && msg.lyrics?.length" class="mt-2 space-y-1">
             <div v-for="(l, li) in msg.lyrics" :key="li"
               class="bg-white/20 dark:bg-black/20 rounded-lg px-2 py-1.5 text-xs font-mono whitespace-pre-line">
               <p class="opacity-80">{{ isExpanded(`l-${idx}-${li}`) ? l : l.slice(0, 300) }}{{ !isExpanded(`l-${idx}-${li}`) && l.length > 300 ? '...' : '' }}</p>
               <div class="flex items-center gap-2 mt-1">
-                <button @click="emit('useLyrics', l)"
-                  class="text-[10px] font-medium underline opacity-80 hover:opacity-100">
-                  Использовать текст
+                <button @click="emit('useLyrics', l)" title="Взять текст в редактор"
+                  class="px-1 py-0.5 text-[10px] font-medium underline opacity-80 hover:opacity-100">
+                  Взять текст
                 </button>
                 <button v-if="l.length > 300" @click="toggleBlock(`l-${idx}-${li}`)"
-                  class="text-[10px] font-medium opacity-60 hover:opacity-100">
+                  class="px-1 py-0.5 text-[10px] font-medium opacity-60 hover:opacity-100">
                   {{ isExpanded(`l-${idx}-${li}`) ? 'Свернуть' : 'Показать всё' }}
                 </button>
               </div>
             </div>
           </div>
 
-          <!-- Extracted styles -->
-          <div v-if="msg.styles?.length" class="mt-2 space-y-1">
+          <!-- Extracted styles (Sound only) -->
+          <div v-if="showLyricsStyles && msg.styles?.length" class="mt-2 space-y-1">
             <div v-for="(s, si) in msg.styles" :key="si"
               class="bg-white/20 dark:bg-black/20 rounded-lg px-2 py-1 text-xs">
               <p class="opacity-80">{{ s }}</p>
-              <button @click="emit('useStyle', s)"
-                class="mt-1 text-[10px] font-medium underline opacity-80 hover:opacity-100">
+              <button @click="emit('useStyle', s)" title="Применить стиль"
+                class="mt-1 px-1 py-0.5 text-[10px] font-medium underline opacity-80 hover:opacity-100">
                 Применить стиль
               </button>
             </div>
@@ -256,10 +235,10 @@ function renderContent(text: string): string {
     </div>
 
     <!-- Quick replies -->
-    <div v-if="lastSuggestions.length && !loading" class="px-2 pb-1.5 lg:px-4 lg:pb-2">
+    <div v-if="lastSuggestions.length && !loading" class="px-2 pb-1.5 lg:px-4 lg:pb-2 shrink-0">
       <div class="flex flex-wrap gap-1.5">
         <button v-for="s in lastSuggestions" :key="s"
-          @click="sendMessage(s)" :disabled="disabled"
+          @click="sendMessage(s)"
           class="px-2.5 py-1 rounded-full text-[11px] font-medium bg-fuchsia-50 dark:bg-fuchsia-900/20 text-fuchsia-600 border border-fuchsia-200 dark:border-fuchsia-800 hover:bg-fuchsia-100 disabled:opacity-50 transition-colors">
           {{ s }}
         </button>
@@ -267,11 +246,11 @@ function renderContent(text: string): string {
     </div>
 
     <!-- Input -->
-    <div class="px-2 pb-2 lg:px-4 lg:pb-3">
+    <div class="px-2 pb-2 lg:px-4 lg:pb-3 shrink-0">
       <div class="flex gap-2 items-end">
         <textarea ref="textareaRef" v-model="inputText" @keydown="onKeydown"
-          :placeholder="mode === 'simple' ? 'Опиши музыку в двух словах...' : 'Подробно опиши, какой трек хочешь...'"
-          :disabled="disabled || loading || recording"
+          :placeholder="placeholder"
+          :disabled="loading || recording"
           rows="1"
           :class="['flex-1 resize-none px-3 py-2 rounded-xl border bg-white dark:bg-gray-900 text-sm placeholder-gray-400 focus:outline-none focus:ring-2 disabled:opacity-50 transition-colors',
             recording ? 'border-red-300 dark:border-red-700 focus:ring-red-500/40' : 'border-gray-200 dark:border-gray-700 focus:ring-fuchsia-500/40']"
@@ -284,7 +263,9 @@ function renderContent(text: string): string {
         <!-- Mic button -->
         <button v-if="showMic"
           @click="onMicClick"
-          :disabled="loading || disabled || transcribing"
+          :disabled="loading || transcribing"
+          :aria-label="recording ? 'Остановить запись' : 'Голосовой ввод'"
+          :title="recording ? 'Остановить запись' : 'Голосовой ввод'"
           :class="['shrink-0 w-9 h-9 rounded-xl flex items-center justify-center transition-all relative',
             recording ? 'bg-red-500 hover:bg-red-600 text-white animate-pulse' :
             transcribing ? 'bg-gray-200 dark:bg-gray-700 text-gray-400' :
@@ -298,7 +279,8 @@ function renderContent(text: string): string {
           </span>
         </button>
         <button @click="sendMessage()"
-          :disabled="!inputText.trim() || loading || disabled || recording || transcribing"
+          :disabled="!inputText.trim() || loading || recording || transcribing"
+          aria-label="Отправить сообщение" title="Отправить"
           class="shrink-0 w-9 h-9 rounded-xl bg-fuchsia-500 hover:bg-fuchsia-600 disabled:bg-gray-300 text-white flex items-center justify-center transition-colors">
           <SendHorizontal :size="16" />
         </button>

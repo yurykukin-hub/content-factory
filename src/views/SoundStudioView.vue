@@ -5,7 +5,7 @@
  * Здесь остаётся доменное: music-стейт, маппинг полей, генерация, агент, персоны.
  * Brand color: fuchsia (matching Content Factory).
  */
-import { ref, computed, watch } from 'vue'
+import { ref, computed } from 'vue'
 import { ChevronUp, Music } from 'lucide-vue-next'
 import { http } from '@/api/client'
 import { useBusinessesStore } from '@/stores/businesses'
@@ -18,15 +18,14 @@ import SsStylePanel from '@/components/sound/SsStylePanel.vue'
 import SsSettingsPanel from '@/components/sound/SsSettingsPanel.vue'
 import SsSessionBar from '@/components/sound/SsSessionBar.vue'
 import SsGallery from '@/components/sound/SsGallery.vue'
-import SsPromptTabs from '@/components/sound/SsPromptTabs.vue'
-import SsAgentChat from '@/components/sound/SsAgentChat.vue'
-import SsEnhanceMenu from '@/components/sound/SsEnhanceMenu.vue'
 import SsPreGenModal from '@/components/sound/SsPreGenModal.vue'
 import SsPersonaSelector from '@/components/sound/SsPersonaSelector.vue'
 import SsCreatePersonaModal from '@/components/sound/SsCreatePersonaModal.vue'
+import StudioChat from '@/components/shared/StudioChat.vue'
+import SharedEnhanceMenu from '@/components/shared/SharedEnhanceMenu.vue'
 import type { MusicSession } from '@/components/sound/SsSessionBar.vue'
-import type { AgentMessage } from '@/components/sound/SsAgentChat.vue'
-import type { MusicEnhanceMode } from '@/components/sound/SsEnhanceMenu.vue'
+import type { AgentMessage } from '@/components/shared/StudioChat.vue'
+import type { EnhanceModeItem } from '@/components/shared/SharedEnhanceMenu.vue'
 
 defineOptions({ name: 'SoundStudioView' })
 
@@ -54,15 +53,27 @@ const styleWeight = ref(0.7)
 const weirdnessConstraint = ref(0.3)
 
 // --- UI state ---
-const activeTab = ref<'agent' | 'editor'>('editor')
 const chatMessages = ref<AgentMessage[]>([])
-const agentMode = ref<'simple' | 'advanced'>('simple')
 const agentLoading = ref(false)
 const enhancing = ref(false)
 const showPreGenModal = ref(false)
 const showCreatePersonaModal = ref(false)
 const mobileTracksOpen = ref(false)
 const selectedPersonaId = ref<string | null>(null)
+
+// Enhance-режимы музыки (доменные → SharedEnhanceMenu)
+const SOUND_ENHANCE_MODES: EnhanceModeItem[] = [
+  { id: 'enhance', label: 'Улучшить промпт', group: 'basic' },
+  { id: 'lyrics', label: 'Написать текст', group: 'basic' },
+  { id: 'style', label: 'Подобрать стиль', group: 'basic' },
+  { id: 'improve', label: 'Улучшить текст', group: 'pro' },
+  { id: 'structure', label: 'Структурировать', group: 'pro' },
+  { id: 'rhyme', label: 'Рифмы', group: 'pro' },
+  { id: 'translate', label: 'Перевести', group: 'pro' },
+  { id: 'simplify', label: 'Упростить', group: 'pro' },
+]
+// main-клик enhance-меню: есть текст → «Улучшить текст» (improve), иначе «Улучшить промпт»
+const soundMainMode = computed(() => lyrics.value.trim() ? 'improve' : 'enhance')
 
 // --- Cost ---
 const MUSIC_COST_USD = 0.11
@@ -87,6 +98,11 @@ const contextSummary = computed(() => {
   return parts.join(' · ')
 })
 
+// Welcome-бабл чата (несёт сводку контекста)
+const welcomeText = computed(() =>
+  `Настройки: ${contextSummary.value}\nОпиши, какую музыку хочешь создать`
+)
+
 // --- Session <-> domain mapping (для useStudioSession) ---
 function buildSavePayload() {
   return {
@@ -109,7 +125,9 @@ function buildSavePayload() {
 
 function applySession(session: any) {
   prompt.value = session.prompt || ''
-  musicMode.value = session.customMode ? 'custom' : 'simple'
+  // Звук всегда в custom-режиме (Simple скрыт/деприкейт) — иначе старые сессии с
+  // customMode=false прятали редактор текста и стиля. Форсим, как в resetState.
+  musicMode.value = 'custom'
   lyrics.value = session.lyrics || ''
   musicStyle.value = session.musicStyle || ''
   musicTitle.value = session.musicTitle || ''
@@ -227,9 +245,6 @@ const trackResults = computed(() => {
   return tracks
 })
 
-// Flush save immediately when switching tabs
-watch(activeTab, flush)
-
 async function onToggleFavorite(resultUrl: string) {
   for (const s of sessions.value) {
     const results = (s as any).results as any[] | null
@@ -258,6 +273,7 @@ async function confirmGenerate() {
   if (!businesses.currentBusinessId || !currentSessionId.value) return
   if (generating.value) return
 
+  flush()
   pauseAutoSave()
 
   try {
@@ -285,7 +301,7 @@ async function confirmGenerate() {
 }
 
 // --- Enhance ---
-async function onEnhance(mode: MusicEnhanceMode) {
+async function onEnhance(mode: string) {
   if (!businesses.currentBusinessId) return
   enhancing.value = true
   try {
@@ -356,7 +372,7 @@ async function onSendAgentMessage(userText: string) {
         styleWeight: styleWeight.value,
         weirdnessConstraint: weirdnessConstraint.value,
       },
-      mode: agentMode.value,
+      mode: 'advanced',
       businessId: businesses.currentBusinessId,
     })
 
@@ -378,9 +394,9 @@ async function onSendAgentMessage(userText: string) {
   }
 }
 
-function onUsePrompt(p: string) { prompt.value = p; activeTab.value = 'editor'; scheduleAutoSave() }
-function onUseLyrics(l: string) { lyrics.value = l; musicMode.value = 'custom'; activeTab.value = 'editor'; scheduleAutoSave() }
-function onUseStyle(s: string) { musicStyle.value = s; musicMode.value = 'custom'; activeTab.value = 'editor'; scheduleAutoSave() }
+function onUsePrompt(p: string) { prompt.value = p; scheduleAutoSave() }
+function onUseLyrics(l: string) { lyrics.value = l; musicMode.value = 'custom'; scheduleAutoSave() }
+function onUseStyle(s: string) { musicStyle.value = s; musicMode.value = 'custom'; scheduleAutoSave() }
 </script>
 
 <template>
@@ -411,27 +427,23 @@ function onUseStyle(s: string) { musicStyle.value = s; musicMode.value = 'custom
         <!-- Controls (fills remaining space) -->
         <div class="flex-1 min-h-0 flex flex-col border-t border-gray-200 dark:border-gray-800">
 
-          <!-- Prompt Tabs: Agent / Editor -->
-          <div class="px-2 py-1 lg:px-4 lg:pb-2 shrink-0">
-            <SsPromptTabs v-model="activeTab" />
-          </div>
-
-          <!-- Agent tab (v-show: keep alive, don't destroy on tab switch) -->
-          <SsAgentChat v-show="activeTab === 'agent'" class="flex-1 min-h-0"
+          <!-- Слитый чат агента (история + ввод + карточки: промпт/текст/стиль) -->
+          <StudioChat class="flex-1 min-h-0"
             :messages="chatMessages"
             :loading="agentLoading"
-            :mode="agentMode"
-            :disabled="generating"
-            :context-summary="contextSummary"
+            agent-title="AI-агент звуковой студии"
+            placeholder="Спроси агента…"
+            :welcome-text="welcomeText"
+            show-lyrics-styles
             @send="onSendAgentMessage"
             @use-prompt="onUsePrompt"
             @use-lyrics="onUseLyrics"
             @use-style="onUseStyle"
-            @update:mode="agentMode = $event"
           />
 
-          <!-- Editor tab (v-show: keep alive, don't destroy on tab switch) -->
-          <div v-show="activeTab === 'editor'" class="px-4 py-2 flex-1 min-h-0 flex flex-col gap-2 overflow-y-auto">
+          <!-- Композер (ВСЕГДА виден, не вкладка): промпт + custom + персона + enhance.
+               flex-1 + внутренний скролл — делит место с чатом 50/50, не съедает настройки. -->
+          <div class="flex-1 min-h-0 overflow-y-auto px-4 py-2 flex flex-col gap-2 border-t border-gray-200 dark:border-gray-800">
             <!-- Simple mode: just prompt -->
             <div :class="musicMode === 'simple' ? 'flex-1 flex flex-col min-h-0' : ''">
               <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wide shrink-0">
@@ -449,9 +461,9 @@ function onUseStyle(s: string) { musicStyle.value = s; musicMode.value = 'custom
               />
             </div>
 
-            <!-- Custom mode: lyrics + style -->
-            <div v-if="musicMode === 'custom'" class="flex-1 min-h-0 flex flex-col gap-2">
-              <SsLyricsEditor v-model="lyrics" :disabled="generating" class="flex-1 min-h-0" />
+            <!-- Custom mode: lyrics + style (естественная высота, композер сам скроллится) -->
+            <div v-if="musicMode === 'custom'" class="flex flex-col gap-2">
+              <SsLyricsEditor v-model="lyrics" :disabled="generating" class="shrink-0" />
               <SsStylePanel class="shrink-0"
                 :music-style="musicStyle"
                 :music-title="musicTitle"
@@ -471,10 +483,11 @@ function onUseStyle(s: string) { musicStyle.value = s; musicMode.value = 'custom
                 :disabled="generating"
                 @create-from-track="showCreatePersonaModal = true"
               />
-              <SsEnhanceMenu
+              <SharedEnhanceMenu
+                :modes="SOUND_ENHANCE_MODES"
+                :main-mode="soundMainMode"
                 :enhancing="enhancing"
                 :disabled="generating || (!prompt && !lyrics)"
-                :has-lyrics="!!lyrics.trim()"
                 @enhance="onEnhance"
               />
             </div>

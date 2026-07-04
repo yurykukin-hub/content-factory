@@ -5,7 +5,7 @@
  * Здесь остаётся доменное: photo-стейт, маппинг полей, генерация, агент, референсы.
  * Brand color: fuchsia (matching Content Factory).
  */
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { ChevronUp, Camera, Plus, Upload, FolderOpen, X, Sparkles, Loader2 } from 'lucide-vue-next'
 import MediaPickerModal from '@/components/MediaPickerModal.vue'
 import { http, TAB_ID } from '@/api/client'
@@ -20,13 +20,12 @@ import type { CharacterData } from '@/components/shared/SharedRefModal.vue'
 import PsSettingsPanel from '@/components/photo/PsSettingsPanel.vue'
 import PsSessionBar from '@/components/photo/PsSessionBar.vue'
 import PsGallery from '@/components/photo/PsGallery.vue'
-import PsPromptTabs from '@/components/photo/PsPromptTabs.vue'
-import PsAgentChat from '@/components/photo/PsAgentChat.vue'
-import PsEnhanceMenu from '@/components/photo/PsEnhanceMenu.vue'
 import PsPreGenModal from '@/components/photo/PsPreGenModal.vue'
+import StudioChat from '@/components/shared/StudioChat.vue'
+import SharedEnhanceMenu from '@/components/shared/SharedEnhanceMenu.vue'
 import type { PhotoSession } from '@/components/photo/PsSessionBar.vue'
-import type { AgentMessage } from '@/components/photo/PsAgentChat.vue'
-import type { PhotoEnhanceMode } from '@/components/photo/PsEnhanceMenu.vue'
+import type { AgentMessage } from '@/components/shared/StudioChat.vue'
+import type { EnhanceModeItem } from '@/components/shared/SharedEnhanceMenu.vue'
 
 defineOptions({ name: 'PhotoStudioView' })
 
@@ -115,13 +114,23 @@ function onRefSaved() {
 }
 
 // --- UI state ---
-const activeTab = ref<'agent' | 'editor'>('editor')
 const chatMessages = ref<AgentMessage[]>([])
-const agentMode = ref<'simple' | 'advanced'>('simple')
 const agentLoading = ref(false)
 const enhancing = ref(false)
 const showPreGenModal = ref(false)
 const mobileGalleryOpen = ref(false)
+
+// Enhance-режимы фото (доменные → SharedEnhanceMenu; main-клик = 'enhance')
+const PHOTO_ENHANCE_MODES: EnhanceModeItem[] = [
+  { id: 'enhance', label: 'Улучшить', group: 'basic' },
+  { id: 'style', label: 'Стиль', group: 'basic' },
+  { id: 'lighting', label: 'Освещение', group: 'basic' },
+  { id: 'composition', label: 'Композиция', group: 'pro' },
+  { id: 'mood', label: 'Настроение', group: 'pro' },
+  { id: 'detail', label: 'Детали', group: 'pro' },
+  { id: 'translate', label: 'Перевести', group: 'pro' },
+  { id: 'simplify', label: 'Упростить', group: 'pro' },
+]
 
 // --- Pricing ---
 const PHOTO_PRICING: Record<string, Record<string, number>> = {
@@ -156,6 +165,11 @@ const contextSummary = computed(() => {
   if (batchSize.value > 1) parts.push(`x${batchSize.value}`)
   return parts.join(' / ')
 })
+
+// Welcome-бабл чата (несёт сводку контекста)
+const welcomeText = computed(() =>
+  `Настройки: ${contextSummary.value}\nОпиши, какое изображение хочешь создать`
+)
 
 // --- Session <-> domain mapping (для useStudioSession) ---
 function buildSavePayload() {
@@ -249,9 +263,6 @@ const imageResults = computed(() => {
   return images
 })
 
-// Flush save immediately when switching tabs (don't wait 2s debounce)
-watch(activeTab, flush)
-
 async function onToggleFavorite(resultUrl: string) {
   for (const s of sessions.value) {
     const results = s.results as any[] | null
@@ -280,6 +291,7 @@ async function confirmGenerate() {
   if (!businesses.currentBusinessId || !currentSessionId.value) return
   if (generating.value) return
 
+  flush()
   pauseAutoSave()
 
   try {
@@ -305,7 +317,7 @@ async function confirmGenerate() {
 }
 
 // --- Enhance ---
-async function onEnhance(mode: PhotoEnhanceMode) {
+async function onEnhance(mode: string) {
   if (!businesses.currentBusinessId) return
   enhancing.value = true
   try {
@@ -352,7 +364,7 @@ async function onSendAgentMessage(userText: string) {
         photoAspectRatio: photoAspectRatio.value,
         referenceImages: referenceImages.value.map(r => ({ filename: r.filename, altText: r.altText })),
       },
-      mode: agentMode.value,
+      mode: 'advanced',
       businessId: businesses.currentBusinessId,
     })
 
@@ -374,7 +386,6 @@ async function onSendAgentMessage(userText: string) {
 
 function onUsePrompt(p: string) {
   prompt.value = p
-  activeTab.value = 'editor'
   scheduleAutoSave()
 }
 
@@ -511,25 +522,19 @@ onMounted(loadCharacters)
 
         <!-- Controls (fills remaining space) -->
         <div class="flex-1 min-h-0 flex flex-col border-t border-gray-200 dark:border-gray-800">
-          <!-- Prompt Tabs: Agent / Editor -->
-          <div class="px-2 py-1 lg:px-4 lg:pb-2 shrink-0">
-            <PsPromptTabs v-model="activeTab" />
-          </div>
-
-          <!-- Agent tab (v-show: keep alive, don't destroy on tab switch) -->
-          <PsAgentChat v-show="activeTab === 'agent'" class="flex-1 min-h-0"
+          <!-- Слитый чат агента (история + ввод + карточки-промпты) -->
+          <StudioChat class="flex-1 min-h-0"
             :messages="chatMessages"
             :loading="agentLoading"
-            :mode="agentMode"
-            :disabled="generating"
-            :context-summary="contextSummary"
+            agent-title="AI-агент фото-студии"
+            placeholder="Спроси агента…"
+            :welcome-text="welcomeText"
             @send="onSendAgentMessage"
             @use-prompt="onUsePrompt"
-            @update:mode="agentMode = $event"
           />
 
-          <!-- Editor tab (v-show: keep alive, don't destroy on tab switch) -->
-          <div v-show="activeTab === 'editor'" class="px-4 py-2 flex-1 min-h-0 flex flex-col gap-2 overflow-y-auto">
+          <!-- Композер (ВСЕГДА виден, не вкладка): референсы + промпт + enhance -->
+          <div class="shrink-0 px-4 py-2 flex flex-col gap-2 border-t border-gray-200 dark:border-gray-800">
 
             <!-- Reference images FIRST (VideoStudio pattern: 56x56 thumbnails, dropdown, preview) -->
             <div class="flex items-center gap-2 shrink-0 overflow-x-auto pb-1">
@@ -608,19 +613,21 @@ onMounted(loadCharacters)
             </Teleport>
 
             <!-- Prompt textarea -->
-            <div class="flex-1 flex flex-col min-h-0">
+            <div class="flex flex-col">
               <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wide shrink-0">
                 Промпт
               </label>
               <textarea v-model="prompt" :disabled="generating"
                 placeholder="Опиши изображение, которое хочешь создать. Чем детальнее описание, тем лучше результат."
-                class="w-full mt-0.5 px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-fuchsia-500/40 resize-y disabled:opacity-50 flex-1 min-h-[60px]"
+                class="w-full mt-0.5 px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-fuchsia-500/40 resize-y disabled:opacity-50 min-h-[72px] max-h-[240px]"
               />
             </div>
 
             <!-- Enhance menu -->
-            <div class="flex items-center gap-2 pb-2 shrink-0">
-              <PsEnhanceMenu
+            <div class="flex items-center gap-2 shrink-0">
+              <SharedEnhanceMenu
+                :modes="PHOTO_ENHANCE_MODES"
+                main-mode="enhance"
                 :enhancing="enhancing"
                 :disabled="generating || !prompt.trim()"
                 @enhance="onEnhance"
