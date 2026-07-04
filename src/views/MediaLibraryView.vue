@@ -428,6 +428,23 @@ function onEdited(newFile: any) {
   editingFile.value = null
 }
 
+// AI-редактор шлёт запрос в фон (submit() в ImageEditModal закрывает модалку сразу) — сами зовём API правки
+async function onEditSubmitted(data: { prompt: string; model: string; mediaId: string }) {
+  const businessId = editingFile.value?.businessId
+  if (!businessId) return
+  toast.info('Редактирование запущено…')
+  try {
+    const result = await http.post<{ mediaFile: any }>('/ai/edit-image', {
+      businessId,
+      mediaId: data.mediaId,
+      prompt: data.prompt,
+      model: data.model,
+    })
+    files.value.unshift(result.mediaFile)
+    toast.success('Изображение отредактировано')
+  } catch (e: any) { toast.error('Ошибка: ' + (e.message || e)) }
+}
+
 function onBaked(newFile: any) {
   files.value.unshift(newFile)
   designFile.value = null
@@ -1166,6 +1183,7 @@ watch([sortKey, sortDir], () => {
       :business-id="editingFile.businessId"
       @close="editingFile = null"
       @edited="onEdited"
+      @submitted="onEditSubmitted"
     />
 
     <!-- Design Layer Editor (Фаза 1: запекание текст-дизайна на фото/видео) -->

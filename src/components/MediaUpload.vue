@@ -117,6 +117,23 @@ function onEdited(file: MediaFile) {
   editingFile.value = null
 }
 
+// AI-редактор шлёт запрос в фон (submit() в ImageEditModal закрывает модалку сразу) — сами зовём API правки
+async function onEditSubmitted(data: { prompt: string; model: string; mediaId: string }) {
+  if (!editingFile.value) return
+  toast.info('Редактирование запущено…')
+  try {
+    const result = await http.post<{ mediaFile: MediaFile }>('/ai/edit-image', {
+      businessId: props.businessId,
+      mediaId: data.mediaId,
+      prompt: data.prompt,
+      postId: props.postId,
+      model: data.model,
+    })
+    emit('uploaded', result.mediaFile)
+    toast.success('Изображение отредактировано')
+  } catch (e: any) { toast.error('Ошибка: ' + (e.message || e)) }
+}
+
 async function handleFiles(fileList: FileList | null) {
   if (!fileList) return
   for (const file of Array.from(fileList)) {
@@ -274,6 +291,7 @@ function formatSize(bytes: number) {
       :post-id="postId"
       @close="editingFile = null"
       @edited="onEdited"
+      @submitted="onEditSubmitted"
     />
 
     <!-- Контекстное меню действий над фото -->
