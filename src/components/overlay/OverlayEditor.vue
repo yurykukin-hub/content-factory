@@ -22,6 +22,12 @@ const props = defineProps<{
   postId?: string
   initialSpec?: OverlaySpec | null
   sourcePhotoUrl?: string | null
+  /** Исходное медиа — видео (satori даёт прозрачный слой, кадр-drag отключён, превью через <video>). */
+  isVideo?: boolean
+  /** Видео + музыка из Sound Studio (вшивается в baked-видео). */
+  musicSessionId?: string | null
+  /** Видео + аудио-медиа из медиатеки. */
+  audioMediaFileId?: string | null
 }>()
 
 const emit = defineEmits<{
@@ -29,22 +35,45 @@ const emit = defineEmits<{
   baked: [payload: { mediaFileId: string; url: string; spec: OverlaySpec }]
 }>()
 
-const { spec, bakedUrl, bakedMediaFileId, baking, error, init, bakeNow } = useOverlaySpec()
+const {
+  spec, bakedUrl, bakedMediaFileId, baking, error,
+  musicSessionId: hookMusic, audioMediaFileId: hookAudio,
+  init, bakeNow, ensureBaked,
+} = useOverlaySpec()
 
-// Инициализация + ре-инициализация при смене исходного медиа/поста (переиспользуемость под будущую интеграцию)
+// Инициализация + ре-инициализация при смене исходного медиа/поста (переиспользуемо: FeedView / StoryEditorView)
 watch(
   () => [props.sourceMediaId, props.postId] as const,
   ([mediaId, postId]) => {
     if (!mediaId) return
-    init({ spec: props.initialSpec ?? undefined, sourceMediaId: mediaId, postId })
+    init({
+      spec: props.initialSpec ?? undefined,
+      sourceMediaId: mediaId,
+      postId,
+      musicSessionId: props.musicSessionId ?? null,
+      audioMediaFileId: props.audioMediaFileId ?? null,
+    })
   },
   { immediate: true }
+)
+
+// Музыка/аудио влияют ТОЛЬКО на видео-бейк → при смене перезапекаем видео (для фото — no-op на бэке).
+watch(
+  () => [props.musicSessionId, props.audioMediaFileId] as const,
+  ([m, a]) => {
+    hookMusic.value = m ?? null
+    hookAudio.value = a ?? null
+    if (props.isVideo) bakeNow()
+  }
 )
 
 watch(spec, (v) => emit('update:spec', { ...v }), { deep: true })
 watch(bakedMediaFileId, (id) => {
   if (id && bakedUrl.value) emit('baked', { mediaFileId: id, url: bakedUrl.value, spec: spec.value })
 })
+
+// Публикатор (StoryEditorView) дёргает ensureBaked перед публикацией — гарантирует свежий baked-медиа.
+defineExpose({ bakeNow, ensureBaked })
 
 // --- Строго типизированные обёртки для v-model (UiSelect/UiTabs эмитят plain string) ---
 const FONTS: OverlayFont[] = ['montserrat', 'cormorant']
@@ -112,7 +141,7 @@ function parsePosition(pos: string): { x: number; y: number } {
 }
 
 function onDragStart(e: MouseEvent | TouchEvent) {
-  if (!props.sourcePhotoUrl) return
+  if (!props.sourcePhotoUrl || props.isVideo) return // видео бейкается full-frame — photoPosition не влияет, кадр-drag отключён
   const pt = 'touches' in e ? e.touches[0] : (e as MouseEvent)
   const box = previewRef.value?.getBoundingClientRect()
   if (box) { boxW = box.width; boxH = box.height }
@@ -228,20 +257,33 @@ onUnmounted(onDragEnd)
       <div
         ref="previewRef"
         class="relative w-full max-w-[300px] mx-auto aspect-[9/16] rounded-2xl overflow-hidden bg-gray-900 shadow-lg select-none touch-none"
-        :class="sourcePhotoUrl ? (dragging ? 'cursor-grabbing' : 'cursor-grab') : ''"
+        :class="(sourcePhotoUrl && !isVideo) ? (dragging ? 'cursor-grabbing' : 'cursor-grab') : ''"
         @mousedown="onDragStart"
         @touchstart="onDragStart"
       >
-        <!-- Во время drag: оригинал + живой object-position (мгновенный отклик) -->
+        <!-- ВИДЕО: РЕАЛЬНЫЙ запечённый результат через <video> (текст вшит поверх ffmpeg-ом) -->
+        <video
+          v-if="isVideo && bakedUrl"
+          :src="bakedUrl"
+          class="absolute inset-0 w-full h-full object-cover pointer-events-none"
+          autoplay loop muted playsinline
+        />
+        <video
+          v-else-if="isVideo && sourcePhotoUrl"
+          :src="sourcePhotoUrl"
+          class="absolute inset-0 w-full h-full object-cover pointer-events-none"
+          muted playsinline
+        />
+        <!-- ФОТО во время drag: оригинал + живой object-position (мгновенный отклик) -->
         <img
-          v-if="dragging && sourcePhotoUrl"
+          v-else-if="dragging && sourcePhotoUrl"
           :src="sourcePhotoUrl"
           draggable="false"
           alt="Оригинал — перетаскивание кадра"
           class="absolute inset-0 w-full h-full object-cover pointer-events-none"
           :style="{ objectPosition: spec.photoPosition }"
         />
-        <!-- Вне drag: РЕАЛЬНЫЙ запечённый результат (WYSIWYG = то, что опубликуется) -->
+        <!-- ФОТО вне drag: РЕАЛЬНЫЙ запечённый результат (WYSIWYG = то, что опубликуется) -->
         <img
           v-else-if="bakedUrl"
           :src="bakedUrl"
@@ -257,7 +299,7 @@ onUnmounted(onDragEnd)
           :style="{ objectPosition: spec.photoPosition }"
         />
         <div v-else class="absolute inset-0 flex items-center justify-center text-white/40 text-sm">
-          нет фото
+          нет медиа
         </div>
 
         <div v-if="baking" class="absolute inset-0 flex items-center justify-center bg-black/30">
@@ -265,14 +307,16 @@ onUnmounted(onDragEnd)
         </div>
 
         <div
-          v-if="!dragging && sourcePhotoUrl"
+          v-if="!dragging && sourcePhotoUrl && !isVideo"
           class="absolute top-2 right-2 flex items-center gap-1 px-2 py-1 rounded-md bg-black/40 text-white/90 text-[11px] pointer-events-none"
         >
           <Move :size="12" /> перетащите кадр
         </div>
       </div>
       <p class="text-[11px] text-gray-400 dark:text-gray-500 text-center mt-2">
-        Превью = реальный запечённый результат. Перетащите фото, чтобы поймать кадр.
+        {{ isVideo
+          ? 'Превью = реальный запечённый результат. Текст вшивается поверх видео.'
+          : 'Превью = реальный запечённый результат. Перетащите фото, чтобы поймать кадр.' }}
       </p>
       <div class="flex justify-center mt-3">
         <UiTooltip text="Перезапечь превью немедленно, не дожидаясь автосохранения" position="top">

@@ -1,26 +1,26 @@
 <script setup lang="ts">
-import { ref, onMounted, computed, watch, nextTick, onUnmounted } from 'vue'
+import { ref, onMounted, computed, watch, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { http, TAB_ID } from '@/api/client'
 import { useAuthStore } from '@/stores/auth'
-import { useBusinessesStore } from '@/stores/businesses'
 import { useToast } from '@/composables/useToast'
 import { formatDate } from '@/composables/useFormatters'
 import { useRates } from '@/composables/useRates'
 import {
   ArrowLeft, Upload, Sparkles, Loader2, Send, CheckCircle,
-  ExternalLink, AlertCircle, Image, Images, Link, Trash2, ZoomIn, ZoomOut, Wand2,
-  ChevronLeft, ChevronRight, ChevronDown, Calendar, Clock, Video, X, Music, FileText
+  ExternalLink, AlertCircle, Image, Images, Link, Trash2, Wand2,
+  ChevronDown, Calendar, Clock, Video, X, Music, FileText
 } from 'lucide-vue-next'
 import ImageEditModal from '@/components/ai/ImageEditModal.vue'
 import MediaPickerModal from '@/components/MediaPickerModal.vue'
-import StoryDesignModal from '@/components/StoryDesignModal.vue'
 import StoriesPreview from '@/components/posts/preview/StoriesPreview.vue'
+import OverlayEditor from '@/components/overlay/OverlayEditor.vue'
 import { platformColor, platformBgColor, platformLabel } from '@/composables/usePlatform'
 import VsAgentChat from '@/components/video/VsAgentChat.vue'
 import type { AgentMessage } from '@/components/video/VsAgentMessage.vue'
+import { defaultOverlaySpec, type OverlaySpec } from '@/types/overlaySpec'
 
-interface MediaFile { id: string; url: string; thumbUrl: string | null; filename: string; mimeType: string; sizeBytes: number; durationSec?: number | null; aiModel?: string | null; aiCostUsd?: number | null; altText?: string | null; tags?: string[] }
+interface MediaFile { id: string; url: string; thumbUrl: string | null; filename: string; mimeType: string; sizeBytes: number; durationSec?: number | null; aiModel?: string | null; aiCostUsd?: number | null; altText?: string | null; tags?: string[]; sourceMediaId?: string | null }
 interface PlatformAccount { id: string; platform: string; accountName: string; accountId: string }
 interface PostVersion {
   id: string; status: string; externalUrl: string | null; publishedAt: string | null; scheduledAt: string | null
@@ -30,6 +30,7 @@ interface PostVersion {
 interface Post {
   id: string; businessId: string; title: string | null; body: string; postType: string
   status: string; createdAt: string; versions: PostVersion[]; mediaFiles: MediaFile[]
+  overlaySpec?: OverlaySpec | null
 }
 interface PublishResultItem {
   channelId: string; platform: string; accountName: string
@@ -38,7 +39,7 @@ interface PublishResultItem {
 
 const route = useRoute()
 const router = useRouter()
-// Возврат «Назад» — туда, откуда пришли (дайджест / истории)
+// Возврат «Назад» — туда, откуда пришли (лента / истории)
 const backTo = computed(() => {
   switch (route.query.from) {
     case 'feed': case 'digest': return { path: '/feed', label: 'Назад в ленту' }
@@ -46,7 +47,6 @@ const backTo = computed(() => {
   }
 })
 const auth = useAuthStore()
-const businesses = useBusinessesStore()
 const toast = useToast()
 const isAdmin = computed(() => auth.user?.role === 'ADMIN')
 
@@ -58,71 +58,34 @@ const scheduling = ref(false)
 const scheduledAt = ref('')
 const cancellingSchedule = ref(false)
 
-async function cancelSchedule(versionId: string) {
-  if (!versionId || cancellingSchedule.value) return
-  if (!confirm('Отменить запланированную публикацию?')) return
-  cancellingSchedule.value = true
-  try {
-    await http.post(`/post-versions/${versionId}/schedule`, {
-      scheduledAt: null,
-    })
-    toast.success('Публикация отменена')
-    const freshPost = await http.get<Post>(`/posts/${post.value!.id}`)
-    if (freshPost) { post.value!.versions = freshPost.versions; post.value!.status = freshPost.status }
-  } catch (e: any) { toast.error('Ошибка: ' + (e.message || e)) }
-  finally { cancellingSchedule.value = false }
-}
+// --- Единый модуль запекания (Фаза B): OverlayEditor владеет текстом/кадром/шрифтом/дизайном ---
+// sourceMedia = ИСХОДНОЕ (raw) фото/видео. Публикуемое медиа поста = запечённый overlay (photo.value).
+const sourceMedia = ref<MediaFile | null>(null)
+const overlaySpecSeed = ref<OverlaySpec | null>(null) // initialSpec для OverlayEditor
+const liveSpec = ref<OverlaySpec | null>(null)         // текущий spec из редактора (для переноса текста при смене медиа)
+const overlayRef = ref<InstanceType<typeof OverlayEditor> | null>(null)
+const bakedReady = ref(false) // был ли хоть один успешный бейк для текущего источника
 
-// Canvas
-const canvasRef = ref<HTMLCanvasElement | null>(null)
-const overlayCanvasRef = ref<HTMLCanvasElement | null>(null) // прозрачный слой текста поверх видео (WYSIWYG)
-const canvasWidth = 360  // Preview size
-const canvasHeight = 640
-const exportWidth = 1080 // Final export size
-const exportHeight = 1920
+const storyTitle = ref('') // внутреннее название поста (Post.title), не путать с заголовком-дизайном
 
-// Image state
-const originalPhotoUrl = ref<string | null>(null) // URL оригинала (не rendered)
-const imgEl = ref<HTMLImageElement | null>(null)
-const imgOffset = ref({ x: 0, y: 0 })
-const imgScale = ref(1)
-const dragging = ref(false)
-const dragStart = ref({ x: 0, y: 0 })
-
-// Story settings
-const storyTitle = ref('')
-const overlayText = ref('')
-const textPosition = ref<'top' | 'center' | 'bottom'>('bottom')
-const textColor = ref('#ffffff')
-const fontSize = ref<'S' | 'M' | 'L'>('M')
-const bgStyle = ref<'dark' | 'light' | 'none'>('dark')
-const bgRadius = ref<'round' | 'square'>('round')
-const textAlign = ref<'left' | 'center' | 'right'>('center')
-
-// Auto-save title + text (debounce 1.5s)
+// Title автосейв (debounce 1.5s)
 let saveTimer: ReturnType<typeof setTimeout> | null = null
-function autoSave() {
-  if (!post.value || isPublished.value || isBakedStory.value) return // baked: текст вшит, body не трогаем
+function autoSaveTitle() {
+  if (!post.value || isPublished.value) return
   if (saveTimer) clearTimeout(saveTimer)
   saveTimer = setTimeout(async () => {
-    try {
-      await http.put(`/posts/${post.value!.id}`, {
-        body: overlayText.value,
-        title: storyTitle.value || null,
-      })
-    } catch {}
+    try { await http.put(`/posts/${post.value!.id}`, { title: storyTitle.value || null }) } catch {}
   }, 1500)
 }
-watch([overlayText, storyTitle], autoSave)
+watch(storyTitle, autoSaveTitle)
 
-const TEXT_COLORS = ['#ffffff', '#000000', '#ef4444', '#f97316', '#eab308', '#22c55e', '#3b82f6', '#8b5cf6', '#ec4899', '#d946ef']
 const linkType = ref('')
 const linkUrl = ref('')
 // Готовые ссылки бронирования: НаWоде ERP booking_links (вкл. «Бронь ВК Сторис») → fallback BrandProfile.links
 interface BookingLinkOption { label: string; ref: string; url: string; scope: string[] }
 const bookingLinks = ref<BookingLinkOption[]>([])
 
-// A4: музыка для видео-сторис (трек из Звуковой студии вшивается в видео при публикации)
+// Музыка для видео-сторис (трек из Звуковой студии вшивается в baked-видео через render-overlay)
 interface MusicTrack { id: string; title: string }
 const musicTracks = ref<MusicTrack[]>([])
 const selectedMusicSessionId = ref<string | null>(null)
@@ -134,7 +97,6 @@ const scheduleMode = ref(false)
 const previewPlatform = ref('VK')
 
 // AI
-const aiTextLoading = ref(false)
 const showAiImage = ref(false)
 const aiPrompt = ref('')
 const aiLoading = ref(false)
@@ -166,8 +128,8 @@ const VIDEO_CREDIT_PRICE = 0.005
 const VIDEO_AUDIO_MULTIPLIER = 2.0
 const { USD_RUB: USD_TO_RUB } = useRates()
 
-// Фото сториса АВТОМАТИЧЕСКИ = основа для оживления (img2video). Нет фото → text2video.
-const videoBaseImage = computed(() => (photo.value && !isVideoMedia.value) ? photo.value : null)
+// Исходное фото сториса АВТОМАТИЧЕСКИ = основа для оживления (img2video). Нет фото / видео → text2video.
+const videoBaseImage = computed(() => (sourceMedia.value && !isVideoSource.value) ? sourceMedia.value : null)
 
 const videoCostUsd = computed(() => {
   const creditsPerSec = videoBaseImage.value ? VIDEO_CREDITS_IMG : VIDEO_CREDITS_TEXT
@@ -202,47 +164,76 @@ const suggestingTemplates = ref(false)
 
 const showEditModal = ref(false)
 const editingImage = ref(false) // background image generation in progress
+const showMediaPicker = ref(false)
 
-// Text history (versions)
-const textHistory = ref<{ title: string; body: string }[]>([])
-const textHistoryIndex = ref(-1)
-const generatingText = ref(false)
-
-// Story templates from DB (loaded in loadPost)
-interface DbStoryTemplate {
-  id: string; name: string; emoji: string; overlayText: string
-  textPosition: string; textColor: string; fontSize: string; bgStyle: string; linkType: string
-  textAlign?: string; bgRadius?: string
+// --- Overlay source helpers ---
+async function fetchMedia(id: string): Promise<MediaFile | null> {
+  try { return await http.get<MediaFile>(`/media/${id}`) } catch { return null }
 }
-const storyTemplates = ref<DbStoryTemplate[]>([])
-
-const textHistoryLabel = computed(() => {
-  if (textHistory.value.length === 0) return ''
-  return `${textHistoryIndex.value + 1}/${textHistory.value.length}`
-})
-
-function textGoBack() {
-  if (textHistoryIndex.value <= 0) return
-  textHistoryIndex.value--
-  applyTextVersion()
+function detachMedia(id: string) {
+  return http.post(`/media/${id}/attach`, { postId: null }).catch(() => {})
+}
+function isBakedMedia(m: MediaFile): boolean {
+  return !!(m.tags?.includes('overlay') || m.tags?.includes('story-design') || (m.url && /\/design_/.test(m.url)))
+}
+function normalizeSeed(spec: OverlaySpec): OverlaySpec {
+  return { ...defaultOverlaySpec(spec.sourceMediaId), ...spec, version: 1 }
 }
 
-function textGoForward() {
-  if (textHistoryIndex.value >= textHistory.value.length - 1) return
-  textHistoryIndex.value++
-  applyTextVersion()
+// Определить raw-источник + initialSpec из загруженного поста (persisted overlaySpec / attached-медиа)
+async function resolveOverlaySource() {
+  if (!post.value) return
+  const attached = post.value.mediaFiles?.[0] || null
+  const spec = post.value.overlaySpec
+  if (spec && spec.sourceMediaId) {
+    overlaySpecSeed.value = normalizeSeed(spec)
+    sourceMedia.value = await fetchMedia(spec.sourceMediaId) || attached
+    bakedReady.value = true // уже запекали ранее
+    return
+  }
+  if (!attached) { sourceMedia.value = null; overlaySpecSeed.value = null; return }
+  // Нет spec: если привязан baked-дизайн — берём его исходник; иначе attached = raw
+  if (isBakedMedia(attached) && attached.sourceMediaId) {
+    sourceMedia.value = await fetchMedia(attached.sourceMediaId) || attached
+  } else {
+    sourceMedia.value = attached
+  }
+  // Сид из существующего текста поста, чтобы первый (пере)бейк не потерял его
+  const seed = defaultOverlaySpec(sourceMedia.value.id)
+  const heading = (post.value.title || post.value.body || '').trim()
+  if (heading) seed.bottomText = heading.slice(0, 200)
+  overlaySpecSeed.value = seed
 }
 
-function applyTextVersion() {
-  const v = textHistory.value[textHistoryIndex.value]
-  if (!v) return
-  overlayText.value = v.body
-  storyTitle.value = v.title
+// Установить НОВЫЙ raw-источник (загрузка/медиатека/AI-фото/AI-видео/AI-правка):
+// сохранить текст/шрифт/шаблон, сбросить кадр, переинициализировать OverlayEditor.
+function setNewSource(m: MediaFile) {
+  const base = liveSpec.value ?? overlaySpecSeed.value ?? defaultOverlaySpec(m.id)
+  overlaySpecSeed.value = { ...base, version: 1, sourceMediaId: m.id, photoPosition: '50% 50%' }
+  bakedReady.value = false
+  sourceMedia.value = m         // смена sourceMediaId → OverlayEditor re-init + авто-бейк
+  if (post.value) post.value.mediaFiles = [m] // временно; onBaked заменит на baked
 }
 
-// Background image edit (from ImageEditModal)
+// OverlayEditor запёк overlay → это и есть публикуемое медиа поста. Оставляем в БД ТОЛЬКО baked.
+async function onBaked(payload: { mediaFileId: string; url: string; spec: OverlaySpec }) {
+  if (!post.value) return
+  bakedReady.value = true
+  const mf = await fetchMedia(payload.mediaFileId)
+  const baked: MediaFile = mf || {
+    id: payload.mediaFileId, url: payload.url, thumbUrl: payload.url, filename: 'Overlay',
+    mimeType: payload.url.endsWith('.mp4') ? 'video/mp4' : 'image/png', sizeBytes: 0, tags: ['overlay'],
+  }
+  // Открепить всё прочее от поста (raw-источник / устаревший baked) — держим ровно baked-медиа
+  for (const m of (post.value.mediaFiles || [])) {
+    if (m.id !== baked.id) detachMedia(m.id)
+  }
+  post.value.mediaFiles = [baked]
+}
+
+// Background image edit (from ImageEditModal) — правим ИСХОДНОЕ фото, результат = новый raw-источник
 async function onEditSubmitted(data: { prompt: string; model: string; mediaId: string }) {
-  if (!post.value || !photo.value) return
+  if (!post.value || !sourceMedia.value) return
   editingImage.value = true
   try {
     const result = await http.post<{ mediaFile: MediaFile }>('/ai/edit-image', {
@@ -252,26 +243,14 @@ async function onEditSubmitted(data: { prompt: string; model: string; mediaId: s
       postId: post.value.id,
       model: data.model,
     })
-    post.value.mediaFiles = [result.mediaFile]
-    loadImage(result.mediaFile.url)
+    setNewSource(result.mediaFile)
     toast.success('Изображение отредактировано')
   } catch (e: any) { toast.error('Ошибка: ' + (e.message || e)) }
   finally { editingImage.value = false }
 }
-const showMediaPicker = ref(false)
 
 function onImageEdited(newFile: MediaFile) {
-  if (!post.value) return
-  post.value.mediaFiles = [newFile]
-  loadImage(newFile.url)
-  showEditModal.value = false
-}
-
-// Kept for reference but replaced by onEditSubmitted above
-function _onImageEditedLegacy(newFile: MediaFile) {
-  if (!post.value) return
-  post.value.mediaFiles = [newFile]
-  loadImage(newFile.url)
+  setNewSource(newFile)
   showEditModal.value = false
 }
 
@@ -286,29 +265,12 @@ function toggleChannel(id: string) {
   else selectedChannels.value.push(id)
 }
 
+// photo = публикуемое медиа поста (после бейка = запечённый overlay)
 const photo = computed(() => post.value?.mediaFiles?.[0] || null)
-const isVideoMedia = computed(() => photo.value?.mimeType?.startsWith('video/') || false)
-// Baked-сторис: дизайн (текст/погода/CTA/лого) УЖЕ вшит в картинку через satori (дайджест).
-// Тег 'story-design' или url с 'design_'. Для таких НЕ рисуем текст-оверлей поверх (иначе дубль).
-const isBakedStory = computed(() => {
-  const m = photo.value
-  if (!m) return false
-  return !!m.tags?.includes('story-design') || /\/design_/.test(m.url || '')
-})
+const isVideoSource = computed(() => sourceMedia.value?.mimeType?.startsWith('video/') || false)
+const overlaySourceId = computed(() => sourceMedia.value?.id || '')
+const sourcePhotoUrl = computed(() => sourceMedia.value?.url || null)
 
-// Корректировка кадра дизайн-сторис (модалка с ползунком позиции → перезапекание)
-const designModalOpen = ref(false)
-async function onStoryDesignDone(design: { id: string; url: string; thumbUrl: string | null; tags: string[] }) {
-  if (!post.value) return
-  const oldId = photo.value?.id
-  try {
-    if (oldId && oldId !== design.id) await http.post(`/media/${oldId}/attach`, { postId: null }).catch(() => {})
-    await http.post(`/media/${design.id}/attach`, { postId: post.value.id })
-    post.value.mediaFiles = [{ id: design.id, url: design.url, thumbUrl: design.thumbUrl, filename: 'Сторис-дизайн', mimeType: 'image/png', sizeBytes: 0, tags: design.tags }]
-    originalPhotoUrl.value = null
-    loadImage(design.url)
-  } catch (e: any) { toast.error('Ошибка: ' + (e.message || e)) }
-}
 // Полная блокировка — только после реальной публикации
 const isPublished = computed(() =>
   (post.value?.versions || []).some(v => v.status === 'PUBLISHED'))
@@ -316,220 +278,18 @@ const isPublished = computed(() =>
 const isScheduled = computed(() =>
   !isPublished.value && (post.value?.versions || []).some(v => v.status === 'SCHEDULED'))
 
-const fontSizePx = computed(() => ({ S: 14, M: 18, L: 24 }[fontSize.value]))
-const fontSizeExport = computed(() => ({ S: 42, M: 54, L: 72 }[fontSize.value]))
-
-// --- Canvas rendering ---
-function render() {
-  const canvas = canvasRef.value
-  if (!canvas) return
-  const ctx = canvas.getContext('2d')
-  if (!ctx) return
-  drawScene(ctx, canvasWidth, canvasHeight, fontSizePx.value)
+async function cancelSchedule(versionId: string) {
+  if (!versionId || cancellingSchedule.value) return
+  if (!confirm('Отменить запланированную публикацию?')) return
+  cancellingSchedule.value = true
+  try {
+    await http.post(`/post-versions/${versionId}/schedule`, { scheduledAt: null })
+    toast.success('Публикация отменена')
+    const freshPost = await http.get<Post>(`/posts/${post.value!.id}`)
+    if (freshPost) { post.value!.versions = freshPost.versions; post.value!.status = freshPost.status }
+  } catch (e: any) { toast.error('Ошибка: ' + (e.message || e)) }
+  finally { cancellingSchedule.value = false }
 }
-
-function drawTextOverlay(ctx: CanvasRenderingContext2D, text: string, w: number, h: number, fSize: number, buttonTopY?: number) {
-  const align = textAlign.value
-  ctx.font = `bold ${fSize}px 'Segoe UI Emoji', 'Noto Color Emoji', sans-serif`
-  ctx.textAlign = align
-
-  // Word wrap
-  const padding = 20
-  const maxW = w - padding * 2 - 20
-  const words = text.split(' ')
-  const lines: string[] = []
-  let line = ''
-  for (const word of words) {
-    const test = line ? line + ' ' + word : word
-    if (ctx.measureText(test).width > maxW && line) {
-      lines.push(line)
-      line = word
-    } else {
-      line = test
-    }
-  }
-  if (line) lines.push(line)
-
-  const lineH = fSize * 1.3
-  const blockH = lines.length * lineH + 24
-
-  let y: number
-  if (textPosition.value === 'top') {
-    y = Math.round(h * 0.06) + 30
-  } else if (textPosition.value === 'center') {
-    y = (h - blockH) / 2
-  } else {
-    // Внизу: если есть кнопка → над кнопкой, иначе → от нижнего края
-    const bottomEdge = buttonTopY !== undefined ? buttonTopY : h
-    y = bottomEdge - blockH - 10
-  }
-
-  // Background
-  if (bgStyle.value !== 'none') {
-    ctx.fillStyle = bgStyle.value === 'dark' ? 'rgba(0,0,0,0.5)' : 'rgba(255,255,255,0.7)'
-    const scale = w / 360
-    const radius = bgRadius.value === 'round' ? Math.round(12 * scale) : 0
-    ctx.beginPath()
-    ctx.roundRect(padding, y, w - padding * 2, blockH, radius)
-    ctx.fill()
-  }
-
-  // Text x position based on alignment
-  let textX: number
-  if (align === 'left') textX = padding + 12
-  else if (align === 'right') textX = w - padding - 12
-  else textX = w / 2
-
-  // Text
-  ctx.fillStyle = textColor.value
-  ctx.shadowColor = 'rgba(0,0,0,0.5)'
-  ctx.shadowBlur = bgStyle.value === 'none' ? 6 : 3
-  lines.forEach((ln, i) => {
-    ctx.fillText(ln, textX, y + 14 + (i + 0.8) * lineH)
-  })
-  ctx.shadowBlur = 0
-}
-
-// --- Unified draw function for both preview and export ---
-// isExport = true → НЕ рисуем кнопку-ссылку (VK рисует свою нативную)
-function drawScene(ctx: CanvasRenderingContext2D, w: number, h: number, fSize: number, isExport = false) {
-  ctx.clearRect(0, 0, w, h)
-  const grad = ctx.createLinearGradient(0, 0, 0, h)
-  grad.addColorStop(0, '#1a1a2e')
-  grad.addColorStop(0.5, '#16213e')
-  grad.addColorStop(1, '#0f3460')
-  ctx.fillStyle = grad
-  ctx.fillRect(0, 0, w, h)
-
-  // Draw image
-  if (imgEl.value && imgEl.value.complete && imgEl.value.naturalWidth) {
-    const img = imgEl.value
-    const imgAspect = img.naturalWidth / img.naturalHeight
-    const canvasAspect = w / h
-
-    let drawW: number, drawH: number
-    if (imgAspect > canvasAspect) {
-      drawH = h * imgScale.value
-      drawW = drawH * imgAspect
-    } else {
-      drawW = w * imgScale.value
-      drawH = drawW / imgAspect
-    }
-
-    // Scale offset from preview coordinates to target coordinates
-    const ratio = w / canvasWidth
-    const x = (w - drawW) / 2 + imgOffset.value.x * ratio
-    const y = (h - drawH) / 2 + imgOffset.value.y * ratio
-    ctx.drawImage(img, x, y, drawW, drawH)
-  }
-
-  // Draw link button — только в превью, НЕ в экспорте (VK рисует свою нативную кнопку)
-  let buttonTopY = h // нижняя граница по умолчанию (нет кнопки)
-  if (linkType.value) {
-    const scale = w / 360 // масштаб относительно preview
-    const btnW = Math.round(200 * scale)
-    const btnH = Math.round(32 * scale)
-    const btnX = (w - btnW) / 2
-    const btnY = h - Math.round(40 * scale)
-    buttonTopY = btnY - Math.round(12 * scale) // верхний край кнопки + gap
-
-    // Рисуем визуальную кнопку только в превью (в экспорт не печатаем)
-    if (!isExport) {
-      ctx.fillStyle = 'rgba(255,255,255,0.9)'
-      ctx.beginPath()
-      ctx.roundRect(btnX, btnY, btnW, btnH, Math.round(12 * scale))
-      ctx.fill()
-      ctx.fillStyle = '#333'
-      ctx.font = `bold ${Math.round(12 * scale)}px sans-serif`
-      ctx.textAlign = 'center'
-      const btnText = LINK_TYPES.find(l => l.value === linkType.value)?.label || linkType.value
-      ctx.fillText(btnText, w / 2, btnY + Math.round(21 * scale))
-    }
-  }
-
-  // Draw text overlay (позиционируется относительно кнопки если есть).
-  // Для baked-сторис текст УЖЕ вшит в картинку (satori) → не рисуем поверх, иначе дубль.
-  if (!isBakedStory.value && overlayText.value.trim()) {
-    drawTextOverlay(ctx, overlayText.value, w, h, fSize, buttonTopY)
-  }
-}
-
-// --- Export canvas at full resolution ---
-async function exportCanvas(): Promise<Blob> {
-  const canvas = document.createElement('canvas')
-  canvas.width = exportWidth
-  canvas.height = exportHeight
-  const ctx = canvas.getContext('2d')!
-
-  await document.fonts.ready // дождаться шрифтов → корректный перенос строк
-  drawScene(ctx, exportWidth, exportHeight, fontSizeExport.value, true)
-
-  return new Promise((resolve, reject) =>
-    canvas.toBlob(b => b ? resolve(b) : reject(new Error('не удалось сформировать изображение')), 'image/jpeg', 0.92))
-}
-
-// --- Overlay layer (для видео-сторис): ТОЛЬКО текст на прозрачном фоне ---
-// Видео движется под неподвижным текстом → рисуем лишь текст-оверлей (без градиента и без видео-кадра).
-function drawOverlayLayer(ctx: CanvasRenderingContext2D, w: number, h: number, fSize: number) {
-  ctx.clearRect(0, 0, w, h)
-  // buttonTopY как в drawScene — чтобы текст в позиции "bottom" встал над местом будущей VK-кнопки
-  let buttonTopY = h
-  if (linkType.value) {
-    const scale = w / 360
-    buttonTopY = (h - Math.round(40 * scale)) - Math.round(12 * scale)
-  }
-  if (!isBakedStory.value && overlayText.value.trim()) {
-    drawTextOverlay(ctx, overlayText.value, w, h, fSize, buttonTopY)
-  }
-}
-
-// Живой WYSIWYG-слой текста поверх <video> в редакторе
-function renderOverlayPreview() {
-  const canvas = overlayCanvasRef.value
-  if (!canvas) return
-  const ctx = canvas.getContext('2d')
-  if (!ctx) return
-  drawOverlayLayer(ctx, canvasWidth, canvasHeight, fontSizePx.value)
-}
-
-// Прозрачный PNG 1080×1920 — слой текста для наложения на видео через ffmpeg (backend)
-async function exportOverlayPng(): Promise<Blob> {
-  const canvas = document.createElement('canvas')
-  canvas.width = exportWidth
-  canvas.height = exportHeight
-  const ctx = canvas.getContext('2d')!
-  await document.fonts.ready // дождаться шрифтов → корректный перенос строк
-  drawOverlayLayer(ctx, exportWidth, exportHeight, fontSizeExport.value)
-  return new Promise((resolve, reject) =>
-    canvas.toBlob(b => b ? resolve(b) : reject(new Error('не удалось сформировать слой текста')), 'image/png')) // PNG = сохраняем alpha
-}
-
-// --- Drag & drop ---
-function onMouseDown(e: MouseEvent) {
-  if (!imgEl.value) return
-  dragging.value = true
-  dragStart.value = { x: e.clientX - imgOffset.value.x, y: e.clientY - imgOffset.value.y }
-}
-
-function onMouseMove(e: MouseEvent) {
-  if (!dragging.value) return
-  imgOffset.value = { x: e.clientX - dragStart.value.x, y: e.clientY - dragStart.value.y }
-  render()
-}
-
-function onMouseUp() { dragging.value = false; saveCanvasState() }
-
-function onWheel(e: WheelEvent) {
-  e.preventDefault()
-  const delta = e.deltaY > 0 ? -0.05 : 0.05
-  imgScale.value = Math.max(0.5, Math.min(3, imgScale.value + delta))
-  render()
-  saveCanvasState()
-}
-
-function zoomIn() { imgScale.value = Math.min(3, imgScale.value + 0.1); render(); saveCanvasState() }
-function zoomOut() { imgScale.value = Math.max(0.5, imgScale.value - 0.1); render(); saveCanvasState() }
-function resetView() { imgOffset.value = { x: 0, y: 0 }; imgScale.value = 1; render(); saveCanvasState() }
 
 // --- Data loading ---
 async function loadPost() {
@@ -537,7 +297,6 @@ async function loadPost() {
   try {
     post.value = await http.get<Post>(`/posts/${route.params.id}`)
     if (post.value) {
-      overlayText.value = post.value.body || ''
       storyTitle.value = post.value.title || ''
       const platforms = await http.get<PlatformAccount[]>(`/businesses/${post.value.businessId}/platforms`)
       // Сторис поддерживают VK + Instagram (TG — нет сторис)
@@ -545,20 +304,8 @@ async function loadPost() {
       selectedChannels.value = storyChannels.value.map(c => c.id) // по умолчанию все
       previewPlatform.value = storyChannels.value[0]?.platform || 'VK' // таб превью по умолчанию
       if (post.value.postType !== 'STORIES') { router.replace(`/posts/${post.value.id}`); return }
-      // Load image — если тот же URL что был, сохранить offset/scale
-      if (photo.value) {
-        if (originalPhotoUrl.value === photo.value.url && imgEl.value) {
-          // Фото то же — не сбрасывать позицию
-          nextTick(render)
-        } else {
-          loadImage(photo.value.url)
-        }
-      }
+      await resolveOverlaySource()
     }
-    // Load story templates + brand links + characters from DB
-    try {
-      storyTemplates.value = await http.get<DbStoryTemplate[]>(`/businesses/${post.value.businessId}/story-templates`)
-    } catch {}
     // Load finished music tracks (Sound Studio) for video stories
     try {
       const ms = await http.get<any[]>(`/sessions?businessId=${post.value.businessId}&type=music&status=completed`)
@@ -574,56 +321,8 @@ async function loadPost() {
       bookingLinks.value = await http.get<BookingLinkOption[]>(`/businesses/${post.value.businessId}/booking-links`)
     } catch { bookingLinks.value = [] }
     applyDefaultBookingLink()
-
-    // Load text history from aiPromptHistory
-    try {
-      const res = await http.get<{ history: any[] }>(`/ai/prompt-history/${post.value.id}`)
-      const texts = (res.history || []).filter((h: any) => h.type === 'text')
-      if (texts.length) {
-        textHistory.value = texts.map((h: any) => ({ title: h.title, body: h.body }))
-        textHistoryIndex.value = texts.length - 1
-      }
-    } catch {}
   } catch (e) { toast.error('Ошибка загрузки') }
   finally { loading.value = false }
-}
-
-function loadImage(url: string, isOriginal = true) {
-  const img = new window.Image()
-  img.crossOrigin = 'anonymous'
-  img.onload = () => {
-    imgEl.value = img
-    if (isOriginal) {
-      // Восстановить сохранённый state если тот же URL
-      const storyId = route.params.id as string
-      const saved = sessionStorage.getItem(`story-canvas-${storyId}`)
-      if (saved && originalPhotoUrl.value === url) {
-        try {
-          const s = JSON.parse(saved)
-          imgOffset.value = s.offset || { x: 0, y: 0 }
-          imgScale.value = s.scale || 1
-        } catch {}
-      } else {
-        imgOffset.value = { x: 0, y: 0 }
-        imgScale.value = 1
-      }
-      originalPhotoUrl.value = url
-    }
-    nextTick(render)
-  }
-  img.onerror = () => {
-    toast.error('Не удалось загрузить изображение')
-  }
-  img.src = url
-}
-
-// Сохранять canvas state при уходе со страницы
-function saveCanvasState() {
-  const storyId = route.params.id as string
-  sessionStorage.setItem(`story-canvas-${storyId}`, JSON.stringify({
-    offset: imgOffset.value,
-    scale: imgScale.value,
-  }))
 }
 
 // --- File upload ---
@@ -632,44 +331,41 @@ async function uploadPhoto(e: Event) {
   if (!input.files?.length || !post.value) return
   uploading.value = true
   try {
-    if (photo.value) await http.post(`/media/${photo.value.id}/attach`, { postId: null }).catch(() => {})
+    if (photo.value) await detachMedia(photo.value.id)
     const formData = new FormData()
     formData.append('file', input.files[0])
     formData.append('businessId', post.value.businessId)
     formData.append('postId', post.value.id)
     const res = await fetch('/api/media/upload', { method: 'POST', body: formData, credentials: 'include', headers: { 'X-Tab-ID': TAB_ID } })
     const mf = await res.json() as MediaFile
-    post.value.mediaFiles = [mf]
-    loadImage(mf.url)
-    toast.success('Фото загружено')
+    setNewSource(mf)
+    toast.success('Медиа загружено')
   } catch (e: any) { toast.error('Ошибка: ' + e.message) }
   finally { uploading.value = false; input.value = '' }
 }
 
 async function removePhoto() {
   if (!photo.value || !post.value) return
-  if (!confirm('Открепить фото от истории?')) return
-  await http.post(`/media/${photo.value.id}/attach`, { postId: null }).catch(() => {})
+  if (!confirm('Открепить медиа от истории?')) return
+  await detachMedia(photo.value.id)
+  if (sourceMedia.value) await detachMedia(sourceMedia.value.id)
   post.value.mediaFiles = []
-  imgEl.value = null
-  render()
-  toast.info('Фото откреплено')
+  sourceMedia.value = null
+  overlaySpecSeed.value = null
+  liveSpec.value = null
+  bakedReady.value = false
+  toast.info('Медиа откреплено')
 }
 
 async function pickFromLibrary(file: MediaFile) {
   if (!post.value) return
   uploading.value = true
   try {
-    // Отвязать текущее фото (не удаляем — оно остаётся в медиатеке)
-    if (photo.value) {
-      await http.post(`/media/${photo.value.id}/attach`, { postId: null }).catch(() => {})
-    }
-    // Привязать выбранное фото к посту
+    if (photo.value) await detachMedia(photo.value.id)
     await http.post(`/media/${file.id}/attach`, { postId: post.value.id })
-    post.value.mediaFiles = [file]
-    loadImage(file.url)
+    setNewSource(file)
     showMediaPicker.value = false
-    toast.success('Фото выбрано из медиатеки')
+    toast.success('Медиа выбрано из медиатеки')
   } catch (e: any) {
     toast.error('Ошибка: ' + (e.message || e))
   } finally {
@@ -684,7 +380,7 @@ async function suggestTemplates() {
     const res = await http.post<{ suggestions: { name: string; emoji: string; prompt: string }[] }>('/ai/suggest-image-templates', {
       businessId: post.value.businessId,
       storyTitle: storyTitle.value || '',
-      storyText: overlayText.value || '',
+      storyText: liveSpec.value?.bottomText || '',
     })
     aiSuggestions.value = res.suggestions || []
   } catch (e: any) { toast.error('Ошибка: ' + (e.message || e)) }
@@ -695,14 +391,13 @@ async function generateAiImage() {
   if (!post.value || !aiPrompt.value.trim()) return
   aiLoading.value = true
   try {
-    if (photo.value) await http.post(`/media/${photo.value.id}/attach`, { postId: null }).catch(() => {})
+    if (photo.value) await detachMedia(photo.value.id)
     const result = await http.post<{ mediaFile: MediaFile }>('/ai/generate-image', {
       businessId: post.value.businessId, postId: post.value.id,
       prompt: aiPrompt.value, aspectRatio: '9:16',
       characterId: selectedCharacterId.value || undefined,
     })
-    post.value.mediaFiles = [result.mediaFile]
-    loadImage(result.mediaFile.url)
+    setNewSource(result.mediaFile)
     showAiImage.value = false
     aiPrompt.value = ''
     toast.success('Картинка сгенерирована')
@@ -735,7 +430,7 @@ async function sendAgentMessage(userText: string) {
       resolution: '720p',
       generateAudio: videoAudio.value,
       currentPrompt: videoPrompt.value,
-      storyText: overlayText.value || undefined,
+      storyText: liveSpec.value?.bottomText || undefined,
       photoDescription: photoDescription.value || undefined,
       animateMode: !!videoBaseImage.value,
     }
@@ -810,20 +505,19 @@ async function generateAiVideo() {
   finally { aiVideoLoading.value = false }
 }
 
-// Привязать готовое видео сессии к сторису (вызывается по SSE / при загрузке)
+// Привязать готовое видео сессии к сторису (вызывается по SSE / при загрузке) → новый raw-источник
 async function attachVideoFromSession(sessionId: string) {
   if (!post.value) return
   try {
     const s = await http.get<{ status: string; mediaFileId?: string | null; errorMessage?: string | null }>(`/sessions/${sessionId}`)
     if (s.status === 'completed' && s.mediaFileId) {
-      if (photo.value) await http.post(`/media/${photo.value.id}/attach`, { postId: null }).catch(() => {})
+      if (photo.value && photo.value.id !== s.mediaFileId) await detachMedia(photo.value.id)
       await http.post(`/media/${s.mediaFileId}/attach`, { postId: post.value.id }).catch(() => {})
-      const fresh = await http.get<Post>(`/posts/${post.value.id}`)
-      if (fresh) post.value.mediaFiles = fresh.mediaFiles
+      const vid = await fetchMedia(s.mediaFileId)
+      if (vid) setNewSource(vid)
       videoGenerating.value = false
       videoSessionId.value = null
       try { sessionStorage.removeItem('story-video-' + post.value.id) } catch {}
-      nextTick(renderOverlayPreview)
       toast.success('Видео готово и добавлено в сторис!')
     } else if (s.status === 'failed') {
       videoGenerating.value = false
@@ -849,43 +543,19 @@ async function enhanceImagePrompt() {
   finally { aiEnhancing.value = false }
 }
 
-async function generateStoryText(topic?: string) {
-  if (!post.value) return
-  generatingText.value = true
-  try {
-    const result = await http.post<{ title: string; body: string }>('/ai/generate-story-text', {
-      businessId: post.value.businessId,
-      postId: post.value.id,
-      topic: topic || storyTitle.value || undefined,
-    })
-    overlayText.value = result.body
-    storyTitle.value = result.title
-    textHistory.value.push({ title: result.title, body: result.body })
-    textHistoryIndex.value = textHistory.value.length - 1
-    toast.success('Текст и заголовок сгенерированы')
-  } catch (e: any) { toast.error('Ошибка: ' + (e.message || e)) }
-  finally { generatingText.value = false }
-}
-
-// Legacy wrapper
-async function generateOverlayText() {
-  await generateStoryText()
-}
-
 // --- Publish ---
-const canPublishNow = computed(() => !!photo.value && selectedChannels.value.length > 0)
+const canPublishNow = computed(() => !!sourceMedia.value && selectedChannels.value.length > 0)
 
-// Дропдаун «Опубликовать ▾»: рендер canvas/видео и публикация/планирование происходят прямо
-// внутри confirmPublish/schedulePublish (без отдельной модалки-превью — оно постоянно видно справа).
+// Дропдаун «Опубликовать ▾»
 function onPublishNow() {
   publishMenuOpen.value = false
-  if (!post.value || !photo.value) { toast.error('Загрузите медиа'); return }
+  if (!post.value || !sourceMedia.value) { toast.error('Загрузите медиа'); return }
   if (!selectedChannels.value.length) { toast.error('Выберите хотя бы один канал'); return }
   confirmPublish()
 }
 function onChooseSchedule() {
   publishMenuOpen.value = false
-  if (!photo.value) { toast.error('Загрузите медиа'); return }
+  if (!sourceMedia.value) { toast.error('Загрузите медиа'); return }
   if (!selectedChannels.value.length) { toast.error('Выберите хотя бы один канал'); return }
   scheduleMode.value = true
 }
@@ -893,44 +563,22 @@ async function onSaveDraft() {
   publishMenuOpen.value = false
   if (!post.value) return
   try {
-    // baked: текст вшит в картинку — body не трогаем
-    await http.put(`/posts/${post.value.id}`, isBakedStory.value
-      ? { title: storyTitle.value || null }
-      : { body: overlayText.value, title: storyTitle.value || null })
+    // Текст/дизайн вшиты в baked-медиа и persist в Post.overlaySpec (авто-бейком). Сохраняем название.
+    if (overlayRef.value) await overlayRef.value.ensureBaked()
+    await http.put(`/posts/${post.value.id}`, { title: storyTitle.value || null })
     toast.success('Черновик сохранён')
   } catch (e: any) { toast.error('Ошибка: ' + (e.message || e)) }
 }
 
-// Загрузить готовую сторис-картинку в медиатеку (тег story, НЕ удаляем — видна в истории + превью поста)
-async function uploadRendered(): Promise<MediaFile> {
-  const blob = await exportCanvas() // рендерим canvas→JPEG прямо при публикации (без промежуточной модалки)
-  const dateStr = new Date().toISOString().slice(0, 10)
-  const safeTitle = (storyTitle.value || 'story').replace(/[^\wа-яё\- ]/gi, '').slice(0, 40).trim() || 'story'
-  const formData = new FormData()
-  formData.append('file', blob, `story-${safeTitle}-${dateStr}.jpg`)
-  formData.append('businessId', post.value!.businessId)
-  const res = await fetch('/api/media/upload', { method: 'POST', body: formData, credentials: 'include', headers: { 'X-Tab-ID': TAB_ID } })
-  const mf = await res.json() as MediaFile
-  await http.put(`/media/${mf.id}/tags`, { tags: ['story'] }).catch(() => {})
-  return mf
-}
-
-// Видео-сторис: наложить текст-слой на видео через backend (ffmpeg) → новый baked-видео MediaFile
-async function renderVideoForPublish(): Promise<MediaFile> {
-  const overlayBlob = await exportOverlayPng() // текст-слой рендерим прямо при публикации
-  const fd = new FormData()
-  fd.append('overlay', overlayBlob, 'overlay.png')
-  fd.append('videoMediaFileId', photo.value!.id)
-  fd.append('businessId', post.value!.businessId)
-  if (selectedMusicSessionId.value) fd.append('musicSessionId', selectedMusicSessionId.value)
-  const res = await fetch('/api/media/overlay-video', {
-    method: 'POST', body: fd, credentials: 'include', headers: { 'X-Tab-ID': TAB_ID },
-  })
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({})) as { error?: string }
-    throw new Error(err.error || 'Не удалось наложить текст на видео')
-  }
-  return await res.json() as MediaFile
+// Гарантировать, что публикуемое медиа = свежий baked-overlay, и что к посту привязан ТОЛЬКО он.
+// Возвращает id baked-медиа (или null при неудаче). Клиентского canvas-экспорта больше нет.
+async function ensureBakedForPublish(): Promise<string | null> {
+  if (!post.value || !sourceMedia.value) return null
+  const bakedId = overlayRef.value ? await overlayRef.value.ensureBaked() : (photo.value?.id || null)
+  if (!bakedId) return null
+  // Публикатор постит post.mediaFiles → оставляем ровно baked (открепляем raw-источник, если он ещё привязан)
+  if (sourceMedia.value.id !== bakedId) await detachMedia(sourceMedia.value.id)
+  return bakedId
 }
 
 // Найти версию для канала или создать (обрабатывает unique-конфликт postId+platformAccountId)
@@ -939,7 +587,7 @@ async function ensureVersion(channelId: string): Promise<string> {
   if (existing) return existing.id
   try {
     const v = await http.post<{ id: string }>(`/posts/${post.value!.id}/versions`, {
-      platformAccountId: channelId, body: overlayText.value || ' ', hashtags: [],
+      platformAccountId: channelId, body: post.value!.body || ' ', hashtags: [],
     })
     return v.id
   } catch (e) {
@@ -950,22 +598,20 @@ async function ensureVersion(channelId: string): Promise<string> {
   }
 }
 
-// ШАГ 2: Подтвердить и опубликовать в выбранные каналы (мультипостинг VK + IG)
+// storiesOptions публикации: сервер НЕ бейкает (skipOverlay), ссылка-кнопка VK — нативная.
+function storiesPublishOptions() {
+  return { skipOverlay: true, linkText: linkType.value || undefined, linkUrl: linkUrl.value || undefined }
+}
+
+// Подтвердить и опубликовать в выбранные каналы (мультипостинг VK + IG). Постим УЖЕ запечённый overlay-медиа.
 async function confirmPublish() {
   if (!post.value || !selectedChannels.value.length) return
   publishing.value = true
   publishResults.value = []
   try {
-    // Baked: публикуем готовую картинку как есть (уже привязана к посту, текст вшит).
-    // Видео: наложить текст на видео (ffmpeg). Фото: загрузить плоский JPEG из canvas.
-    if (!isBakedStory.value) {
-      const renderedFile = isVideoMedia.value ? await renderVideoForPublish() : await uploadRendered()
-      await http.put(`/posts/${post.value.id}`, { body: overlayText.value, title: storyTitle.value || null })
-      // Отвязать оригиналы, привязать rendered к посту (publisher берёт mediaFiles поста)
-      const originalFileIds = post.value.mediaFiles.map(m => m.id)
-      for (const mfId of originalFileIds) await http.post(`/media/${mfId}/attach`, { postId: null }).catch(() => {})
-      await http.post(`/media/${renderedFile.id}/attach`, { postId: post.value.id }).catch(() => {})
-    }
+    const bakedId = await ensureBakedForPublish()
+    if (!bakedId) { toast.error('Не удалось подготовить сторис'); return }
+    await http.put(`/posts/${post.value.id}`, { title: storyTitle.value || null }).catch(() => {})
 
     // Цикл по каналам — частичный успех допустим (VK ок, IG упал — не падаем целиком)
     for (const channelId of selectedChannels.value) {
@@ -974,9 +620,7 @@ async function confirmPublish() {
       try {
         const versionId = await ensureVersion(channelId)
         const res = await http.post<{ success: boolean; externalUrl: string | null; error: string | null }>(
-          `/post-versions/${versionId}/publish`, {
-            storiesOptions: { skipOverlay: true, linkText: linkType.value || undefined, linkUrl: linkUrl.value || undefined, musicSessionId: selectedMusicSessionId.value || undefined },
-          })
+          `/post-versions/${versionId}/publish`, { storiesOptions: storiesPublishOptions() })
         item.success = res.success; item.externalUrl = res.externalUrl; item.error = res.error
       } catch (e: any) { item.error = e.message || String(e) }
       publishResults.value.push(item)
@@ -992,7 +636,6 @@ async function confirmPublish() {
       const freshPost = await http.get<Post>(`/posts/${post.value.id}`)
       if (freshPost) { post.value.versions = freshPost.versions; post.value.status = freshPost.status; post.value.mediaFiles = freshPost.mediaFiles }
     } catch {}
-    render()
   } catch (e: any) { toast.error('Ошибка: ' + e.message) }
   finally { publishing.value = false }
 }
@@ -1002,14 +645,9 @@ async function schedulePublish() {
   scheduling.value = true
   publishResults.value = []
   try {
-    // Baked: запланировать готовую картинку как есть. Видео: ffmpeg overlay. Фото: canvas JPEG.
-    if (!isBakedStory.value) {
-      const renderedFile = isVideoMedia.value ? await renderVideoForPublish() : await uploadRendered()
-      await http.put(`/posts/${post.value.id}`, { body: overlayText.value, title: storyTitle.value || null })
-      const originalFileIds = post.value.mediaFiles.map(m => m.id)
-      for (const mfId of originalFileIds) await http.post(`/media/${mfId}/attach`, { postId: null }).catch(() => {})
-      await http.post(`/media/${renderedFile.id}/attach`, { postId: post.value.id }).catch(() => {})
-    }
+    const bakedId = await ensureBakedForPublish()
+    if (!bakedId) { toast.error('Не удалось подготовить сторис'); return }
+    await http.put(`/posts/${post.value.id}`, { title: storyTitle.value || null }).catch(() => {})
 
     const iso = new Date(scheduledAt.value).toISOString()
     for (const channelId of selectedChannels.value) {
@@ -1019,8 +657,7 @@ async function schedulePublish() {
         const versionId = await ensureVersion(channelId)
         await http.post(`/post-versions/${versionId}/schedule`, {
           scheduledAt: iso,
-          // Сохраняем кнопку ВК (и в будущем музыку), чтобы отложка не потеряла их
-          storiesOptions: { skipOverlay: true, linkText: linkType.value || undefined, linkUrl: linkUrl.value || undefined, musicSessionId: selectedMusicSessionId.value || undefined },
+          storiesOptions: storiesPublishOptions(),
         })
         item.success = true
       } catch (e: any) { item.error = e.message || String(e) }
@@ -1039,23 +676,8 @@ async function schedulePublish() {
       const freshPost = await http.get<Post>(`/posts/${post.value.id}`)
       if (freshPost) { post.value.versions = freshPost.versions; post.value.status = freshPost.status; post.value.mediaFiles = freshPost.mediaFiles }
     } catch {}
-    render()
   } catch (e: any) { toast.error('Ошибка: ' + e.message) }
   finally { scheduling.value = false }
-}
-
-// VK link_text → реальный текст кнопки в VK (проверено)
-function applyTemplate(tpl: DbStoryTemplate) {
-  if (tpl.overlayText) overlayText.value = tpl.overlayText
-  if (tpl.textPosition) textPosition.value = tpl.textPosition as any
-  if (tpl.textColor) textColor.value = tpl.textColor
-  if (tpl.fontSize) fontSize.value = tpl.fontSize as any
-  if (tpl.bgStyle) bgStyle.value = tpl.bgStyle as any
-  if (tpl.textAlign) textAlign.value = tpl.textAlign as any
-  if (tpl.bgRadius) bgRadius.value = tpl.bgRadius as any
-  if (tpl.linkType !== undefined) linkType.value = tpl.linkType
-  render()
-  toast.info(`Шаблон "${tpl.name}" применён`)
 }
 
 const LINK_TYPES = [
@@ -1082,15 +704,15 @@ const previewChannels = computed(() => storyChannels.value.filter(c => selectedC
 const activePreviewChannel = computed(() =>
   previewChannels.value.find(c => c.platform === previewPlatform.value)
   || previewChannels.value[0] || storyChannels.value[0] || null)
-// Медиа для StoriesPreview: видео → кадр-превью (webp), фото → оригинал
+// Медиа для StoriesPreview: baked-видео → кадр-превью (webp), фото → PNG. Всё запечённое → baked=true.
 const previewMediaFiles = computed(() => {
   if (!photo.value) return [] as { url: string; thumbUrl: string | null; mimeType: string }[]
-  const url = isVideoMedia.value ? (photo.value.thumbUrl || photo.value.url) : photo.value.url
+  const isVid = photo.value.mimeType?.startsWith('video/')
+  const url = isVid ? (photo.value.thumbUrl || photo.value.url) : photo.value.url
   return [{ url, thumbUrl: photo.value.thumbUrl ?? null, mimeType: photo.value.mimeType }]
 })
 
 // Авто-дефолт кнопки-ссылки по платформе/типу: VK-сторис → «Бронь ВК Сторис», иначе любая VK-бронь.
-// Только если ссылка ещё не задана и сторис не опубликован — ручной выбор не перетираем.
 function applyDefaultBookingLink() {
   if (linkUrl.value || isPublished.value || !bookingLinks.value.length) return
   const story = bookingLinks.value.find(b => b.scope.includes('story') && b.scope.includes('vk'))
@@ -1098,18 +720,6 @@ function applyDefaultBookingLink() {
   const pick = story || vk
   if (pick) { if (!linkType.value) linkType.value = 'book'; linkUrl.value = pick.url }
 }
-
-// Re-render on settings change (canvas для фото + overlay-слой для видео)
-watch([overlayText, textPosition, textColor, fontSize, bgStyle, bgRadius, textAlign, linkType, linkUrl],
-  () => nextTick(() => { render(); renderOverlayPreview() }))
-
-// Re-render when canvas appears in DOM (fixes race: image loaded while canvas was hidden by v-if="loading")
-watch(canvasRef, (canvas) => {
-  if (canvas && imgEl.value) nextTick(render)
-})
-
-// Re-render overlay-слой когда видео-canvas появляется в DOM (переключение фото→видео)
-watch(overlayCanvasRef, (cv) => { if (cv) nextTick(renderOverlayPreview) })
 
 // --- SSE: реал-тайм статус видео-генерации (как в VideoStudio) ---
 let sseSource: EventSource | null = null
@@ -1149,14 +759,10 @@ onMounted(async () => {
   await loadPost()
   restoreVideoSession()
   connectSSE()
-  window.addEventListener('mouseup', onMouseUp)
-  window.addEventListener('mousemove', onMouseMove)
 })
 onUnmounted(() => {
   sseSource?.close()
   if (sseReconnectTimer) clearTimeout(sseReconnectTimer)
-  window.removeEventListener('mouseup', onMouseUp)
-  window.removeEventListener('mousemove', onMouseMove)
 })
 </script>
 
@@ -1184,7 +790,7 @@ onUnmounted(() => {
             <Clock :size="14" /> Сторис запланирован
           </p>
           <p class="text-[10px] text-blue-500 dark:text-blue-400 mt-1">
-            Можно отредактировать ниже. Чтобы изменения вступили в силу — снова нажмите «Предпросмотр и публикация» и перепланируйте (или отмените запланированную ниже).
+            Можно отредактировать ниже. Чтобы изменения вступили в силу — снова нажмите «Опубликовать ▾» и перепланируйте (или отмените запланированную справа).
           </p>
         </div>
 
@@ -1195,7 +801,7 @@ onUnmounted(() => {
             class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 focus:ring-2 focus:ring-brand-500 text-sm" />
         </div>
 
-        <!-- Photo -->
+        <!-- Media -->
         <div :class="['bg-white dark:bg-gray-900 rounded-xl p-5 border border-gray-200 dark:border-gray-800', isPublished && 'opacity-60 pointer-events-none select-none']">
           <h3 class="font-semibold text-sm mb-3 flex items-center gap-2"><Image :size="16" /> Медиа</h3>
           <div v-if="photo" class="flex items-center gap-3 mb-3">
@@ -1219,7 +825,7 @@ onUnmounted(() => {
             <label :class="['flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border-2 border-dashed cursor-pointer text-xs font-medium',
               uploading ? 'opacity-50' : 'border-gray-300 dark:border-gray-700 text-gray-500 hover:border-brand-400']">
               <Loader2 v-if="uploading" :size="14" class="animate-spin" /><Upload v-else :size="14" />
-              {{ photo ? 'Заменить' : 'Загрузить' }}
+              {{ sourceMedia ? 'Заменить' : 'Загрузить' }}
               <input type="file" accept="image/*,video/*" class="hidden" @change="uploadPhoto" :disabled="uploading" />
             </label>
             <button @click="showMediaPicker = true"
@@ -1234,160 +840,53 @@ onUnmounted(() => {
               class="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-100 dark:bg-emerald-900 text-emerald-700 dark:text-emerald-300 text-xs font-medium hover:bg-emerald-200 dark:hover:bg-emerald-800">
               <Video :size="14" /> AI Видео
             </button>
-            <button v-if="photo" @click="showEditModal = true" title="Редактировать AI"
+            <button v-if="sourceMedia && !isVideoSource" @click="showEditModal = true" title="Редактировать AI"
               class="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300 text-xs font-medium hover:bg-purple-200">
               <Wand2 :size="14" />
             </button>
           </div>
-        </div>
-
-        <!-- Холст: перетаскивание/zoom фото + текст-оверлей (скрыт для baked — дизайн уже вшит) -->
-        <div v-if="!isBakedStory" :class="['bg-white dark:bg-gray-900 rounded-xl p-5 border border-gray-200 dark:border-gray-800', isPublished && 'opacity-60 pointer-events-none select-none']">
-          <h3 class="font-semibold text-sm mb-3 flex items-center gap-2"><Image :size="16" /> Холст</h3>
-          <div class="flex flex-col items-center">
-            <div class="relative bg-black rounded-[2rem] p-2 shadow-2xl w-full max-w-[320px]">
-              <div class="absolute top-0 left-1/2 -translate-x-1/2 w-24 h-5 bg-black rounded-b-xl z-10"></div>
-              <!-- Video preview + статичный текст-слой поверх (WYSIWYG для видео-сторис) -->
-              <div v-if="isVideoMedia" class="relative rounded-[1.5rem] overflow-hidden w-full" style="aspect-ratio: 9/16;">
-                <video :src="photo!.url" class="absolute inset-0 w-full h-full" style="object-fit: cover; background: #000;" controls loop muted autoplay playsinline />
-                <canvas ref="overlayCanvasRef" :width="canvasWidth" :height="canvasHeight" class="absolute inset-0 w-full h-full pointer-events-none" />
-              </div>
-              <!-- Image canvas (для фото) -->
-              <canvas v-else ref="canvasRef" :width="canvasWidth" :height="canvasHeight"
-                :class="['rounded-[1.5rem]', isPublished ? 'cursor-default' : 'cursor-grab active:cursor-grabbing', dragging && !isPublished && 'cursor-grabbing']"
-                @mousedown="!isPublished && onMouseDown($event)" @wheel.prevent="!isPublished && onWheel($event)" />
-              <!-- Overlay: generation in progress -->
-              <div v-if="editingImage || aiVideoLoading || videoGenerating" class="absolute inset-2 rounded-[1.5rem] bg-black/50 flex items-center justify-center">
-                <div class="flex flex-col items-center gap-2 text-white">
-                  <Loader2 :size="28" class="animate-spin" :class="(aiVideoLoading || videoGenerating) ? 'text-emerald-400' : 'text-purple-400'" />
-                  <span class="text-xs font-medium text-center px-3">{{ videoGenerating ? 'Видео генерируется (1-3 мин)...' : aiVideoLoading ? 'Запуск генерации...' : 'Генерация изображения...' }}</span>
-                </div>
-              </div>
-            </div>
-            <div v-if="!isPublished" class="flex items-center gap-2 mt-3">
-              <button @click="zoomOut" class="p-1.5 rounded-lg bg-gray-200 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-300"><ZoomOut :size="16" /></button>
-              <span class="text-xs text-gray-400 w-12 text-center">{{ Math.round(imgScale * 100) }}%</span>
-              <button @click="zoomIn" class="p-1.5 rounded-lg bg-gray-200 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-300"><ZoomIn :size="16" /></button>
-              <button @click="resetView" class="px-2 py-1 rounded-lg text-[10px] text-gray-500 hover:bg-gray-200 dark:hover:bg-gray-800">Сброс</button>
-            </div>
-            <p v-if="!isPublished" class="text-[10px] text-gray-500 mt-1">Перетаскивайте фото мышкой. Колёсико = zoom.</p>
+          <!-- Индикатор фоновой генерации -->
+          <div v-if="editingImage || aiVideoLoading || videoGenerating" class="mt-3 flex items-center gap-2 text-xs text-gray-500">
+            <Loader2 :size="14" class="animate-spin" :class="(aiVideoLoading || videoGenerating) ? 'text-emerald-500' : 'text-purple-500'" />
+            {{ videoGenerating ? 'Видео генерируется (1-3 мин)...' : aiVideoLoading ? 'Запуск генерации видео...' : 'Генерация изображения...' }}
           </div>
         </div>
 
-        <!-- Baked-сторис: дизайн уже вшит → статус-баннер + правка кадра -->
-        <div v-if="isBakedStory" class="bg-fuchsia-50 dark:bg-fuchsia-950/30 border border-fuchsia-200 dark:border-fuchsia-800/50 rounded-xl p-4">
-          <div class="flex items-center gap-2.5">
-            <Sparkles :size="18" class="text-fuchsia-500 shrink-0" />
-            <div>
-              <p class="text-sm font-semibold text-fuchsia-800 dark:text-fuchsia-200">Готовая сторис</p>
-              <p class="text-xs text-fuchsia-600 dark:text-fuchsia-400">Дизайн вшит — выберите каналы и публикуйте.</p>
-            </div>
-          </div>
-          <button v-if="!isPublished" @click="designModalOpen = true"
-            class="mt-3 w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-fuchsia-600 hover:bg-fuchsia-700 text-white text-xs font-medium transition-colors touch-manipulation">
-            <Sparkles :size="14" /> Поправить кадр / заголовок
-          </button>
+        <!-- Оформление сторис: единый OverlayEditor (текст/кадр/шрифт/шаблон/погода/CTA → satori-бейк) -->
+        <div v-if="sourceMedia && !isPublished" class="bg-white dark:bg-gray-900 rounded-xl p-5 border border-gray-200 dark:border-gray-800">
+          <h3 class="font-semibold text-sm mb-3 flex items-center gap-2"><Sparkles :size="16" class="text-fuchsia-500" /> Оформление сторис</h3>
+          <OverlayEditor
+            ref="overlayRef"
+            :source-media-id="overlaySourceId"
+            :business-id="post.businessId"
+            :post-id="post.id"
+            :initial-spec="overlaySpecSeed"
+            :source-photo-url="sourcePhotoUrl"
+            :is-video="isVideoSource"
+            :music-session-id="selectedMusicSessionId"
+            @baked="onBaked"
+            @update:spec="liveSpec = $event"
+          />
         </div>
-
-        <!-- Text + Templates (ручной текст-оверлей — только для НЕ-baked сторис) -->
-        <div v-if="!isBakedStory" :class="['bg-white dark:bg-gray-900 rounded-xl p-5 border border-gray-200 dark:border-gray-800', isPublished && 'opacity-60 pointer-events-none select-none']">
-          <!-- Templates from DB -->
-          <div v-if="storyTemplates.length" class="mb-4">
-            <div class="text-xs text-gray-400 mb-1.5">Шаблоны</div>
-            <div class="flex flex-wrap gap-1.5">
-              <button v-for="tpl in storyTemplates" :key="tpl.id" @click="applyTemplate(tpl)"
-                class="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-gray-100 dark:bg-gray-800 text-xs font-medium hover:bg-brand-50 dark:hover:bg-brand-950 hover:text-brand-700 dark:hover:text-brand-300 transition-colors">
-                <span v-if="tpl.emoji">{{ tpl.emoji }}</span>
-                {{ tpl.name }}
-              </button>
-            </div>
-          </div>
-          <div v-else class="mb-4">
-            <p class="text-xs text-gray-400">Нет шаблонов. <router-link v-if="post" :to="'/businesses/' + post.businessId + '?tab=templates'" class="text-brand-500 hover:underline">Создать →</router-link></p>
-          </div>
-
-          <div class="flex items-center justify-between mb-2">
-            <h3 class="font-semibold text-sm">Текст на фото</h3>
-            <!-- Text history navigation -->
-            <div v-if="textHistory.length > 0" class="flex items-center gap-0.5">
-              <button @click="textGoBack" :disabled="textHistoryIndex <= 0"
-                class="p-0.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-30">
-                <ChevronLeft :size="14" class="text-gray-500" />
-              </button>
-              <span class="text-[10px] text-gray-400 min-w-[24px] text-center">{{ textHistoryLabel }}</span>
-              <button @click="textGoForward" :disabled="textHistoryIndex >= textHistory.length - 1"
-                class="p-0.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-30">
-                <ChevronRight :size="14" class="text-gray-500" />
-              </button>
-            </div>
-          </div>
-          <textarea v-model="overlayText" rows="4" placeholder="Короткий текст поверх фото..."
-            class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 focus:ring-2 focus:ring-brand-500 text-sm" />
-          <!-- AI enhance button — под textarea -->
-          <button @click="generateStoryText(overlayText || undefined)" :disabled="generatingText"
-            class="mt-1.5 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-purple-300 dark:border-purple-700 text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-950 disabled:opacity-50 transition-colors">
-            <Loader2 v-if="generatingText" :size="14" class="animate-spin" /><Sparkles v-else :size="14" />
-            {{ generatingText ? 'Генерация...' : 'AI текст + заголовок' }}
-          </button>
-
-          <div class="flex items-center gap-2 mt-3">
-            <span class="text-xs text-gray-500">Позиция:</span>
-            <div class="flex gap-1">
-              <button v-for="pos in (['top','center','bottom'] as const)" :key="pos" @click="textPosition = pos"
-                :class="['px-2.5 py-1 rounded text-[11px] font-medium', textPosition === pos ? 'bg-brand-600 text-white' : 'bg-gray-100 dark:bg-gray-800 text-gray-500']">
-                {{ {top:'Вверху',center:'Центр',bottom:'Внизу'}[pos] }}
-              </button>
-            </div>
-          </div>
-          <!-- Color palette -->
-          <div class="flex items-center gap-1.5 mt-2">
-            <span class="text-xs text-gray-500 shrink-0">Цвет:</span>
-            <button v-for="c in TEXT_COLORS" :key="c" @click="textColor = c"
-              :class="['w-5 h-5 rounded-full border-2 transition-transform', textColor === c ? 'border-brand-500 scale-125' : 'border-gray-400/30']"
-              :style="{ background: c }"></button>
-          </div>
-
-          <!-- Background style -->
-          <div class="flex items-center gap-2 mt-2">
-            <span class="text-xs text-gray-500">Подложка:</span>
-            <button v-for="bg in (['dark','light','none'] as const)" :key="bg" @click="bgStyle = bg"
-              :class="['px-2 py-1 rounded text-[10px] font-medium', bgStyle === bg ? 'bg-brand-600 text-white' : 'bg-gray-100 dark:bg-gray-800 text-gray-500']">
-              {{ {dark:'Тёмная',light:'Светлая',none:'Без'}[bg] }}
-            </button>
-          </div>
-
-          <!-- Border radius + alignment -->
-          <div class="flex items-center gap-4 mt-2">
-            <div class="flex items-center gap-1.5">
-              <span class="text-xs text-gray-500">Углы:</span>
-              <button @click="bgRadius = 'round'" :class="['px-2 py-1 rounded text-[10px] font-medium', bgRadius === 'round' ? 'bg-brand-600 text-white' : 'bg-gray-100 dark:bg-gray-800 text-gray-500']">⊞</button>
-              <button @click="bgRadius = 'square'" :class="['px-2 py-1 rounded text-[10px] font-medium', bgRadius === 'square' ? 'bg-brand-600 text-white' : 'bg-gray-100 dark:bg-gray-800 text-gray-500']">▢</button>
-            </div>
-            <div class="flex items-center gap-1.5">
-              <span class="text-xs text-gray-500">Текст:</span>
-              <button v-for="a in (['left','center','right'] as const)" :key="a" @click="textAlign = a"
-                :class="['px-2 py-1 rounded text-[10px] font-medium', textAlign === a ? 'bg-brand-600 text-white' : 'bg-gray-100 dark:bg-gray-800 text-gray-500']">
-                {{ {left:'←',center:'≡',right:'→'}[a] }}
-              </button>
-            </div>
-          </div>
-
-          <!-- Font size -->
-          <div class="flex items-center gap-2 mt-2">
-            <span class="text-xs text-gray-500">Размер:</span>
-            <button v-for="s in (['S','M','L'] as const)" :key="s" @click="fontSize = s"
-              :class="['px-2.5 py-1 rounded text-[11px] font-medium', fontSize === s ? 'bg-brand-600 text-white' : 'bg-gray-100 dark:bg-gray-800 text-gray-500']">{{ s }}</button>
+        <div v-else-if="sourceMedia && isPublished" class="bg-fuchsia-50 dark:bg-fuchsia-950/30 border border-fuchsia-200 dark:border-fuchsia-800/50 rounded-xl p-4 flex items-center gap-2.5">
+          <Sparkles :size="18" class="text-fuchsia-500 shrink-0" />
+          <div>
+            <p class="text-sm font-semibold text-fuchsia-800 dark:text-fuchsia-200">Сторис опубликована</p>
+            <p class="text-xs text-fuchsia-600 dark:text-fuchsia-400">Дизайн вшит в опубликованное медиа — редактирование недоступно.</p>
           </div>
         </div>
+        <div v-else class="bg-gray-50 dark:bg-gray-900/50 border border-dashed border-gray-300 dark:border-gray-700 rounded-xl p-6 text-center">
+          <p class="text-sm text-gray-500">Загрузите фото или видео выше, чтобы оформить сторис.</p>
+        </div>
 
-        <!-- A4: Музыка для видео-сторис (вшивается в видео) -->
-        <div v-if="isVideoMedia && musicTracks.length" :class="['bg-white dark:bg-gray-900 rounded-xl p-5 border border-gray-200 dark:border-gray-800', isPublished && 'opacity-60 pointer-events-none select-none']">
+        <!-- Музыка для видео-сторис (вшивается в baked-видео) -->
+        <div v-if="isVideoSource && musicTracks.length" :class="['bg-white dark:bg-gray-900 rounded-xl p-5 border border-gray-200 dark:border-gray-800', isPublished && 'opacity-60 pointer-events-none select-none']">
           <h3 class="font-semibold text-sm mb-3 flex items-center gap-2"><Music :size="16" /> Музыка</h3>
           <select v-model="selectedMusicSessionId" class="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm">
             <option :value="null">Без музыки</option>
             <option v-for="t in musicTracks" :key="t.id" :value="t.id">🎵 {{ t.title }}</option>
           </select>
-          <p class="text-[10px] text-gray-400 mt-1.5">Трек из Звуковой студии вшивается в видео (VK/IG нативную музыку в сторис через API не добавляют).</p>
+          <p class="text-[10px] text-gray-400 mt-1.5">Трек из Звуковой студии вшивается в видео при запекании (VK/IG нативную музыку в сторис через API не добавляют).</p>
         </div>
 
         <!-- Link -->
@@ -1431,10 +930,10 @@ onUnmounted(() => {
           </div>
           <StoriesPreview
             :account-name="activePreviewChannel?.accountName || ''"
-            :text="isBakedStory ? '' : overlayText"
+            text=""
             :media-files="previewMediaFiles"
             :platform="activePreviewChannel?.platform || previewPlatform"
-            :baked="isBakedStory" />
+            :baked="true" />
           <p v-if="linkType" class="text-center text-[10px] text-gray-400 mt-2">
             Кнопка «{{ LINK_TYPES.find(l => l.value === linkType)?.label }}» — VK добавит нативно
           </p>
@@ -1543,7 +1042,7 @@ onUnmounted(() => {
               </button>
               <button @click="scheduleMode = false; scheduledAt = ''" class="p-2 rounded-lg text-gray-400 hover:bg-white dark:hover:bg-gray-800 shrink-0"><X :size="14" /></button>
             </div>
-            <p class="text-[10px] text-gray-400 mt-2">Сторис уйдёт в выбранные каналы. Текст вшивается в картинку; ссылка-кнопка — нативная в VK.</p>
+            <p class="text-[10px] text-gray-400 mt-2">Сторис уйдёт в выбранные каналы. Текст/дизайн вшиты в медиа; ссылка-кнопка — нативная в VK.</p>
           </div>
         </div>
       </div>
@@ -1717,12 +1216,12 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <!-- AI Edit Modal -->
+    <!-- AI Edit Modal — правим ИСХОДНОЕ фото (не baked) -->
     <ImageEditModal
-      v-if="showEditModal && photo && post"
+      v-if="showEditModal && sourceMedia && post"
       :visible="showEditModal"
-      :image-url="photo.url"
-      :media-id="photo.id"
+      :image-url="sourceMedia.url"
+      :media-id="sourceMedia.id"
       :business-id="post.businessId"
       :post-id="post.id"
       @close="showEditModal = false"
@@ -1737,17 +1236,6 @@ onUnmounted(() => {
       :business-id="post.businessId"
       @close="showMediaPicker = false"
       @selected="pickFromLibrary"
-    />
-
-    <!-- Корректировка кадра дизайн-сторис -->
-    <StoryDesignModal
-      v-if="post && photo"
-      :visible="designModalOpen"
-      :business-id="post.businessId"
-      :media-id="photo.id"
-      :title="storyTitle || overlayText || post.title || ''"
-      @done="onStoryDesignDone"
-      @close="designModalOpen = false"
     />
   </div>
 </template>
