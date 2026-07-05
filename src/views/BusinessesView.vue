@@ -7,7 +7,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/composables/useToast'
 import { platformBgColor, platformLabel } from '@/composables/usePlatform'
 import {
-  Building2, Plus, Loader2, Film, ClipboardList, ChevronRight
+  Building2, Plus, Loader2, Film, ChevronRight
 } from 'lucide-vue-next'
 
 interface FullBusiness extends Business {
@@ -133,10 +133,6 @@ onMounted(() => {
           <span class="flex items-center gap-1">
             <Film :size="12" />
             {{ biz._count?.posts || 0 }} историй
-          </span>
-          <span class="flex items-center gap-1">
-            <ClipboardList :size="12" />
-            {{ biz._count?.contentPlans || 0 }} планов
           </span>
         </div>
       </div>

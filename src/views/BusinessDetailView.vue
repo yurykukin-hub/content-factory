@@ -10,7 +10,7 @@ import AccessPanel from '@/components/businesses/AccessPanel.vue'
 import {
   ArrowLeft, Building2, Save, Loader2, Megaphone, Users, MessageSquare,
   Hash, Plus, Trash2, RefreshCw, CheckCircle, XCircle, Link,
-  Eye, EyeOff, ChevronDown, ChevronUp, Radio, FileText, ClipboardList,
+  Eye, EyeOff, ChevronDown, ChevronUp, Radio, FileText,
   Ban, Sparkles,
 } from 'lucide-vue-next'
 
@@ -621,17 +621,6 @@ onMounted(() => {
             </div>
             <div class="text-2xl font-bold text-brand-600 dark:text-brand-400">
               {{ business._count?.posts || 0 }}
-            </div>
-          </div>
-
-          <!-- Plans count -->
-          <div class="p-4 rounded-lg bg-gray-50 dark:bg-gray-800">
-            <div class="flex items-center gap-2 text-xs text-gray-400 mb-1">
-              <ClipboardList :size="14" />
-              Контент-планов
-            </div>
-            <div class="text-2xl font-bold text-brand-600 dark:text-brand-400">
-              {{ business._count?.contentPlans || 0 }}
             </div>
           </div>
 
