@@ -49,12 +49,6 @@ const routes: RouteRecordRaw[] = [
     meta: { section: 'posts' },
   },
   {
-    path: '/plans',
-    name: 'plans',
-    component: () => import('@/views/ContentPlansView.vue'),
-    meta: { section: 'plans' },
-  },
-  {
     path: '/media',
     name: 'media',
     component: () => import('@/views/MediaLibraryView.vue'),
@@ -71,12 +65,6 @@ const routes: RouteRecordRaw[] = [
     name: 'business-detail',
     component: () => import('@/views/BusinessDetailView.vue'),
     meta: { section: 'businesses' },
-  },
-  {
-    path: '/ideas',
-    name: 'ideas',
-    component: () => import('@/views/IdeasView.vue'),
-    meta: { section: 'ideas' },
   },
   {
     path: '/scenarios',
@@ -133,6 +121,11 @@ const routes: RouteRecordRaw[] = [
     path: '/overlay-lab',
     name: 'overlay-lab',
     component: () => import('@/views/OverlayLabView.vue'),
+  },
+  {
+    // Любой неизвестный путь (в т.ч. удалённые /plans, /ideas) → дашборд, а не пустой экран.
+    path: '/:pathMatch(.*)*',
+    redirect: '/',
   },
 ]
 

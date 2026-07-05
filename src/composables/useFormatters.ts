@@ -1,6 +1,6 @@
 /**
  * Shared date/number formatting utilities.
- * Eliminates duplication across PostsView, PostEditorView, ContentPlansView, StoryEditorView.
+ * Eliminates duplication across PostsView, PostEditorView, StoryEditorView.
  */
 
 /** Format ISO date as "dd.MM.yyyy, HH:mm" */

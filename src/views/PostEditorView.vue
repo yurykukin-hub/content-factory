@@ -41,7 +41,6 @@ const router = useRouter()
 const backTo = computed(() => {
   switch (route.query.from) {
     case 'feed': case 'digest': return { path: '/feed', label: 'Назад в ленту' }
-    case 'plans': return { path: '/content-plans', label: 'Назад к плану' }
     default: return { path: '/feed', label: 'Назад в ленту' }
   }
 })

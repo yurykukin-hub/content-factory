@@ -9,9 +9,7 @@ import { useAuthStore } from '@/stores/auth'
 export type Section =
   | 'dashboard'
   | 'posts'
-  | 'plans'
   | 'media'
-  | 'ideas'
   | 'businesses'
   | 'scenarios'
   | 'characters'
@@ -31,9 +29,7 @@ const ADMIN_SECTIONS: Section[] = ['scenarios', 'characters', 'videoStudio', 'so
 export const SECTION_LABELS: Record<Section, string> = {
   dashboard: 'Обзор',
   posts: 'Stories / Посты',
-  plans: 'Контент-планы',
   media: 'Медиа',
-  ideas: 'Идеи',
   businesses: 'Проекты',
   scenarios: 'Сценарии',
   characters: 'Референсы',

@@ -112,15 +112,11 @@ watch(() => businesses.currentBusinessId, loadDashboard)
     <!-- Placeholder for future widgets -->
     <div class="mt-8 bg-white dark:bg-gray-900 rounded-xl p-6 border border-gray-200 dark:border-gray-800">
       <h2 class="text-lg font-semibold mb-4">Быстрые действия</h2>
-      <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <button @click="createModal.open()" class="flex items-center gap-2 p-3 rounded-lg bg-brand-50 dark:bg-brand-950 hover:bg-brand-100 dark:hover:bg-brand-900 text-brand-700 dark:text-brand-300 transition-colors">
           <Plus :size="18" />
           <span class="text-sm font-medium">Создать контент</span>
         </button>
-        <router-link to="/plans" class="flex items-center gap-2 p-3 rounded-lg bg-purple-50 dark:bg-purple-950 hover:bg-purple-100 dark:hover:bg-purple-900 text-purple-700 dark:text-purple-300 transition-colors">
-          <Sparkles :size="18" />
-          <span class="text-sm font-medium">AI Контент-план</span>
-        </router-link>
         <router-link to="/businesses" class="flex items-center gap-2 p-3 rounded-lg bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 transition-colors">
           <Settings :size="18" />
           <span class="text-sm font-medium">Настроить проекты</span>
