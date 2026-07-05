@@ -4,6 +4,7 @@ import { http } from '@/api/client'
 import { useToast } from '@/composables/useToast'
 import { useRates } from '@/composables/useRates'
 import { Sparkles, Key, Save, Loader2, CheckCircle, Eye, EyeOff, BarChart3, Cpu, Sliders, Percent, Mic, Video, DollarSign } from 'lucide-vue-next'
+import { UiSwitch } from '@/components/ui'
 
 const toast = useToast()
 const { USD_RUB } = useRates()
@@ -39,6 +40,10 @@ const showKieKey = ref(false)
 const savingKie = ref(false)
 const savedKie = ref(false)
 
+// Еженедельный AI-агент аналитики (analytics_agent_enabled, значение 'true'/'false' — читает scheduler)
+const analyticsAgentEnabled = ref(false)
+const savingAnalyticsAgent = ref(false)
+
 async function loadConfig() {
   loading.value = true
   try {
@@ -51,6 +56,7 @@ async function loadConfig() {
     hasKieKey.value = !!kieMaskedKey.value
     if (config.ai_markup_percent) markupPercent.value = parseFloat(config.ai_markup_percent) || 50
     if (config.usd_rub_rate) usdRubRate.value = parseFloat(config.usd_rub_rate) || 95
+    analyticsAgentEnabled.value = config.analytics_agent_enabled === 'true'
   } catch (e) {
     toast.error('Ошибка загрузки настроек AI')
   } finally {
@@ -146,6 +152,24 @@ async function saveMarkup() {
     toast.error(e.message || 'Ошибка')
   } finally {
     savingMarkup.value = false
+  }
+}
+
+async function toggleAnalyticsAgent(value: boolean) {
+  const previous = analyticsAgentEnabled.value
+  analyticsAgentEnabled.value = value
+  savingAnalyticsAgent.value = true
+  try {
+    await http.put('/settings/config', {
+      key: 'analytics_agent_enabled',
+      value: value ? 'true' : 'false',
+    })
+    toast.success(value ? 'Еженедельный агент аналитики включён' : 'Еженедельный агент аналитики выключен')
+  } catch (e: any) {
+    analyticsAgentEnabled.value = previous
+    toast.error(e.message || 'Не удалось сохранить настройку')
+  } finally {
+    savingAnalyticsAgent.value = false
   }
 }
 
@@ -397,6 +421,32 @@ onMounted(loadConfig)
         Пример: себестоимость $0.06 × наценка {{ markupPercent }}% = пользователь платит {{ (0.06 * USD_RUB * (1 + markupPercent / 100)).toFixed(2) }} ₽
       </div>
     </div>
+    <!-- Weekly AI Analytics Agent -->
+    <div class="bg-white dark:bg-gray-900 rounded-xl p-6 border border-gray-200 dark:border-gray-800">
+      <h2 class="font-semibold mb-1 flex items-center gap-2">
+        <BarChart3 :size="18" class="text-brand-500" />
+        Еженедельный AI-агент аналитики
+      </h2>
+      <p class="text-sm text-gray-500 mb-4">
+        Раз в неделю Sonnet разбирает посты и метрики и присылает отчёт с рекомендациями (что зашло/не зашло) в Telegram и на дашборд «Аналитика» — только предложение, без авто-действий (human-in-the-loop).
+      </p>
+
+      <div v-if="loading" class="text-sm text-gray-400">Загрузка...</div>
+      <div v-else class="flex items-center justify-between gap-3">
+        <div class="flex items-center gap-2">
+          <span class="text-sm font-medium text-gray-900 dark:text-gray-100">
+            {{ analyticsAgentEnabled ? 'Включён' : 'Выключен' }}
+          </span>
+          <Loader2 v-if="savingAnalyticsAgent" :size="14" class="animate-spin text-gray-400" />
+        </div>
+        <UiSwitch
+          :model-value="analyticsAgentEnabled"
+          :disabled="savingAnalyticsAgent"
+          @update:model-value="toggleAnalyticsAgent"
+        />
+      </div>
+    </div>
+
     <!-- USD/RUB Rate -->
     <div class="bg-white dark:bg-gray-900 rounded-xl p-6 border border-gray-200 dark:border-gray-800">
       <h2 class="font-semibold mb-4 flex items-center gap-2">
