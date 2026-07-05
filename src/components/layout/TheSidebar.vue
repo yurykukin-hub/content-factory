@@ -181,6 +181,8 @@ watch(() => route.path, () => sidebar.close())
           <span class="text-lg font-bold text-brand-600 dark:text-brand-400">Content Factory</span>
           <button
             @click="sidebar.close()"
+            aria-label="Закрыть меню"
+            title="Закрыть меню"
             class="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"
           >
             <X :size="20" />

@@ -229,7 +229,7 @@ function formatSize(bytes: number) {
         <!-- Номер кадра в карусели -->
         <span v-if="files.length > 1" class="absolute top-1 left-1 w-5 h-5 rounded-full bg-black/60 text-white text-[10px] font-bold flex items-center justify-center z-10">{{ idx + 1 }}</span>
         <!-- Меню действий: всегда видно на мобильном, hover на десктопе -->
-        <button @click.stop="openMenu(f, $event)" title="Действия"
+        <button @click.stop="openMenu(f, $event)" title="Действия" aria-label="Действия"
           class="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/55 hover:bg-black/75 text-white flex items-center justify-center z-10 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
           <MoreHorizontal :size="14" />
         </button>
@@ -239,11 +239,11 @@ function formatSize(bytes: number) {
         </span>
         <!-- Перемещение в карусели: стрелки ◀ ▶ (надёжно на мобильном) -->
         <div v-if="files.length > 1" class="absolute inset-x-0 bottom-0 flex items-center justify-between px-1 pb-1 z-10">
-          <button @click.stop="moveItem(idx, -1)" :disabled="idx === 0" title="Левее"
+          <button @click.stop="moveItem(idx, -1)" :disabled="idx === 0" title="Левее" aria-label="Левее"
             class="w-6 h-6 rounded-full bg-black/55 hover:bg-black/80 text-white flex items-center justify-center disabled:opacity-25 disabled:cursor-default">
             <ChevronLeft :size="14" />
           </button>
-          <button @click.stop="moveItem(idx, 1)" :disabled="idx === files.length - 1" title="Правее"
+          <button @click.stop="moveItem(idx, 1)" :disabled="idx === files.length - 1" title="Правее" aria-label="Правее"
             class="w-6 h-6 rounded-full bg-black/55 hover:bg-black/80 text-white flex items-center justify-center disabled:opacity-25 disabled:cursor-default">
             <ChevronRight :size="14" />
           </button>

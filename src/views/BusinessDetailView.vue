@@ -508,7 +508,7 @@ onMounted(() => {
               <div v-for="(link, i) in (profileForm.links || [])" :key="i" class="flex gap-2 mb-2">
                 <input v-model="link.label" placeholder="Название" class="w-1/3 px-2 py-1.5 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-xs" />
                 <input v-model="link.url" placeholder="https://..." class="flex-1 px-2 py-1.5 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-xs" />
-                <button @click="profileForm.links.splice(i, 1)" class="p-1.5 rounded-lg hover:bg-red-100 dark:hover:bg-red-900">
+                <button @click="profileForm.links.splice(i, 1)" aria-label="Удалить ссылку" title="Удалить ссылку" class="p-1.5 rounded-lg hover:bg-red-100 dark:hover:bg-red-900">
                   <Trash2 :size="14" class="text-red-400" />
                 </button>
               </div>
@@ -622,6 +622,8 @@ onMounted(() => {
                     />
                     <button
                       @click="editShowToken = !editShowToken"
+                      :aria-label="editShowToken ? 'Скрыть токен' : 'Показать токен'"
+                      :title="editShowToken ? 'Скрыть токен' : 'Показать токен'"
                       class="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-600"
                     >
                       <EyeOff v-if="editShowToken" :size="16" />
@@ -894,6 +896,8 @@ onMounted(() => {
               />
               <button
                 @click="addShowToken = !addShowToken"
+                :aria-label="addShowToken ? 'Скрыть токен' : 'Показать токен'"
+                :title="addShowToken ? 'Скрыть токен' : 'Показать токен'"
                 class="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-gray-600"
               >
                 <EyeOff v-if="addShowToken" :size="16" />
@@ -1012,10 +1016,10 @@ onMounted(() => {
             </div>
           </div>
           <div class="flex gap-1 shrink-0">
-            <button @click="editingTpl = { ...tpl }" class="p-1.5 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700">
+            <button @click="editingTpl = { ...tpl }" aria-label="Редактировать шаблон" title="Редактировать шаблон" class="p-1.5 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700">
               <Pencil :size="14" class="text-gray-400" />
             </button>
-            <button @click="deleteTpl(tpl.id)" class="p-1.5 rounded-lg hover:bg-red-100 dark:hover:bg-red-900">
+            <button @click="deleteTpl(tpl.id)" aria-label="Удалить шаблон" title="Удалить шаблон" class="p-1.5 rounded-lg hover:bg-red-100 dark:hover:bg-red-900">
               <Trash2 :size="14" class="text-red-400" />
             </button>
           </div>

@@ -819,7 +819,7 @@ onUnmounted(() => {
                 <span v-if="photo.aiCostUsd" class="text-[9px] text-gray-400">${{ photo.aiCostUsd.toFixed(2) }}</span>
               </div>
             </div>
-            <button @click="removePhoto" class="p-1.5 rounded text-gray-400 hover:text-red-500"><Trash2 :size="14" /></button>
+            <button @click="removePhoto" aria-label="Открепить медиа" title="Открепить медиа" class="p-1.5 rounded text-gray-400 hover:text-red-500"><Trash2 :size="14" /></button>
           </div>
           <div class="flex flex-wrap gap-2">
             <label :class="['flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border-2 border-dashed cursor-pointer text-xs font-medium',
@@ -840,7 +840,7 @@ onUnmounted(() => {
               class="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-100 dark:bg-emerald-900 text-emerald-700 dark:text-emerald-300 text-xs font-medium hover:bg-emerald-200 dark:hover:bg-emerald-800">
               <Video :size="14" /> AI Видео
             </button>
-            <button v-if="sourceMedia && !isVideoSource" @click="showEditModal = true" title="Редактировать AI"
+            <button v-if="sourceMedia && !isVideoSource" @click="showEditModal = true" title="Редактировать AI" aria-label="Редактировать AI"
               class="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300 text-xs font-medium hover:bg-purple-200">
               <Wand2 :size="14" />
             </button>
@@ -1009,7 +1009,7 @@ onUnmounted(() => {
                 <Loader2 v-if="publishing" :size="16" class="animate-spin" /><Send v-else :size="16" />
                 {{ publishing ? 'Публикуем...' : `Опубликовать сейчас (${selectedChannels.length})` }}
               </button>
-              <button @click="publishMenuOpen = !publishMenuOpen" :disabled="publishing"
+              <button @click="publishMenuOpen = !publishMenuOpen" :disabled="publishing" aria-label="Открыть меню публикации" title="Открыть меню публикации"
                 class="px-3 rounded-r-lg bg-green-700 hover:bg-green-800 text-white disabled:opacity-50 border-l border-green-500/40">
                 <ChevronDown :size="16" />
               </button>
@@ -1040,7 +1040,7 @@ onUnmounted(() => {
                 class="flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium disabled:opacity-50 shrink-0">
                 <Loader2 v-if="scheduling" :size="14" class="animate-spin" /><Clock v-else :size="14" /> Запланировать ({{ selectedChannels.length }})
               </button>
-              <button @click="scheduleMode = false; scheduledAt = ''" class="p-2 rounded-lg text-gray-400 hover:bg-white dark:hover:bg-gray-800 shrink-0"><X :size="14" /></button>
+              <button @click="scheduleMode = false; scheduledAt = ''" aria-label="Отменить планирование" title="Отменить планирование" class="p-2 rounded-lg text-gray-400 hover:bg-white dark:hover:bg-gray-800 shrink-0"><X :size="14" /></button>
             </div>
             <p class="text-[10px] text-gray-400 mt-2">Сторис уйдёт в выбранные каналы. Текст/дизайн вшиты в медиа; ссылка-кнопка — нативная в VK.</p>
           </div>
@@ -1125,7 +1125,7 @@ onUnmounted(() => {
           <h2 class="text-lg font-bold flex items-center gap-2">
             <Video :size="20" class="text-emerald-500" /> AI Видео для сториса
           </h2>
-          <button @click="showAiVideo = false" class="p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"><X :size="18" class="text-gray-400" /></button>
+          <button @click="showAiVideo = false" aria-label="Закрыть" title="Закрыть" class="p-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"><X :size="18" class="text-gray-400" /></button>
         </div>
 
         <div class="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-2">

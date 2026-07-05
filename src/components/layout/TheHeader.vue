@@ -24,6 +24,8 @@ async function handleLogout() {
     <div class="flex items-center gap-2">
       <button
         @click="sidebar.toggle()"
+        aria-label="Открыть меню"
+        title="Открыть меню"
         class="md:hidden p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800"
       >
         <Menu :size="20" />
@@ -36,6 +38,8 @@ async function handleLogout() {
     <div class="flex items-center gap-2 md:gap-3">
       <button
         @click="theme.toggle()"
+        :aria-label="theme.isDark ? 'Включить светлую тему' : 'Включить тёмную тему'"
+        :title="theme.isDark ? 'Включить светлую тему' : 'Включить тёмную тему'"
         class="p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800"
       >
         <Sun v-if="theme.isDark" :size="20" />
@@ -62,6 +66,7 @@ async function handleLogout() {
         @click="handleLogout"
         class="p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800"
         title="Выйти"
+        aria-label="Выйти"
       >
         <LogOut :size="20" />
       </button>

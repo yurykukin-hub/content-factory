@@ -765,7 +765,8 @@ watch([sortKey, sortDir], () => {
                 ? 'bg-white dark:bg-gray-700 shadow-sm text-brand-600 dark:text-brand-400'
                 : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
             ]"
-            :title="size === 'S' ? 'Мелкие' : size === 'M' ? 'Средние' : 'Крупные'">
+            :title="size === 'S' ? 'Мелкие' : size === 'M' ? 'Средние' : 'Крупные'"
+            :aria-label="size === 'S' ? 'Мелкие' : size === 'M' ? 'Средние' : 'Крупные'">
             <LayoutGrid v-if="size === 'S'" :size="14" />
             <Grid3X3 v-else-if="size === 'M'" :size="14" />
             <Grid2X2 v-else :size="14" />
@@ -784,7 +785,8 @@ watch([sortKey, sortDir], () => {
           </select>
           <button @click="sortDir = sortDir === 'asc' ? 'desc' : 'asc'"
             class="p-1.5 rounded-lg bg-gray-100 dark:bg-gray-800 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
-            :title="sortDir === 'asc' ? 'По возрастанию' : 'По убыванию'">
+            :title="sortDir === 'asc' ? 'По возрастанию' : 'По убыванию'"
+            :aria-label="sortDir === 'asc' ? 'По возрастанию' : 'По убыванию'">
             <ArrowDownNarrowWide v-if="sortDir === 'desc'" :size="16" />
             <ArrowUpNarrowWide v-else :size="16" />
           </button>
@@ -814,7 +816,7 @@ watch([sortKey, sortDir], () => {
       <div class="flex-1">
         Не удалось загрузить {{ failedUploads.length }} файл(ов): {{ failedUploads.join(', ') }}
       </div>
-      <button @click="failedUploads = []" class="shrink-0 text-red-400 hover:text-red-600" title="Скрыть">
+      <button @click="failedUploads = []" class="shrink-0 text-red-400 hover:text-red-600" title="Скрыть" aria-label="Скрыть">
         <X :size="14" />
       </button>
     </div>
@@ -837,7 +839,7 @@ watch([sortKey, sortDir], () => {
             class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors whitespace-nowrap">
             <Trash2 :size="14" /> <span class="hidden sm:inline">Удалить</span>
           </button>
-          <button @click="clearSelection" title="Снять выделение"
+          <button @click="clearSelection" title="Снять выделение" aria-label="Снять выделение"
             class="px-2.5 py-1.5 rounded-lg text-sm font-medium text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
             <X :size="16" />
           </button>
@@ -932,11 +934,11 @@ watch([sortKey, sortDir], () => {
           </div>
           <!-- Folder actions (hover) -->
           <div class="hidden group-hover:flex items-center gap-0.5 absolute right-1.5 top-1/2 -translate-y-1/2">
-            <button @click.stop="openRenameFolder(folder)"
+            <button @click.stop="openRenameFolder(folder)" aria-label="Переименовать папку" title="Переименовать папку"
               class="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-400 hover:text-gray-600">
               <Pencil :size="12" />
             </button>
-            <button @click.stop="deleteFolder(folder)"
+            <button @click.stop="deleteFolder(folder)" aria-label="Удалить папку" title="Удалить папку"
               class="p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-gray-400 hover:text-red-500">
               <Trash2 :size="12" />
             </button>
@@ -1005,7 +1007,7 @@ watch([sortKey, sortDir], () => {
             </div>
 
             <!-- Eye: открыть превью даже при активном выделении (тач — всегда, десктоп — на hover) -->
-            <button @click.stop="previewFile = file" title="Открыть"
+            <button @click.stop="previewFile = file" title="Открыть" aria-label="Открыть"
               class="absolute top-1.5 right-1.5 z-20 w-6 h-6 rounded-full bg-black/55 hover:bg-black/75 text-white flex items-center justify-center opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
               <Eye :size="14" />
             </button>
@@ -1064,7 +1066,7 @@ watch([sortKey, sortDir], () => {
               </div>
               <div v-else class="flex flex-wrap gap-1 items-center">
                 <span v-for="t in file.tags" :key="t" class="px-1.5 py-0.5 bg-brand-50 dark:bg-brand-950 text-brand-700 dark:text-brand-300 rounded text-[9px]">{{ t }}</span>
-                <button @click="startEditTags(file)" class="text-gray-400 hover:text-brand-600">
+                <button @click="startEditTags(file)" aria-label="Редактировать теги" title="Редактировать теги" class="text-gray-400 hover:text-brand-600">
                   <Tag :size="10" />
                 </button>
               </div>

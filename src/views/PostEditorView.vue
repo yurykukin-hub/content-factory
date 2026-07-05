@@ -655,7 +655,7 @@ onMounted(loadPost)
                 </span>
                 <button @click="toggleExpand(ch.id)"
                   :class="['flex items-center gap-1 px-1.5 py-1 rounded text-[11px] shrink-0', expandedChannelId === ch.id ? 'text-brand-600 dark:text-brand-400 bg-brand-50 dark:bg-brand-950' : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300']"
-                  title="Превью и текст под канал">
+                  title="Превью и текст под канал" aria-label="Превью и текст под канал">
                   <Settings2 :size="14" /> <span class="hidden sm:inline">{{ expandedChannelId === ch.id ? 'Готово' : 'Текст' }}</span>
                 </button>
               </div>
@@ -717,7 +717,7 @@ onMounted(loadPost)
                 <Loader2 v-if="publishingAll" :size="16" class="animate-spin" /><Send v-else :size="16" />
                 {{ publishingAll ? 'Публикуем...' : `Опубликовать сейчас (${selectedChannels.length})` }}
               </button>
-              <button @click="publishMenuOpen = !publishMenuOpen" :disabled="publishingAll"
+              <button @click="publishMenuOpen = !publishMenuOpen" :disabled="publishingAll" aria-label="Открыть меню публикации" title="Открыть меню публикации"
                 class="px-3 rounded-r-lg bg-green-700 hover:bg-green-800 text-white disabled:opacity-50 border-l border-green-500/40">
                 <ChevronDown :size="16" />
               </button>
@@ -751,7 +751,7 @@ onMounted(loadPost)
               class="flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium disabled:opacity-50 shrink-0">
               <Loader2 v-if="publishingAll" :size="14" class="animate-spin" /><Clock v-else :size="14" /> Запланировать ({{ selectedChannels.length }})
             </button>
-            <button @click="scheduleMode = false; scheduleAtAll = ''" class="p-2 rounded-lg text-gray-400 hover:bg-white dark:hover:bg-gray-800 shrink-0"><X :size="14" /></button>
+            <button @click="scheduleMode = false; scheduleAtAll = ''" aria-label="Отменить планирование" title="Отменить планирование" class="p-2 rounded-lg text-gray-400 hover:bg-white dark:hover:bg-gray-800 shrink-0"><X :size="14" /></button>
           </div>
 
           <p class="text-[10px] text-gray-400 mt-2">Мастер-текст уйдёт во все выбранные каналы. «Настроить» (⚙) — адаптация и публикация по конкретному каналу. Ссылки на сайт бренда авто-помечаются UTM по каналу.</p>

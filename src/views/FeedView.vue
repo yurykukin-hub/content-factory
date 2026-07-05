@@ -633,7 +633,7 @@ onBeforeUnmount(() => { if (editingChannel.value) flushDraft(editingChannel.valu
     <Teleport to="body">
       <div v-if="lightboxUrl" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80" @click="closeLightbox">
         <img :src="lightboxUrl" class="max-w-full max-h-[88vh] object-contain rounded-lg shadow-2xl" @click.stop />
-        <button class="absolute top-4 right-4 w-9 h-9 rounded-full bg-white/90 shadow-lg flex items-center justify-center text-gray-700 hover:bg-white" @click="closeLightbox">
+        <button class="absolute top-4 right-4 w-9 h-9 rounded-full bg-white/90 shadow-lg flex items-center justify-center text-gray-700 hover:bg-white" @click="closeLightbox" aria-label="Закрыть" title="Закрыть">
           <X :size="18" />
         </button>
       </div>
