@@ -12,7 +12,6 @@ import {
   ArrowDownNarrowWide, ArrowUpNarrowWide, Eye,
 } from 'lucide-vue-next'
 import ImageEditModal from '@/components/ai/ImageEditModal.vue'
-import DesignLayerEditor from '@/components/shared/DesignLayerEditor.vue'
 import { useSectionAccess } from '@/composables/useSectionAccess'
 import { uploadConcurrent } from '@/composables/useConcurrentUpload'
 
@@ -59,7 +58,6 @@ const loadingMore = ref(false)
 const hasMore = ref(false)
 const uploading = ref(false)
 const editingFile = ref<MediaFile | null>(null)
-const designFile = ref<MediaFile | null>(null)
 const previewFile = ref<MediaFile | null>(null)
 const describingPreviewId = ref<string | null>(null)
 const rotatingId = ref<string | null>(null)
@@ -443,11 +441,6 @@ async function onEditSubmitted(data: { prompt: string; model: string; mediaId: s
     files.value.unshift(result.mediaFile)
     toast.success('Изображение отредактировано')
   } catch (e: any) { toast.error('Ошибка: ' + (e.message || e)) }
-}
-
-function onBaked(newFile: any) {
-  files.value.unshift(newFile)
-  designFile.value = null
 }
 
 function startEditTags(file: MediaFile) {
@@ -1143,10 +1136,6 @@ watch([sortKey, sortDir], () => {
                 <Loader2 v-if="rotatingId === previewFile.id" :size="12" class="animate-spin" />
                 <RotateCw v-else :size="12" /> Вправо
               </button>
-              <button v-if="isImage(previewFile.mimeType, previewFile.filename) || isVideo(previewFile.mimeType, previewFile.filename)" @click="designFile = previewFile; previewFile = null"
-                class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-fuchsia-100 dark:bg-fuchsia-900/50 text-fuchsia-600 dark:text-fuchsia-400 hover:bg-fuchsia-200 dark:hover:bg-fuchsia-800 transition-colors">
-                <Sparkles :size="12" /> Дизайн-слой
-              </button>
               <button v-if="isImage(previewFile.mimeType, previewFile.filename)" @click="editingFile = previewFile; previewFile = null"
                 class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-purple-100 dark:bg-purple-900/50 text-purple-600 dark:text-purple-400 hover:bg-purple-200 dark:hover:bg-purple-800 transition-colors">
                 <Wand2 :size="12" /> AI-редактор
@@ -1184,15 +1173,6 @@ watch([sortKey, sortDir], () => {
       @close="editingFile = null"
       @edited="onEdited"
       @submitted="onEditSubmitted"
-    />
-
-    <!-- Design Layer Editor (Фаза 1: запекание текст-дизайна на фото/видео) -->
-    <DesignLayerEditor
-      v-if="designFile"
-      :media-file="designFile"
-      :business-id="designFile.businessId"
-      @close="designFile = null"
-      @baked="onBaked"
     />
 
     <!-- Create/Rename Folder Dialog -->
