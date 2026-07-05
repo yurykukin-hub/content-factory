@@ -15,6 +15,7 @@ import ImageEditModal from '@/components/ai/ImageEditModal.vue'
 import { useSectionAccess } from '@/composables/useSectionAccess'
 import { uploadConcurrent } from '@/composables/useConcurrentUpload'
 import { useStudioSSE } from '@/composables/useStudioSSE'
+import { useMediaSelection } from '@/composables/useMediaSelection'
 
 const { canEdit: canEditSection } = useSectionAccess()
 
@@ -184,11 +185,12 @@ const folderDialogMode = ref<'create' | 'rename'>('create')
 const folderDialogName = ref('')
 const renamingFolderId = ref<string | null>(null)
 
-// Multi-select: выделение доступно ВСЕГДА (без режима «Выбрать»). Shift — диапазон, Ctrl/⌘ — точечно.
-const selectedFiles = ref<Set<string>>(new Set())
-const lastSelectedIndex = ref<number | null>(null) // якорь Shift-диапазона (индекс по displayedFiles)
-const hasSelection = computed(() => selectedFiles.value.size > 0)
-const isTouch = typeof window !== 'undefined' && window.matchMedia('(pointer: coarse)').matches
+// Мульти-выделение (Shift-диапазон / Ctrl·⌘ точечно / тач long-press) — в useMediaSelection.
+// Set перепризначается внутри composable (реактивность). Bulk-действия (delete/move) — ниже во view.
+const {
+  selectedFiles, lastSelectedIndex, hasSelection, isTouch,
+  clearSelection, onCardTouchStart, onCardTouchEnd, onCardContextMenu, onCardClick, toggleViaCheckbox,
+} = useMediaSelection(() => displayedFiles.value, previewFile)
 const showMoveDialog = ref(false)
 const moveTargetFolderId = ref<string | null>(null)
 const moveFolders = ref<MediaFolder[]>([])
@@ -517,71 +519,8 @@ async function deleteFolder(folder: MediaFolder) {
   }
 }
 
-// --- Multi-select (§6): клик с модификаторами + тач-чекбоксы. Set ПЕРЕПРИСВАИВАЕМ (не мутируем
-// на месте) — иначе computed hasSelection/displayedFiles не пересчитываются.
-function clearSelection() {
-  selectedFiles.value = new Set()
-  lastSelectedIndex.value = null
-}
-
-// Long-press на тач — вход в выделение (lpFired гасит последующий синтетический click).
-let lpTimer: ReturnType<typeof setTimeout> | null = null
-let lpFired = false
-function onCardTouchStart(file: MediaFile, index: number) {
-  if (!isTouch) return
-  lpFired = false
-  lpTimer = setTimeout(() => {
-    lpFired = true
-    toggleViaCheckbox(file, index)
-    try { navigator.vibrate?.(15) } catch {}
-  }, 500)
-}
-function onCardTouchEnd() { if (lpTimer) { clearTimeout(lpTimer); lpTimer = null } }
-// Гасим нативное контекстное меню/«сохранить картинку» при long-press на тач (иначе оно перекрывает выделение).
-function onCardContextMenu(e: Event) { if (isTouch) e.preventDefault() }
-
-// Клик по карточке. index — позиция в displayedFiles (учитывает сортировку для Shift-диапазона).
-function onCardClick(file: MediaFile, index: number, e: MouseEvent) {
-  // Тач: тап = превью (нет выделения) / toggle (есть выделение). Long-press входит в выделение отдельно.
-  if (isTouch) {
-    if (lpFired) { lpFired = false; return } // это был long-press — синтетический клик игнорируем
-    if (hasSelection.value) toggleViaCheckbox(file, index)
-    else previewFile.value = file
-    return
-  }
-  // Десктоп — модель Проводника: одиночный клик ВЫДЕЛЯЕТ (превью = двойной клик / кнопка-глаз).
-  if (e.shiftKey) {
-    if (lastSelectedIndex.value === null) {
-      selectedFiles.value = new Set([file.id])
-      lastSelectedIndex.value = index
-    } else {
-      const lo = Math.min(lastSelectedIndex.value, index)
-      const hi = Math.max(lastSelectedIndex.value, index)
-      const next = new Set(selectedFiles.value)
-      for (let k = lo; k <= hi; k++) { const f = displayedFiles.value[k]; if (f) next.add(f.id) }
-      selectedFiles.value = next
-    }
-    return
-  }
-  if (e.ctrlKey || e.metaKey) {
-    const next = new Set(selectedFiles.value)
-    next.has(file.id) ? next.delete(file.id) : next.add(file.id)
-    selectedFiles.value = next
-    lastSelectedIndex.value = index
-    return
-  }
-  // обычный клик = выделить только это фото
-  selectedFiles.value = new Set([file.id])
-  lastSelectedIndex.value = index
-}
-
-// Тап/клик по чекбоксу-уголку (тач + hover на десктопе): toggle отдельного файла.
-function toggleViaCheckbox(file: MediaFile, index: number) {
-  const next = new Set(selectedFiles.value)
-  next.has(file.id) ? next.delete(file.id) : next.add(file.id)
-  selectedFiles.value = next
-  lastSelectedIndex.value = index
-}
+// Мульти-выделение (clearSelection / onCardClick / toggleViaCheckbox / onCardTouch* /
+// onCardContextMenu) вынесено в useMediaSelection — см. composable-вызов выше.
 
 async function deleteSelected() {
   const ids = [...selectedFiles.value]
