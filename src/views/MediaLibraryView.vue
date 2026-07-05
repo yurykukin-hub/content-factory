@@ -14,6 +14,7 @@ import {
 import ImageEditModal from '@/components/ai/ImageEditModal.vue'
 import { useSectionAccess } from '@/composables/useSectionAccess'
 import { uploadConcurrent } from '@/composables/useConcurrentUpload'
+import { useStudioSSE } from '@/composables/useStudioSSE'
 
 const { canEdit: canEditSection } = useSectionAccess()
 
@@ -665,33 +666,22 @@ const cardContainStyle = computed(() => {
 })
 
 // --- SSE: живое обновление AI-описаний (фоновый image-describer пишет altText) ---
-let sseSource: EventSource | null = null
-let sseReconnectTimer: ReturnType<typeof setTimeout> | null = null
-
-function connectSSE() {
-  sseSource = new EventSource(`/api/sse?tabId=${TAB_ID}`)
-  sseSource.onmessage = (e) => {
-    if (e.data === 'ping' || e.data === 'connected') return
-    try {
-      const event = JSON.parse(e.data)
-      if (event.type === 'media_described') {
-        // Только для текущего бизнеса
-        if (businesses.currentBusiness && event.businessId !== businesses.currentBusiness.id) return
-        const newModel = event.status === 'failed' ? 'describe_failed' : null
-        const f = files.value.find(x => x.id === event.mediaId)
-        if (f) { f.altText = event.altText; f.aiModel = newModel }
-        if (previewFile.value?.id === event.mediaId) {
-          previewFile.value.altText = event.altText
-          previewFile.value.aiModel = newModel
-        }
-      }
-    } catch {}
-  }
-  sseSource.onerror = () => {
-    sseSource?.close()
-    sseReconnectTimer = setTimeout(connectSSE, 5000)
+// Плюмбинг (open/reconnect/cleanup) — общий useStudioSSE; домен-специфична
+// только реакция на событие (onMediaEvent). Раньше блок был скопирован инлайн.
+function onMediaEvent(event: any) {
+  if (event.type === 'media_described') {
+    // Только для текущего бизнеса
+    if (businesses.currentBusiness && event.businessId !== businesses.currentBusiness.id) return
+    const newModel = event.status === 'failed' ? 'describe_failed' : null
+    const f = files.value.find(x => x.id === event.mediaId)
+    if (f) { f.altText = event.altText; f.aiModel = newModel }
+    if (previewFile.value?.id === event.mediaId) {
+      previewFile.value.altText = event.altText
+      previewFile.value.aiModel = newModel
+    }
   }
 }
+const { connect: connectSSE } = useStudioSSE(onMediaEvent)
 
 // Esc: закрыть превью, иначе снять выделение
 function onGlobalKeydown(e: KeyboardEvent) {
@@ -714,8 +704,6 @@ onMounted(() => {
 })
 onUnmounted(() => {
   infiniteObserver?.disconnect()
-  sseSource?.close()
-  if (sseReconnectTimer) clearTimeout(sseReconnectTimer)
   if (filterDebounce) clearTimeout(filterDebounce)
   window.removeEventListener('keydown', onGlobalKeydown)
 })
