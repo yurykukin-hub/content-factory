@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { http } from '@/api/client'
 import { useAuthStore } from '@/stores/auth'
@@ -115,6 +115,13 @@ const usersWithAccess = computed(() =>
 const usersWithoutAccess = computed(() =>
   allUsers.value.filter(u => u.role !== 'ADMIN' && !u.businesses.some(b => b.businessId === bizId.value) && u.isActive)
 )
+
+// Выбранный в дропдауне пользователь для «Дать доступ» (v-model вместо чтения через $refs).
+// Держим = первому доступному — это воспроизводит нативный дефолт <select> (первая опция).
+const selectedUserId = ref<string>('')
+watch(usersWithoutAccess, (list) => {
+  if (!list.some(u => u.id === selectedUserId.value)) selectedUserId.value = list[0]?.id || ''
+}, { immediate: true })
 
 async function loadUsers() {
   if (!isAdmin.value) return
@@ -751,7 +758,7 @@ onMounted(() => {
           <!-- Add user -->
           <div v-if="usersWithoutAccess.length" class="flex items-center gap-2">
             <select
-              ref="addUserSelect"
+              v-model="selectedUserId"
               class="flex-1 px-2 py-1.5 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-xs"
             >
               <option v-for="u in usersWithoutAccess" :key="u.id" :value="u.id">
@@ -759,7 +766,7 @@ onMounted(() => {
               </option>
             </select>
             <button
-              @click="grantAccess(($refs.addUserSelect as HTMLSelectElement)?.value)"
+              @click="grantAccess(selectedUserId)"
               class="px-3 py-1.5 rounded-lg bg-brand-600 text-white text-xs font-medium hover:bg-brand-700"
             >
               Дать доступ
