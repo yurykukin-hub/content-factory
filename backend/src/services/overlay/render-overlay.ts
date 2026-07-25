@@ -7,7 +7,7 @@ import { db } from '../../db'
 import { nanoid } from 'nanoid'
 import sharp from 'sharp'
 import { join } from 'path'
-import { unlink, stat } from 'fs/promises'
+import { copyFile, unlink } from 'fs/promises'
 import { config } from '../../config'
 import { log } from '../../utils/logger'
 import { renderToPng, imageToDataUri } from '../html-render'
@@ -16,7 +16,7 @@ import { savePngAsMedia } from '../story-design'
 import { overlayImageOnVideo, overlayAudioOnVideo } from '../video-overlay'
 import { extractVideoThumbnail } from '../../utils/video-thumbnail'
 import type { OverlaySpec } from './overlay-spec'
-import { LocalFileScope, localBizDir } from '../storage'
+import { LocalFileScope, getStorage, localBizDir, makeKey } from '../storage'
 
 const THUMB_SIZE = 200
 const OVERLAY_TAGS = ['overlay', 'ai-generated']
@@ -112,29 +112,33 @@ export async function renderOverlay(
     throw new Error('Файл видео отсутствует на диске')
   }
 
+  const storage = getStorage()
   try {
-    await Bun.write(layerTmpPath, layerPng)
+    await Bun.write(layerTmpPath, layerPng) // временный слой для ffmpeg (PHASE-2 DEBT: локальный tmp)
     await overlayImageOnVideo(srcVideoPath, layerTmpPath, outPath)
 
     // Опциональная музыка (парити с overlay-video)
     const audioPath = await resolveAudioPath(businessId, inputs, opts)
     if (audioPath) {
       await overlayAudioOnVideo(outPath, audioPath, audioTmpPath)
-      await Bun.write(outPath, Bun.file(audioTmpPath)) // заменяем результат озвученным
+      await copyFile(audioTmpPath, outPath) // заменяем результат озвученным (потоком, без подъёма в память)
     }
 
+    // Результаты ffmpeg — файлы на диске; регистрируем их как объекты хранилища.
     const thumbFile = await extractVideoThumbnail(outPath, bizDir, `design_${fileId}`)
-    const thumbUrl = thumbFile ? `/uploads/${businessId}/${thumbFile}` : original.thumbUrl
-    const { size } = await stat(outPath)
+    const savedOut = await storage.putFromLocalFile(makeKey(businessId, outFilename), outPath, { contentType: 'video/mp4' })
+    const thumbUrl = thumbFile
+      ? (await storage.putFromLocalFile(makeKey(businessId, thumbFile), join(bizDir, thumbFile), { contentType: 'image/webp' })).url
+      : original.thumbUrl
 
     const mf = await db.mediaFile.create({
       data: {
         businessId,
         filename: `Overlay: ${(original.filename || 'video').slice(0, 40)}`,
-        url: `/uploads/${businessId}/${outFilename}`,
+        url: savedOut.url,
         thumbUrl,
         mimeType: 'video/mp4',
-        sizeBytes: size,
+        sizeBytes: savedOut.size,
         durationSec: original.durationSec ?? null,
         tags: OVERLAY_TAGS,
         sortOrder: 0,

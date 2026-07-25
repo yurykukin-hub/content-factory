@@ -4,11 +4,7 @@ import { calculateCost, getApiKey } from './openrouter'
 import { getMarkupPercent, getChargedRub, chargeUser } from '../billing'
 import { nanoid } from 'nanoid'
 import sharp from 'sharp'
-import { join } from 'path'
-import { mkdir } from 'fs/promises'
-import { getModuleDir } from '../../utils/paths'
-
-const UPLOAD_DIR = join(getModuleDir(import.meta), '../../../uploads')
+import { getStorage, makeKey } from '../storage'
 
 interface GenerateImageParams {
   prompt: string
@@ -124,23 +120,20 @@ export async function generateImage(params: GenerateImageParams): Promise<Genera
     throw new Error('AI не вернул изображение. Попробуйте другой промпт или модель.')
   }
 
-  // 3. Save image to filesystem
+  // 3. Save image to storage
   const fileId = nanoid(12)
-  const filename = `ai_${fileId}.png`
-  const thumbFilename = `ai_${fileId}_thumb.webp`
-
-  const bizDir = join(UPLOAD_DIR, businessId)
-  await mkdir(bizDir, { recursive: true })
+  const storage = getStorage()
 
   // Convert to PNG and save
   const pngBuffer = await sharp(imageBuffer).png().toBuffer()
-  await Bun.write(join(bizDir, filename), pngBuffer)
+  const saved = await storage.put(makeKey(businessId, `ai_${fileId}.png`), pngBuffer, { contentType: 'image/png' })
 
-  // Generate thumbnail
-  await sharp(pngBuffer)
+  // Generate thumbnail (через буфер — переносимо на объектное хранилище)
+  const thumbBuffer = await sharp(pngBuffer)
     .resize(200, 200, { fit: 'cover' })
     .webp({ quality: 80 })
-    .toFile(join(bizDir, thumbFilename))
+    .toBuffer()
+  const savedThumb = await storage.put(makeKey(businessId, `ai_${fileId}_thumb.webp`), thumbBuffer, { contentType: 'image/webp' })
 
   // 4. Create MediaFile in DB
   const mediaFile = await db.mediaFile.create({
@@ -148,8 +141,8 @@ export async function generateImage(params: GenerateImageParams): Promise<Genera
       businessId,
       postId: postId || null,
       filename: `AI: ${prompt.slice(0, 50).replace(/[\r\n\t]/g, ' ')}`,
-      url: `/uploads/${businessId}/${filename}`,
-      thumbUrl: `/uploads/${businessId}/${thumbFilename}`,
+      url: saved.url,
+      thumbUrl: savedThumb.url,
       mimeType: 'image/png',
       sizeBytes: pngBuffer.length,
       altText: prompt,

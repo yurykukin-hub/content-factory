@@ -12,10 +12,9 @@ import { readFile } from 'fs/promises'
 import { existsSync } from 'fs'
 import { getPublisher } from './publishers/base'
 import { join } from 'path'
-import { getModuleDir } from '../utils/paths'
+import { getStorage, makeKey } from './storage'
 
 const TG_API = 'https://api.telegram.org'
-const UPLOAD_DIR = join(getModuleDir(import.meta), '../../uploads')
 
 // --- Config helpers ---
 async function getConfig(key: string): Promise<string | null> {
@@ -290,25 +289,19 @@ async function handleApprove(token: string, task: any, message: any, callbackId:
     const ext = photo.filePath.split('.').pop() || 'jpg'
     const fileId = nanoid(12)
     const fileName = `${fileId}.${ext}`
-    const destPath = join(UPLOAD_DIR, business.id, fileName)
+    const storage = getStorage()
 
-    // Ensure business upload dir exists
-    const bizDir = join(UPLOAD_DIR, business.id)
-    const { mkdirSync } = await import('fs')
-    mkdirSync(bizDir, { recursive: true })
-
-    // Copy file
+    // Copy file (источник — read-only монтирование google-photos, вне хранилища медиа)
     const srcBuffer = await readFile(photo.filePath)
-    await Bun.write(destPath, srcBuffer)
+    const saved = await storage.put(makeKey(business.id, fileName), srcBuffer, { contentType: photo.mimeType })
 
     // Generate thumbnail
     let thumbUrl: string | null = null
     try {
       const sharp = (await import('sharp')).default
-      const thumbName = `${fileId}_thumb.webp`
-      const thumbPath = join(bizDir, thumbName)
-      await sharp(destPath).resize(200, 200, { fit: 'cover' }).webp({ quality: 70 }).toFile(thumbPath)
-      thumbUrl = `/uploads/${business.id}/${thumbName}`
+      const thumbBuf = await sharp(srcBuffer).resize(200, 200, { fit: 'cover' }).webp({ quality: 70 }).toBuffer()
+      const savedThumb = await storage.put(makeKey(business.id, `${fileId}_thumb.webp`), thumbBuf, { contentType: 'image/webp' })
+      thumbUrl = savedThumb.url
     } catch {}
 
     // Create MediaFile
@@ -316,7 +309,7 @@ async function handleApprove(token: string, task: any, message: any, callbackId:
       data: {
         businessId: business.id,
         filename: photo.filePath.split('/').pop() || fileName,
-        url: `/uploads/${business.id}/${fileName}`,
+        url: saved.url,
         thumbUrl,
         mimeType: photo.mimeType,
         sizeBytes: photo.fileSize,
@@ -359,7 +352,7 @@ async function handleApprove(token: string, task: any, message: any, callbackId:
           text: task.proposedText,
           hashtags: task.proposedTags,
           mediaFiles: [{
-            url: `/uploads/${business.id}/${fileName}`,
+            url: saved.url,
             mimeType: photo.mimeType,
             filename: fileName,
           }],

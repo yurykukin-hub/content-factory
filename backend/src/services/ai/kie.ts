@@ -5,11 +5,9 @@ import { getMarkupPercent, getChargedRub, chargeUser } from '../billing'
 import { nanoid } from 'nanoid'
 import sharp from 'sharp'
 import { join } from 'path'
-import { mkdir } from 'fs/promises'
-import { getModuleDir } from '../../utils/paths'
+import { getStorage, localBizDir, makeKey } from '../storage'
 import { log } from '../../utils/logger'
 
-const UPLOAD_DIR = join(getModuleDir(import.meta), '../../../uploads')
 const KIE_BASE = 'https://api.kie.ai'
 
 // =====================
@@ -115,28 +113,25 @@ async function downloadAndSave(
   imageUrl: string,
   businessId: string,
   prefix: string,
-): Promise<{ filename: string; thumbFilename: string; pngBuffer: Buffer }> {
+): Promise<{ url: string; thumbUrl: string; pngBuffer: Buffer }> {
   const response = await fetch(imageUrl)
   if (!response.ok) throw new Error(`Ошибка загрузки с KIE CDN: ${response.status}`)
   const arrayBuffer = await response.arrayBuffer()
   const imageBuffer = Buffer.from(arrayBuffer)
 
   const fileId = nanoid(12)
-  const filename = `${prefix}_${fileId}.png`
-  const thumbFilename = `${prefix}_${fileId}_thumb.webp`
-
-  const bizDir = join(UPLOAD_DIR, businessId)
-  await mkdir(bizDir, { recursive: true })
+  const storage = getStorage()
 
   const pngBuffer = await sharp(imageBuffer).png().toBuffer()
-  await Bun.write(join(bizDir, filename), pngBuffer)
+  const saved = await storage.put(makeKey(businessId, `${prefix}_${fileId}.png`), pngBuffer, { contentType: 'image/png' })
 
-  await sharp(pngBuffer)
+  const thumbBuffer = await sharp(pngBuffer)
     .resize(200, 200, { fit: 'cover' })
     .webp({ quality: 80 })
-    .toFile(join(bizDir, thumbFilename))
+    .toBuffer()
+  const savedThumb = await storage.put(makeKey(businessId, `${prefix}_${fileId}_thumb.webp`), thumbBuffer, { contentType: 'image/webp' })
 
-  return { filename, thumbFilename, pngBuffer }
+  return { url: saved.url, thumbUrl: savedThumb.url, pngBuffer }
 }
 
 // =====================
@@ -273,15 +268,15 @@ export async function generateImage(params: GenerateImageParams): Promise<Genera
   }
   if (!outputUrl) throw new Error('KIE.ai не вернул изображение')
 
-  const { filename, thumbFilename, pngBuffer } = await downloadAndSave(outputUrl, businessId, 'kie_gen')
+  const { url, thumbUrl, pngBuffer } = await downloadAndSave(outputUrl, businessId, 'kie_gen')
 
   const mediaFile = await db.mediaFile.create({
     data: {
       businessId,
       postId: postId || null,
       filename: `AI: ${prompt.slice(0, 50).replace(/[\r\n\t]/g, ' ')}`,
-      url: `/uploads/${businessId}/${filename}`,
-      thumbUrl: `/uploads/${businessId}/${thumbFilename}`,
+      url,
+      thumbUrl,
       mimeType: 'image/png',
       sizeBytes: pngBuffer.length,
       altText: prompt,
@@ -400,15 +395,15 @@ export async function editImage(params: EditImageParams): Promise<KieImageResult
   if (!outputUrl) throw new Error('KIE.ai не вернул изображение')
 
   // Download immediately (URLs expire in 10 min!)
-  const { filename, thumbFilename, pngBuffer } = await downloadAndSave(outputUrl, businessId, 'kie_edit')
+  const { url, thumbUrl, pngBuffer } = await downloadAndSave(outputUrl, businessId, 'kie_edit')
 
   const mediaFile = await db.mediaFile.create({
     data: {
       businessId,
       postId: postId || null,
       filename: `AI Edit: ${prompt.slice(0, 50).replace(/[\r\n\t]/g, ' ')}`,
-      url: `/uploads/${businessId}/${filename}`,
-      thumbUrl: `/uploads/${businessId}/${thumbFilename}`,
+      url,
+      thumbUrl,
       mimeType: 'image/png',
       sizeBytes: pngBuffer.length,
       altText: prompt,
@@ -497,15 +492,15 @@ export async function removeBackground(params: RemoveBgParams): Promise<KieImage
   }
   if (!outputUrl) throw new Error('KIE.ai rembg не вернул изображение')
 
-  const { filename, thumbFilename, pngBuffer } = await downloadAndSave(outputUrl, businessId, 'kie_rembg')
+  const { url, thumbUrl, pngBuffer } = await downloadAndSave(outputUrl, businessId, 'kie_rembg')
 
   const mediaFile = await db.mediaFile.create({
     data: {
       businessId,
       postId: postId || null,
       filename: 'Без фона',
-      url: `/uploads/${businessId}/${filename}`,
-      thumbUrl: `/uploads/${businessId}/${thumbFilename}`,
+      url,
+      thumbUrl,
       mimeType: 'image/png',
       sizeBytes: pngBuffer.length,
       aiModel: model,
@@ -583,25 +578,33 @@ async function downloadAndSaveVideo(
   videoUrl: string,
   businessId: string,
   prefix: string,
-): Promise<{ filename: string; thumbFilename: string | null; videoBuffer: Buffer }> {
+): Promise<{ url: string; thumbUrl: string | null; videoBuffer: Buffer }> {
   const response = await fetch(videoUrl)
   if (!response.ok) throw new Error(`Ошибка загрузки видео с KIE CDN: ${response.status}`)
   const arrayBuffer = await response.arrayBuffer()
   const videoBuffer = Buffer.from(arrayBuffer)
 
   const fileId = nanoid(12)
-  const filename = `${prefix}_${fileId}.mp4`
+  const storage = getStorage()
+  const videoKey = makeKey(businessId, `${prefix}_${fileId}.mp4`)
+  const saved = await storage.put(videoKey, videoBuffer, { contentType: 'video/mp4' })
 
-  const bizDir = join(UPLOAD_DIR, businessId)
-  await mkdir(bizDir, { recursive: true })
-  const videoPath = join(bizDir, filename)
-  await Bun.write(videoPath, videoBuffer)
-
-  // Extract thumbnail from first frame
+  // Превью первого кадра: ffmpeg работает только с файлами на диске, поэтому
+  // объект материализуется, а результат заливается обратно как отдельный объект.
   const { extractVideoThumbnail } = await import('../../utils/video-thumbnail')
-  const thumbFilename = await extractVideoThumbnail(videoPath, bizDir, `${prefix}_${fileId}`)
+  const thumbUrl = await storage.withLocalFile(videoKey, async (videoPath) => {
+    const bizDir = await localBizDir(businessId) // PHASE-2 DEBT: ffmpeg пишет превью рядом
+    const thumbFile = await extractVideoThumbnail(videoPath, bizDir, `${prefix}_${fileId}`)
+    if (!thumbFile) return null
+    const savedThumb = await storage.putFromLocalFile(
+      makeKey(businessId, thumbFile),
+      join(bizDir, thumbFile),
+      { contentType: 'image/webp' },
+    )
+    return savedThumb.url
+  })
 
-  return { filename, thumbFilename, videoBuffer }
+  return { url: saved.url, thumbUrl, videoBuffer }
 }
 
 // =====================
@@ -687,15 +690,15 @@ export async function processVideoTaskResult(
   }
   if (!outputUrl) throw new Error('KIE.ai не вернул видео URL')
 
-  const { filename, thumbFilename, videoBuffer } = await downloadAndSaveVideo(outputUrl, params.businessId, 'kie_video')
+  const { url, thumbUrl, videoBuffer } = await downloadAndSaveVideo(outputUrl, params.businessId, 'kie_video')
 
   const mediaFile = await db.mediaFile.create({
     data: {
       businessId: params.businessId,
       postId: params.postId || null,
       filename: `AI Video: ${params.prompt.slice(0, 50).replace(/[\r\n\t]/g, ' ')}`,
-      url: `/uploads/${params.businessId}/${filename}`,
-      thumbUrl: thumbFilename ? `/uploads/${params.businessId}/${thumbFilename}` : null,
+      url,
+      thumbUrl,
       mimeType: 'video/mp4',
       sizeBytes: videoBuffer.length,
       durationSec: params.duration,
@@ -851,14 +854,14 @@ export async function processPhotoTaskResult(
   }
   if (!outputUrl) throw new Error('KIE.ai не вернул изображение')
 
-  const { filename, thumbFilename, pngBuffer } = await downloadAndSave(outputUrl, params.businessId, 'kie_photo')
+  const { url, thumbUrl, pngBuffer } = await downloadAndSave(outputUrl, params.businessId, 'kie_photo')
 
   const mediaFile = await db.mediaFile.create({
     data: {
       businessId: params.businessId,
       filename: `AI Photo: ${params.prompt.slice(0, 50).replace(/[\r\n\t]/g, ' ')}`,
-      url: `/uploads/${params.businessId}/${filename}`,
-      thumbUrl: `/uploads/${params.businessId}/${thumbFilename}`,
+      url,
+      thumbUrl,
       mimeType: 'image/png',
       sizeBytes: pngBuffer.length,
       altText: params.prompt,

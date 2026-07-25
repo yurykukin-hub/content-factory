@@ -3,9 +3,7 @@ import { db } from '../db'
 import { nanoid } from 'nanoid'
 import sharp from 'sharp'
 import { join, extname } from 'path'
-import { mkdir, unlink, stat } from 'fs/promises'
-import { existsSync } from 'fs'
-import { getModuleDir } from '../utils/paths'
+import { unlink } from 'fs/promises'
 import { log } from '../utils/logger'
 import type { AuthUser } from '../middleware/auth'
 import { verifyMediaAccess, assertBusinessAccess } from '../middleware/resource-access'
@@ -14,11 +12,10 @@ import { overlayImageOnVideo, overlayAudioOnVideo } from '../services/video-over
 import { renderAndSaveStoryDesign, renderAndSaveCarousel } from '../services/story-design'
 import { renderOverlay } from '../services/overlay/render-overlay'
 import { normalizeOverlaySpec } from '../services/overlay/overlay-spec'
-import { LocalFileScope, getStorage, keyFromUrl, localBizDir } from '../services/storage'
+import { LocalFileScope, getStorage, keyFromUrl, localBizDir, makeKey } from '../services/storage'
 
 const media = new Hono()
 
-const UPLOAD_DIR = join(getModuleDir(import.meta), '../../uploads')
 const THUMB_SIZE = 200
 
 /**
@@ -80,63 +77,74 @@ media.post('/upload', async (c) => {
   const ext = rawExt || mimeExtension(mimeType)
   const fileId = nanoid(12)
   const filename = `${fileId}${ext}`
-  const thumbFilename = `${fileId}_thumb.webp`
+  const storage = getStorage()
+  const key = makeKey(businessId, filename)
 
-  // Ensure upload dir exists
-  const bizDir = join(UPLOAD_DIR, businessId)
-  await mkdir(bizDir, { recursive: true })
-
-  // Save original file. Стримим Blob прямо на диск (Bun.write принимает Blob) — НЕ материализуем
-  // через Buffer.from(arrayBuffer()), который держал ВТОРУЮ полную копию файла в памяти поверх blob.
+  // Save original file. Blob уходит в хранилище ПОТОКОМ — НЕ материализуем через
+  // Buffer.from(arrayBuffer()), который держал ВТОРУЮ полную копию файла в памяти поверх blob.
   // На больших видео (до 500 МБ) это снимает риск OOM на Docker-лимите памяти.
-  const filePath = join(bizDir, filename)
-  await Bun.write(filePath, blob)
+  const saved = await storage.put(key, blob, { contentType: mimeType })
 
-  // Generate thumbnail for images — читаем с диска (sharp на одной картинке дёшев по памяти).
+  // Generate thumbnail for images. Пайплайн целиком в буфере: sharp умеет буферы, и только
+  // эта форма переносима на объектное хранилище (файловых путей там нет).
   // Плюс НОРМАЛИЗУЕМ ОРИЕНТАЦИЮ самого оригинала: телефоны пишут EXIF-orientation вместо реального
   // поворота пикселей. Соцсети и часть вьюверов EXIF игнорируют → фото «на боку». Запекаем поворот
   // в пиксели ОДИН раз при загрузке, чтобы фото было верным везде (сетка, превью, публикация).
+  let thumbKey: string | null = null
   let thumbUrl: string | null = null
-  let normalizedSize = blob.size
+  let normalizedSize = saved.size
   if (mimeType.startsWith('image/')) {
     try {
-      const thumbPath = join(bizDir, thumbFilename)
-      const meta = await sharp(filePath).metadata()
+      let srcBuf: Buffer = await storage.get(key)
+      const meta = await sharp(srcBuf).metadata()
       // orientation 2..8 = есть EXIF-поворот. Перекодируем только jpeg/png/webp; HEIC/HEIF не трогаем
       // (иначе JPEG-байты окажутся в .heic-файле) — для него нормализуем лишь WebP-thumbnail.
       const reencodable = /jpeg|png|webp/.test(mimeType)
+      let thumbSource: sharp.Sharp
       if (meta.orientation && meta.orientation > 1 && reencodable) {
         const fmt = mimeType.includes('png') ? 'png' : mimeType.includes('webp') ? 'webp' : 'jpeg'
-        let pipeline = sharp(filePath).rotate() // EXIF-ориентацию → в пиксели, EXIF-тег сбрасывается
+        let pipeline = sharp(srcBuf).rotate() // EXIF-ориентацию → в пиксели, EXIF-тег сбрасывается
         pipeline = fmt === 'png' ? pipeline.png() : fmt === 'webp' ? pipeline.webp({ quality: 90 }) : pipeline.jpeg({ quality: 92 })
-        const normBuf = await pipeline.toBuffer()
-        await Bun.write(filePath, normBuf) // перезапись оригинала (orientation станет 1)
-        normalizedSize = normBuf.length
-        await sharp(normBuf).resize(THUMB_SIZE, THUMB_SIZE, { fit: 'cover' }).webp({ quality: 80 }).toFile(thumbPath)
+        srcBuf = await pipeline.toBuffer()
+        const renormalized = await storage.put(key, srcBuf, { contentType: mimeType }) // перезапись оригинала (orientation станет 1)
+        normalizedSize = renormalized.size
+        thumbSource = sharp(srcBuf)
       } else {
         // Нет EXIF-поворота (или HEIC) — оригинал не трогаем (бережём качество JPEG и CPU),
         // thumbnail с .rotate() нормализуется на случай EXIF в исходнике.
-        await sharp(filePath)
-          .rotate()
-          .resize(THUMB_SIZE, THUMB_SIZE, { fit: 'cover' })
-          .webp({ quality: 80 })
-          .toFile(thumbPath)
+        thumbSource = sharp(srcBuf).rotate()
       }
-      thumbUrl = `/uploads/${businessId}/${thumbFilename}`
+      const thumbBuf = await thumbSource
+        .resize(THUMB_SIZE, THUMB_SIZE, { fit: 'cover' })
+        .webp({ quality: 80 })
+        .toBuffer()
+      const k = makeKey(businessId, `${fileId}_thumb.webp`)
+      thumbUrl = (await storage.put(k, thumbBuf, { contentType: 'image/webp' })).url
+      thumbKey = k
     } catch (e) {
       console.error('Image normalize/thumbnail failed:', e)
     }
   }
 
-  // Generate thumbnail for videos (first frame via ffmpeg)
+  // Generate thumbnail for videos (first frame via ffmpeg — ему нужен файл на диске)
   if (mimeType.startsWith('video/')) {
-    const thumbFile = await extractVideoThumbnail(filePath, bizDir, fileId)
-    if (thumbFile) thumbUrl = `/uploads/${businessId}/${thumbFile}`
+    const thumb = await storage.withLocalFile(key, async (videoPath) => {
+      const bizDir = await localBizDir(businessId) // PHASE-2 DEBT: ffmpeg пишет превью рядом
+      const thumbFile = await extractVideoThumbnail(videoPath, bizDir, fileId)
+      if (!thumbFile) return null
+      const k = makeKey(businessId, thumbFile)
+      const put = await storage.putFromLocalFile(k, join(bizDir, thumbFile), { contentType: 'image/webp' })
+      return { key: k, url: put.url }
+    })
+    if (thumb) {
+      thumbKey = thumb.key
+      thumbUrl = thumb.url
+    }
   }
 
   // Create DB record. Для фото ставим флаг авто-описания (Ф0.2) — фоновый image-describer
   // опишет (altText) для семантического поиска по галерее.
-  // Атомарность: если запись в БД упала после Bun.write — удаляем файлы с диска, чтобы не плодить сирот.
+  // Атомарность: если запись в БД упала после сохранения — удаляем объекты, чтобы не плодить сирот.
   let mediaFile
   try {
     mediaFile = await db.mediaFile.create({
@@ -145,7 +153,7 @@ media.post('/upload', async (c) => {
         postId,
         folderId,
         filename: blob.name || filename,
-        url: `/uploads/${businessId}/${filename}`,
+        url: saved.url,
         thumbUrl,
         mimeType,
         sizeBytes: normalizedSize,
@@ -154,8 +162,8 @@ media.post('/upload', async (c) => {
       },
     })
   } catch (e) {
-    await unlink(filePath).catch(() => {})
-    if (thumbUrl) await unlink(join(UPLOAD_DIR, thumbUrl.replace('/uploads/', ''))).catch(() => {})
+    await storage.delete(key)
+    if (thumbKey) await storage.delete(thumbKey)
     throw e
   }
 
@@ -225,6 +233,7 @@ media.post('/overlay-video', async (c) => {
 
   try {
     // 1. Сохранить временный PNG-слой
+    // PHASE-2 DEBT: временный слой для ffmpeg — локальный файл, не объект хранилища.
     await Bun.write(overlayTmpPath, Buffer.from(await overlayBlob.arrayBuffer()))
 
     // 2. ffmpeg: наложить текст-слой на видео (синхронно, ~3-12 сек)
@@ -244,18 +253,22 @@ media.post('/overlay-video', async (c) => {
     // 3. Thumbnail из готового видео (текст виден на превью)
     const thumbFile = await extractVideoThumbnail(outPath, bizDir, `story_video_${fileId}`)
 
-    // 4. Размер результата
-    const { size } = await stat(outPath)
+    // 4. Результат ffmpeg — файл на диске; регистрируем его (и превью) как объекты хранилища
+    const storage = getStorage()
+    const savedOut = await storage.putFromLocalFile(makeKey(businessId, outFilename), outPath, { contentType: 'video/mp4' })
+    const savedThumb = thumbFile
+      ? await storage.putFromLocalFile(makeKey(businessId, thumbFile), join(bizDir, thumbFile), { contentType: 'image/webp' })
+      : null
 
     // 5. MediaFile (тег story — попадёт в историю + превью поста)
     const mediaFile = await db.mediaFile.create({
       data: {
         businessId,
         filename: `Stories video: ${(videoMf.filename || 'video').slice(0, 40)}`,
-        url: `/uploads/${businessId}/${outFilename}`,
-        thumbUrl: thumbFile ? `/uploads/${businessId}/${thumbFile}` : videoMf.thumbUrl,
+        url: savedOut.url,
+        thumbUrl: savedThumb ? savedThumb.url : videoMf.thumbUrl,
         mimeType: 'video/mp4',
-        sizeBytes: size,
+        sizeBytes: savedOut.size,
         durationSec: videoMf.durationSec ?? null,
         tags: ['story'],
         sortOrder: 0,
@@ -424,48 +437,47 @@ media.post('/fit', async (c) => {
   if (!mf || mf.businessId !== businessId) return c.json({ error: 'Файл не найден' }, 404)
   if (!mf.mimeType.startsWith('image/')) return c.json({ error: 'Подгон формата только для изображений' }, 400)
 
-  const srcPath = join(UPLOAD_DIR, mf.url.replace('/uploads/', ''))
-  if (!existsSync(srcPath)) return c.json({ error: 'Файл отсутствует на диске' }, 404)
+  const storage = getStorage()
+  const srcKey = keyFromUrl(mf.url)
+  const srcBuf = srcKey ? await storage.get(srcKey).catch(() => null) : null
+  if (!srcBuf) return c.json({ error: 'Файл отсутствует на диске' }, 404)
 
   const [w, h] = dims
-  const bizDir = join(UPLOAD_DIR, businessId)
-  await mkdir(bizDir, { recursive: true })
   const fileId = nanoid(12)
-  const outName = `fit_${ratio.replace(':', 'x')}_${mode}_${fileId}.jpg`
-  const outPath = join(bizDir, outName)
+  const outKey = makeKey(businessId, `fit_${ratio.replace(':', 'x')}_${mode}_${fileId}.jpg`)
 
   try {
     let outBuf: Buffer
     if (mode === 'crop') {
       // Умная обрезка под формат (фокус на значимой области кадра)
-      outBuf = await sharp(srcPath).rotate().resize(w, h, { fit: 'cover', position: sharp.strategy.attention }).jpeg({ quality: 90 }).toBuffer()
+      outBuf = await sharp(srcBuf).rotate().resize(w, h, { fit: 'cover', position: sharp.strategy.attention }).jpeg({ quality: 90 }).toBuffer()
     } else {
       // Поля: размытая увеличенная копия как фон + фото целиком по центру (без обрезки)
-      const bg = await sharp(srcPath).rotate().resize(w, h, { fit: 'cover' }).blur(40).modulate({ brightness: 0.85 }).toBuffer()
-      const fg = await sharp(srcPath).rotate().resize(w, h, { fit: 'inside' }).toBuffer()
+      const bg = await sharp(srcBuf).rotate().resize(w, h, { fit: 'cover' }).blur(40).modulate({ brightness: 0.85 }).toBuffer()
+      const fg = await sharp(srcBuf).rotate().resize(w, h, { fit: 'inside' }).toBuffer()
       outBuf = await sharp(bg).composite([{ input: fg, gravity: 'center' }]).jpeg({ quality: 90 }).toBuffer()
     }
-    await Bun.write(outPath, outBuf)
+    const savedOut = await storage.put(outKey, outBuf, { contentType: 'image/jpeg' })
 
-    const thumbName = `fit_${fileId}_thumb.webp`
-    await sharp(outBuf).resize(400, 400, { fit: 'cover' }).webp({ quality: 70 }).toFile(join(bizDir, thumbName))
+    const thumbBuf = await sharp(outBuf).resize(400, 400, { fit: 'cover' }).webp({ quality: 70 }).toBuffer()
+    const savedThumb = await storage.put(makeKey(businessId, `fit_${fileId}_thumb.webp`), thumbBuf, { contentType: 'image/webp' })
 
     const created = await db.mediaFile.create({
       data: {
         businessId,
         postId: postId || null,
         filename: `${ratio} · ${mode === 'crop' ? 'обрезка' : 'размытый фон'}`,
-        url: `/uploads/${businessId}/${outName}`,
-        thumbUrl: `/uploads/${businessId}/${thumbName}`,
+        url: savedOut.url,
+        thumbUrl: savedThumb.url,
         mimeType: 'image/jpeg',
-        sizeBytes: outBuf.length,
+        sizeBytes: savedOut.size,
         tags: ['fitted', ratio],
         sortOrder: 0,
       },
     })
     return c.json(created, 201)
   } catch (e: any) {
-    await unlink(outPath).catch(() => {})
+    await storage.delete(outKey)
     return c.json({ error: 'Ошибка обработки: ' + String(e?.message || e).slice(0, 200) }, 500)
   }
 })
@@ -492,23 +504,28 @@ media.post('/:id/rotate', async (c) => {
   if (!file) return c.json({ error: 'Файл не найден' }, 404)
   if (!file.mimeType.startsWith('image/')) return c.json({ error: 'Поворот доступен только для изображений' }, 400)
 
-  const srcPath = join(UPLOAD_DIR, file.url.replace('/uploads/', ''))
-  if (!existsSync(srcPath)) return c.json({ error: 'Файл отсутствует на диске' }, 404)
+  const storage = getStorage()
+  const srcKey = keyFromUrl(file.url)
+  const srcBuf = srcKey ? await storage.get(srcKey).catch(() => null) : null
+  if (!srcKey || !srcBuf) return c.json({ error: 'Файл отсутствует на диске' }, 404)
 
   try {
     // Порядок важен: сначала .rotate() (EXIF-ориентацию → в пиксели), затем .rotate(angle) (наш доворот).
     // Иначе при наличии EXIF получится двойной поворот.
     const fmt = file.mimeType.includes('png') ? 'png' : file.mimeType.includes('webp') ? 'webp' : 'jpeg'
-    let pipeline = sharp(srcPath).rotate().rotate(angle)
+    let pipeline = sharp(srcBuf).rotate().rotate(angle)
     pipeline = fmt === 'png' ? pipeline.png() : fmt === 'webp' ? pipeline.webp({ quality: 90 }) : pipeline.jpeg({ quality: 92 })
-    const outBuf = await pipeline.toBuffer() // читаем целиком в память ДО записи в тот же файл
-    await Bun.write(srcPath, outBuf)
+    // Весь поворот в буфере: объект перезаписывается ОДНОЙ операцией, а не читается и
+    // пишется одновременно (тот же ключ — правка на месте, URL не меняется).
+    const outBuf = await pipeline.toBuffer()
+    await storage.put(srcKey, outBuf, { contentType: file.mimeType })
 
-    // Регенерируем thumbnail из уже повёрнутого буфера (то же имя — перезапись)
-    if (file.thumbUrl) {
-      const thumbPath = join(UPLOAD_DIR, file.thumbUrl.replace('/uploads/', ''))
-      await sharp(outBuf).resize(THUMB_SIZE, THUMB_SIZE, { fit: 'cover' }).webp({ quality: 80 }).toFile(thumbPath)
-        .catch((e) => log.warn('rotate: thumb regen failed', { path: thumbPath, error: String(e?.message || e) }))
+    // Регенерируем thumbnail из уже повёрнутого буфера (тот же ключ — перезапись)
+    const thumbKey = keyFromUrl(file.thumbUrl)
+    if (thumbKey) {
+      const thumbBuf = await sharp(outBuf).resize(THUMB_SIZE, THUMB_SIZE, { fit: 'cover' }).webp({ quality: 80 }).toBuffer()
+      await storage.put(thumbKey, thumbBuf, { contentType: 'image/webp' })
+        .catch((e) => log.warn('rotate: thumb regen failed', { key: thumbKey, error: String(e?.message || e) }))
     }
 
     const updated = await db.mediaFile.update({ where: { id }, data: { sizeBytes: outBuf.length } })

@@ -6,13 +6,13 @@ import { db } from '../db'
 import { nanoid } from 'nanoid'
 import sharp from 'sharp'
 import { join } from 'path'
-import { mkdir, readFile } from 'fs/promises'
+import { readFile } from 'fs/promises'
 import { getModuleDir } from '../utils/paths'
+import { getStorage, makeKey } from './storage'
 import { config } from '../config'
 import { renderToPng, imageToDataUri } from './html-render'
 import { buildStoryDesign, STORY_W, STORY_H, buildCarouselSlide, CAROUSEL_W, CAROUSEL_H, type CarouselSlideOpts } from './design-templates'
 
-const UPLOAD_DIR = join(getModuleDir(import.meta), '../../uploads')
 const LOGO_PATH = join(getModuleDir(import.meta), '../assets/logo-white.png')
 
 let logoUriCache: string | null = null
@@ -32,18 +32,17 @@ export interface SavedDesign { id: string; url: string; thumbUrl: string; tags: 
 /** Сохранить PNG-буфер как MediaFile (+ webp-thumb). Общий helper для сторис, карусели и overlay. */
 export async function savePngAsMedia(businessId: string, png: Buffer, filenameLabel: string, tags: string[], sourceMediaId?: string): Promise<SavedDesign> {
   const fileId = nanoid(12)
-  const filename = `design_${fileId}.png`
-  const thumbName = `${fileId}_thumb.webp`
-  const bizDir = join(UPLOAD_DIR, businessId)
-  await mkdir(bizDir, { recursive: true })
-  await Bun.write(join(bizDir, filename), png)
-  await sharp(png).resize(200, 200, { fit: 'cover' }).webp({ quality: 80 }).toFile(join(bizDir, thumbName))
+  const storage = getStorage()
+  const saved = await storage.put(makeKey(businessId, `design_${fileId}.png`), png, { contentType: 'image/png' })
+  // Thumb через буфер, а не .toFile() — единственная форма, переносимая на объектное хранилище.
+  const thumbBuf = await sharp(png).resize(200, 200, { fit: 'cover' }).webp({ quality: 80 }).toBuffer()
+  const savedThumb = await storage.put(makeKey(businessId, `${fileId}_thumb.webp`), thumbBuf, { contentType: 'image/webp' })
   const mf = await db.mediaFile.create({
     data: {
       businessId,
       filename: filenameLabel,
-      url: `/uploads/${businessId}/${filename}`,
-      thumbUrl: `/uploads/${businessId}/${thumbName}`,
+      url: saved.url,
+      thumbUrl: savedThumb.url,
       mimeType: 'image/png',
       sizeBytes: png.length,
       tags,

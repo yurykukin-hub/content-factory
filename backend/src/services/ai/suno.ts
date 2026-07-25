@@ -16,12 +16,9 @@ import { config } from '../../config'
 import { db } from '../../db'
 import { getMarkupPercent, getChargedRub, chargeUser } from '../billing'
 import { nanoid } from 'nanoid'
-import { join } from 'path'
-import { mkdir } from 'fs/promises'
-import { getModuleDir } from '../../utils/paths'
+import { getStorage, makeKey } from '../storage'
 import { log } from '../../utils/logger'
 
-const UPLOAD_DIR = join(getModuleDir(import.meta), '../../../uploads')
 const KIE_BASE = 'https://api.kie.ai'
 
 /** Fixed cost per song via KIE.ai (~8 credits) */
@@ -210,45 +207,35 @@ export async function checkMusicTaskStatus(kieTaskId: string): Promise<{ state: 
 // Process Music Task Result (called by poller on success)
 // =====================
 
-/** Download audio from KIE CDN (URLs expire!) and save locally */
+/** Download audio from KIE CDN (URLs expire!) and save to storage. Отдаёт готовый /uploads-URL. */
 async function downloadAudio(
   audioUrl: string,
   businessId: string,
-): Promise<{ filename: string; audioBuffer: Buffer }> {
+): Promise<{ url: string; audioBuffer: Buffer }> {
   const response = await fetch(audioUrl)
   if (!response.ok) throw new Error(`Ошибка загрузки аудио с KIE CDN: ${response.status}`)
   const arrayBuffer = await response.arrayBuffer()
   const audioBuffer = Buffer.from(arrayBuffer)
 
-  const fileId = nanoid(12)
-  const filename = `suno_${fileId}.mp3`
-
-  const bizDir = join(UPLOAD_DIR, businessId)
-  await mkdir(bizDir, { recursive: true })
-  await Bun.write(join(bizDir, filename), audioBuffer)
-
-  return { filename, audioBuffer }
+  const key = makeKey(businessId, `suno_${nanoid(12)}.mp3`)
+  const saved = await getStorage().put(key, audioBuffer, { contentType: 'audio/mpeg' })
+  return { url: saved.url, audioBuffer }
 }
 
 /** Download cover image from Suno (best-effort, optional) */
 async function downloadCoverImage(
   imageUrl: string,
   businessId: string,
-): Promise<{ filename: string } | null> {
+): Promise<{ url: string } | null> {
   try {
     const response = await fetch(imageUrl)
     if (!response.ok) return null
     const arrayBuffer = await response.arrayBuffer()
     const imageBuffer = Buffer.from(arrayBuffer)
 
-    const fileId = nanoid(12)
-    const filename = `suno_cover_${fileId}.jpg`
-
-    const bizDir = join(UPLOAD_DIR, businessId)
-    await mkdir(bizDir, { recursive: true })
-    await Bun.write(join(bizDir, filename), imageBuffer)
-
-    return { filename }
+    const key = makeKey(businessId, `suno_cover_${nanoid(12)}.jpg`)
+    const saved = await getStorage().put(key, imageBuffer, { contentType: 'image/jpeg' })
+    return { url: saved.url }
   } catch {
     return null
   }
@@ -332,13 +319,13 @@ export async function processMusicTaskResult(
   if (!audioOutputUrl) throw new Error('KIE.ai не вернул audio URL')
 
   // Download audio immediately (CDN URLs expire in ~10 min)
-  const { filename: audioFilename, audioBuffer } = await downloadAudio(audioOutputUrl, params.businessId)
+  const { url: localAudioUrl, audioBuffer } = await downloadAudio(audioOutputUrl, params.businessId)
 
   // Download cover image (optional, best-effort)
-  let coverFilename: string | null = null
+  let localCoverUrl: string | null = null
   if (imageOutputUrl) {
     const cover = await downloadCoverImage(imageOutputUrl, params.businessId)
-    if (cover) coverFilename = cover.filename
+    if (cover) localCoverUrl = cover.url
   }
 
   // Create MediaFile for the audio track
@@ -350,8 +337,8 @@ export async function processMusicTaskResult(
     data: {
       businessId: params.businessId,
       filename: displayName,
-      url: `/uploads/${params.businessId}/${audioFilename}`,
-      thumbUrl: coverFilename ? `/uploads/${params.businessId}/${coverFilename}` : null,
+      url: localAudioUrl,
+      thumbUrl: localCoverUrl,
       mimeType: 'audio/mpeg',
       sizeBytes: audioBuffer.length,
       altText: params.prompt.slice(0, 500),
@@ -394,19 +381,17 @@ export async function processMusicTaskResult(
     }
   }
 
-  const localAudioUrl = `/uploads/${params.businessId}/${audioFilename}`
-  const localCoverUrl = coverFilename ? `/uploads/${params.businessId}/${coverFilename}` : null
 
   // Download second variant (if available) — best effort, no billing
   const extraTracks: MusicTrackResult[] = []
   for (let i = 1; i < allVariants.length; i++) {
     try {
       const v = allVariants[i]
-      const { filename: extraAudioFile, audioBuffer: extraBuf } = await downloadAudio(v.audioUrl, params.businessId)
-      let extraCoverFile: string | null = null
+      const { url: extraAudioUrl, audioBuffer: extraBuf } = await downloadAudio(v.audioUrl, params.businessId)
+      let extraCoverUrl: string | null = null
       if (v.imageUrl) {
         const c = await downloadCoverImage(v.imageUrl, params.businessId)
-        if (c) extraCoverFile = c.filename
+        if (c) extraCoverUrl = c.url
       }
       const extraName = params.title
         ? `AI Music: ${params.title.slice(0, 45)} (${i + 1})`
@@ -415,8 +400,8 @@ export async function processMusicTaskResult(
         data: {
           businessId: params.businessId,
           filename: extraName,
-          url: `/uploads/${params.businessId}/${extraAudioFile}`,
-          thumbUrl: extraCoverFile ? `/uploads/${params.businessId}/${extraCoverFile}` : null,
+          url: extraAudioUrl,
+          thumbUrl: extraCoverUrl,
           mimeType: 'audio/mpeg',
           sizeBytes: extraBuf.length,
           altText: params.prompt.slice(0, 500),
@@ -426,8 +411,8 @@ export async function processMusicTaskResult(
       })
       extraTracks.push({
         mediaFileId: extraMedia.id,
-        audioUrl: `/uploads/${params.businessId}/${extraAudioFile}`,
-        coverImageUrl: extraCoverFile ? `/uploads/${params.businessId}/${extraCoverFile}` : null,
+        audioUrl: extraAudioUrl,
+        coverImageUrl: extraCoverUrl,
         kieAudioId: v.id,
         title: v.title,
         duration: v.duration,
