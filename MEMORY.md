@@ -60,11 +60,6 @@
 - Reference images: VideoStudio-style UI (56x56 thumbs, @N метки, dropdown загрузить/медиатека, preview popup с AI-описание). MediaPickerModal multi-select. До 14 refs NB2, 8 Pro
 - **ВАЖНО:** Generate payload — фронтенд шлёт `model`/`resolution`/`aspectRatio` (НЕ photoModel/photoResolution/photoAspectRatio)
 
-## Prisma Migrations — КРИТИЧНЫЕ ПРАВИЛА (2026-04-20)
-- **НИКОГДА** не использовать `db push` на dev-БД с историей миграций. Только `bunx prisma migrate dev --name описание`
-- **НИКОГДА** не редактировать SQL файл миграции ПОСЛЕ apply (ломает checksum → drift)
-- Если миграция упала "already exists" → `bunx prisma migrate resolve --applied имя_миграции` (НЕ правка SQL)
-
 ## Архитектурные решения
 - Async generation: video-poller.ts (10 сек) обрабатывает video+music+photo. kieTaskId в PostgreSQL (deploy-safe)
 - generating из БД (session.status), SSE session_updated, timer от kieTaskCreatedAt
@@ -98,4 +93,3 @@
 - **[2026-07-25] 🔥 `sed -i` ЛОМАЕТ bind-mount отдельного ФАЙЛА.** Правил `/opt/kukin-erp/Caddyfile` (примонтирован в Caddy как файл, не каталог) — `sed -i` создаёт новый inode, контейнер остаётся на старом (удалённом) → правка «применилась» на хосте, но Caddy продолжал видеть прежний конфиг. Коварство: `grep` на хосте показывал новое, `caddy validate` ВНУТРИ контейнера — валидировал старое и говорил Valid. `cat new > file` уже не спасает (mount прибит к мёртвому inode) → нужен пересоздание контейнера. **Правила:** (1) для bind-mount файла править только с сохранением inode; (2) сверять содержимое ЧЕРЕЗ контейнер (`docker exec ... grep`), а не на хосте.
 - **[2026-07-25] 🔥 compose добавляет DNS-алиас по имени сервиса в КАЖДУЮ сеть.** Подключил CF к общей сети Caddy как `backend` + явный алиас `cf-backend` — и `backend` в общей сети стал резолвиться в ДВА адреса (KB ERP + CF), а Caddyfile проксирует `backend:3000` в 8 местах → трафик KB ERP мог уйти в CF. Не выстрелило только потому, что Go-дайлер брал первый адрес. Фикс: переименовать сервис (`backend` → `cf-backend`), тогда лишнего алиаса нет. **Правило: при входе в ЧУЖУЮ сеть имя сервиса обязано быть уникальным глобально, а не в рамках своего compose.**
 - **[2026-07-25] Проверять сетевую доступность нужно с НЕ-белого IP.** В `DOCKER-USER` на СПб первым правилом `-s 91.193.25.104 -j RETURN` (Латвия), поэтому проверка портов с Латвии показывает «открыто» для всего и ничего не доказывает. Достоверно — с Hetzner (62.238.44.27).
-

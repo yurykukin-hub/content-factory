@@ -253,3 +253,8 @@
 
 ## [архив 2026-07-25] Видео-сторис + дизайн-слой (ffmpeg/sharp overlay) — детали в CLAUDE.md
 - "bake once": фото → Seedance оживляет → текст статично поверх (ffmpeg `scale2ref`+`overlay`, `services/video-overlay.ts`) → публикация VK+IG. scheduler догружает mediaFiles+skipOverlay для scheduled STORIES. Единый дизайн-слой: `design-layer.ts` + `/media/bake-design-layer` (фото→sharp, видео→ffmpeg).
+
+## [архив 2026-07-25] Prisma Migrations — КРИТИЧНЫЕ ПРАВИЛА (2026-04-20)
+- **НИКОГДА** не использовать `db push` на dev-БД с историей миграций. Только `bunx prisma migrate dev --name описание`
+- **НИКОГДА** не редактировать SQL файл миграции ПОСЛЕ apply (ломает checksum → drift)
+- Если миграция упала "already exists" → `bunx prisma migrate resolve --applied имя_миграции` (НЕ правка SQL)
