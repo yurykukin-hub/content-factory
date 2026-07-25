@@ -190,7 +190,85 @@ API keys: OpenRouter — из БД (AppConfig) или .env. FAL — из .env (F
 - **Session type isolation** — PhotoStudio: `&type=photo`
 - **Generate payload mapping:** frontend sends `model`/`resolution`/`aspectRatio` (не photoModel/photoResolution/photoAspectRatio) чтобы совпадать с Zod schema
 
-## Хранилище медиа (services/storage) — Фаза 1 миграции на Beget S3, 2026-07-25
+## Хранилище медиа (services/storage) — ✅ НА BEGET S3 с 2026-07-25
+
+**Актуальное состояние: `STORAGE_DRIVER=s3`, прод раздаёт медиа из бакета.** Локальный
+драйвер остаётся рабочим путём отката; файлы на volume НЕ удалены (Фаза 3, не раньше
+28.07 и только после зеркала). Ниже — сначала Фаза 2, затем историческая Фаза 1.
+
+### Фаза 2 — S3-драйвер и переключение (25.07, в проде)
+
+- **Реквизиты:** endpoint `https://s3.ru1.storage.beget.cloud`, bucket
+  `73c241bab1be-content-factory-media`, регион `ru1`, приватный, **path-style**.
+  Под капотом **Ceph RADOS Gateway** (`x-rgw-*`). Прод-нода в сети самого Beget
+  (AS198610), RTT ≈ 2.5 мс — S3 бэкенду почти как локальный диск.
+- **Раздача — прокси-стрим, НЕ 302 на presigned.** `Range` прокидывается в `GetObject`,
+  206 собираем сами; URL, `Cache-Control`, CORS и `?v=` не изменились (сверено до/после
+  на проде байт в байт, включая `Content-Range` на видео 166 МБ). Причина отказа от
+  редиректа: объекты RGW **не отдают `Cache-Control`**, у бакета нет CORS-политики,
+  и KIE.ai пришлось бы ходить по редиректу — при 2.5 мс экономия того не стоит.
+- **`s3.ts`:** `@aws-sdk/client-s3` + `lib-storage` + presigner, версии **закреплены точно**
+  (`3.1095.0`, без `^`). ⚠️ `requestChecksumCalculation`/`responseChecksumValidation` =
+  `WHEN_REQUIRED`: SDK ≥3.729 шлёт CRC32 в трейлере, часть сборок RGW на этом даёт 400,
+  причём выборочно на multipart (= на видео). Порог multipart 16 МБ, part 16 МБ, queue 2.
+  **Сырой одноразовый поток в `PutObject` не передавать** — ретрай перечитает пустой стрим.
+  `PutResult.size` считается из ИСТОЧНИКА (`Upload` размера не возвращает, а он идёт
+  в `MediaFile.sizeBytes`). Явные таймауты (connect 5 с, socket-idle 60 с) — по умолчанию
+  у `NodeHttpHandler` они нулевые и зависшее соединение вешало бы запрос навсегда.
+- **`S3_KEY_PREFIX`** применяется ВНУТРИ драйвера (в БД и публичных URL его нет).
+  Единственное, что изолирует dev от прода: `makeKey` даёт одинаковые ключи, а `/rotate`
+  и EXIF-нормализация перезаписывают объект ПО ТОМУ ЖЕ ключу. Прод — пусто, dev — `dev/`.
+- **`errors.ts` — одно место, где решается «объекта нет» против «хранилище не ответило».**
+  `NoSuchKey`/`NotFound`/`ENOENT` → нет объекта; **`NoSuchBucket` намеренно НЕ считается
+  отсутствием** (опечатка в имени бакета иначе молча превратила бы всё медиа в 404);
+  403 и сетевые — rethrow. `/fit` и `/rotate` теперь отдают **503**, а не 404, при сбое
+  хранилища (был `.catch(() => null)`).
+- **`delete()` сменил контракт:** `true` = «запрос удаления прошёл», НЕ «объект существовал»
+  (у S3 удаление несуществующего ключа = успех 204).
+- **`tmp.ts` — закрыт PHASE-2 DEBT.** `withTempDir()` вместо `localBizDir()` во всех 4 местах
+  ffmpeg; один рекурсивный снос покрывает все ветки выхода. `STORAGE_TMP_DIR`, дефолт
+  `<uploadsRoot>/.tmp` (**не `os.tmpdir()`** — там overlay-фс корневого диска; и тот же том
+  нужен, чтобы `putFromLocalFile` делал `rename`, а не копировал 166 МБ). Плюс **семафор
+  на 2 одновременных ffmpeg-пайплайна и проверка свободного места** (`StorageSpaceError`
+  → 503): overlay кладёт на диск 3–4× размера исходника, ограничителя раньше не было.
+  На старте tmp-каталог сносится целиком.
+- **Убраны 3 лишних обхода**, которые на S3 стали бы дорогими: загрузка видео и
+  `kie.downloadAndSaveVideo` писали объект и качали его обратно ради кадра превью
+  (теперь «времянка → превью → объект»); загрузка фото делала `get()` сразу после `put()`
+  (теперь один буфер); `imageToDataUri` ходил self-fetch-ом через публичный URL и Caddy
+  обратно в себя (теперь читает хранилище напрямую).
+- **`keyFromRequestPath` отвергает dot-сегменты** (`.tmp`, `.google-photos-thumbs`) — только
+  HTTP-поверхность; в `keyFromUrl` тот же запрет сломал бы контракт колонок БД.
+- **`ping()` на интерфейсе + `/api/health?full=true` показывает `storage`.** Без этого сервис
+  рапортовал бы «healthy» при полностью нерабочем бакете.
+- **Guard в `fix-video-thumbs.ts` / `fix-orientation.ts`:** при `STORAGE_DRIVER != local`
+  выходят с ошибкой — иначе «успешно» отработали бы по устаревшей локальной копии.
+- **Проверочные скрипты (оставлены):** `src/s3-smoke.ts` (драйвер против живого бакета:
+  multipart, Range, классификация ошибок) и `src/s3-e2e.ts` (реальные ручки через
+  `app.request()`: загрузка фото/видео, поворот, раздача, health). Оба **отказываются
+  стартовать при пустом `S3_KEY_PREFIX`** — иначе писали бы в корень боевого бакета.
+  Запуск: `STORAGE_DRIVER=s3 bun src/s3-smoke.ts`. Результат на dev — 14/14 и 13/13.
+  ⚠️ Урок фикстуры: `withExifMerge({IFD0:{Orientation}})` тег НЕ ставит (проверка
+  нормализации проходила вхолостую) — нужен `withMetadata({orientation})`.
+- **Перенос данных:** `rclone` 1.60.1 (apt) на СПб, конфиг `/root/.config/rclone/rclone.conf`
+  (`provider = Ceph`, `force_path_style`, `no_check_bucket`). Перенесено **4144 объекта /
+  9.512 ГиБ**, суммы совпали с источником, 0 ошибок, **Content-Type проставлен у всех**
+  (0 octet-stream — при глобальном `nosniff` это сломало бы показ всей истории).
+  ⚠️ **После переключения `rclone` в сторону local→s3 больше не запускать**: локальная
+  копия заморожена, а `/rotate` меняет объект по тому же ключу → залилась бы старая версия.
+- **Versioning бакета ВКЛЮЧЁН** на время миграции (страховка от ошибочной перезаписи).
+  Помнить: отключается только в `Suspended`; под ним `DeleteObject` кладёт delete-marker,
+  и старые версии копят объём → перед Фазой 3 прогнать `rclone backend cleanup-hidden`.
+- **Откат:** `STORAGE_DRIVER=local` + `up -d --force-recreate` (⚠️ `restart` НЕ перечитывает
+  env_file). **Откат несимметричен:** файлы, записанные после переключения, локально
+  отсутствуют — сначала `rclone copy` из бакета на том с `--max-age` от момента cutover.
+- **Env в `.env.prod`:** `S3_ENDPOINT`, `S3_BUCKET`, `S3_REGION`, `S3_ACCESS_KEY`,
+  `S3_SECRET_KEY`, `STORAGE_DRIVER=s3`. Помощник ввода ключей — `/root/cf-s3-keys.sh`
+  на СПб (перезапускаемый, проверяет доступ ДО записи в файлы).
+  ⚠️ У Beget **access key = 20 символов, secret = 40**; пара 40+40 означает, что скопирован
+  не тот реквизит (симптом — `InvalidAccessKeyId` при любом регионе).
+
+### Фаза 1 — абстракция (историческое, 2026-07-25)
 
 **Зачем:** медиа занимает 9.6 ГБ в volume `content-factory_uploads_data` на СПб (диск 38 ГБ, 81%). Beget S3 ~2.1 ₽/ГБ/мес (≈20 ₽) против ~500–1000 ₽ за апгрейд VPS. Бакет создан: endpoint `https://s3.ru1.storage.beget.cloud`, bucket `73c241bab1be-content-factory-media`, приватный.
 
@@ -209,7 +287,12 @@ API keys: OpenRouter — из БД (AppConfig) или .env. FAL — из .env (F
 - **Range-запросы: 206 отдаёт Caddy, не Bun.** Сам Bun на `new Response(BunFile)` возвращает 200 с полным телом (проверено на dev напрямую), но прод идёт через Caddy, и он честно отдаёт `206 Content-Range` (сверено до/после деплоя на видео 58 МБ — байт в байт одинаково). Конструкция ответа не менялась. ⚠️ **Важно для Фазы 2:** при переходе на 302-redirect на presigned URL тело файла перестанет идти через Caddy → за Range будет отвечать S3 (он умеет, но проверить обязательно, иначе сломается перемотка видео).
 - **Инвариант «фаза завершена»:** `UPLOAD_DIR`, `replace('/uploads/')` и темплейты `/uploads/${...}` остались ТОЛЬКО в двух `fix-*.ts`; `Bun.write` вне storage — только два временных слоя ffmpeg с меткой PHASE-2 DEBT.
 - **Гейты:** `bunx tsc --noEmit` чист, `bun run test` 413 pass (было 359; +54 юнит-теста на ключи и фабрику). ⚠️ Раннер проекта — `bun run test` (vitest). `bun test` Bun-раннером даёт ложные 24 fail (не умеет `vi.stubGlobal`/`vi.hoisted`).
-- **Фаза 2 (дальше):** `s3.ts` (`@aws-sdk/client-s3` + `lib-storage` multipart + presigner, `forcePathStyle:true`), перенос объектов `rclone`, `serve()` → 302 на presigned для видео, `STORAGE_TMP_DIR` вместо `localBizDir`, переключение `STORAGE_DRIVER=s3` через `up -d --force-recreate` (⚠️ `restart` НЕ перечитывает env_file). Фаза 3 — освободить volume. План: `~/.claude/plans/cf-s3-migration.md`.
+- **Фаза 3 (осталось):** не раньше суток наблюдения И не раньше, чем отработает зеркало
+  бакета на Hetzner (`rclone sync` по systemd-таймеру в `/opt/backups/cf-media`). Сегодня
+  вторая копия медиа — это старый том на умирающей Латвии, поэтому без зеркала Фаза 3
+  оставила бы медиа в одном экземпляре. Затем: `rclone backend cleanup-hidden`, очистка
+  volume (кроме `.tmp`), ожидаемо **+9.6 ГБ** (диск 84% → ≈59%). План:
+  `~/.claude/plans/cf-s3-migration.md`.
 
 ## Media Library
 - **Upload MIME detection**: extensionToMime() fallback when blob.type is empty/octet-stream (MOV, AVI, MKV etc.)
