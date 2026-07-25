@@ -72,7 +72,7 @@ export interface RenderStoryOpts {
 
 /** Рендер дизайн-сторис (9:16) → MediaFile. null если фото недоступно. Новые поля опциональны (обратная совместимость дайджеста). */
 export async function renderAndSaveStoryDesign(o: RenderStoryOpts): Promise<SavedDesign | null> {
-  const photoUri = await imageToDataUri(o.photoUrl, config.isProd, config.PORT)
+  const photoUri = await imageToDataUri(o.photoUrl)
   if (!photoUri) return null
   const logoUri = await getLogoUri()
   const node = buildStoryDesign({
@@ -98,7 +98,7 @@ export async function renderAndSaveCarousel(businessId: string, slides: Carousel
   const out: SavedDesign[] = []
   for (let i = 0; i < slides.length; i++) {
     const s = slides[i]
-    const photoUri = s.photoUrl ? await imageToDataUri(s.photoUrl, config.isProd, config.PORT) : undefined
+    const photoUri = s.photoUrl ? await imageToDataUri(s.photoUrl) : undefined
     const node = buildCarouselSlide({ photoUri, heading: s.heading, body: s.body, index: i + 1, total: slides.length, kind: s.kind, cta: s.cta, logoUri })
     const png = await renderToPng(node, CAROUSEL_W, CAROUSEL_H)
     out.push(await savePngAsMedia(businessId, png, `Слайд ${i + 1}/${slides.length}`, ['carousel-slide', 'ai-generated']))

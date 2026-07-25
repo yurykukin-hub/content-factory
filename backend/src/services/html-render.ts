@@ -8,6 +8,7 @@ import { Resvg } from '@resvg/resvg-js'
 import { readFile } from 'fs/promises'
 import { join } from 'path'
 import { getModuleDir } from '../utils/paths'
+import { publicUrl } from './storage'
 
 const FONT_DIR = join(getModuleDir(import.meta), '../assets/fonts')
 
@@ -29,12 +30,14 @@ async function loadFonts() {
   return fontCache
 }
 
-/** Скачать изображение (URL или /uploads-путь) и вернуть data URI для встраивания в satori. */
-export async function imageToDataUri(src: string, isProd: boolean, port: number): Promise<string | null> {
+/**
+ * Скачать изображение (URL или /uploads-путь) и вернуть data URI для встраивания в satori.
+ * Для /uploads-пути это self-fetch по своему же HTTP-адресу, поэтому база берётся
+ * из config.publicBaseUrl — как и у остальных внешних потребителей медиа.
+ */
+export async function imageToDataUri(src: string): Promise<string | null> {
   try {
-    const url = src.startsWith('/uploads/')
-      ? `${isProd ? 'https://content.yurykukin.ru' : `http://localhost:${port}`}${src}`
-      : src
+    const url = publicUrl(src)
     const res = await fetch(url)
     if (!res.ok) return null
     const buf = Buffer.from(await res.arrayBuffer())

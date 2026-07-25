@@ -13,6 +13,7 @@
 
 import { db } from '../db'
 import { config } from '../config'
+import { publicUrl } from './storage'
 import { aiVision } from './ai/openrouter'
 import { buildGalleryVisionPrompt } from './ai/prompt-builder'
 import { log } from '../utils/logger'
@@ -20,12 +21,6 @@ import { emitEvent } from '../eventBus'
 
 const POLL_INTERVAL = 15_000 // 15 сек
 const BATCH_SIZE = 4         // фото за тик (бережём rate limit + равномерная нагрузка)
-
-function toPublicUrl(url: string): string {
-  if (!url.startsWith('/uploads/')) return url
-  const base = config.isProd ? 'https://content.yurykukin.ru' : `http://localhost:${config.PORT}`
-  return base + url
-}
 
 /**
  * Описать одно фото и сохранить altText. true при успехе.
@@ -36,7 +31,7 @@ export async function describeMediaFile(file: { id: string; url: string; busines
   const result = await aiVision({
     systemPrompt: system,
     userPrompt: user,
-    imageUrls: [toPublicUrl(file.url)],
+    imageUrls: [publicUrl(file.url)],
     model: config.models.vision,
     maxTokens: 400,
     businessId: file.businessId,

@@ -5,7 +5,7 @@ import { getMarkupPercent, getChargedRub, chargeUser } from '../billing'
 import { nanoid } from 'nanoid'
 import sharp from 'sharp'
 import { join } from 'path'
-import { getStorage, localBizDir, makeKey } from '../storage'
+import { getStorage, localBizDir, makeKey, publicUrl } from '../storage'
 import { log } from '../../utils/logger'
 
 const KIE_BASE = 'https://api.kie.ai'
@@ -97,14 +97,6 @@ async function pollTask(taskId: string, maxAttempts = 60, initialDelay = 3000): 
   throw new Error('KIE.ai: таймаут ожидания результата')
 }
 
-// --- Resolve public URL for KIE (needs HTTP URL) ---
-
-function resolvePublicUrl(localPath: string): string {
-  if (config.isProd) {
-    return `https://content.yurykukin.ru${localPath}`
-  }
-  return `http://localhost:${config.PORT}${localPath}`
-}
 
 // --- Download from KIE CDN and save locally ---
 // IMPORTANT: KIE image URLs expire in 10 minutes!
@@ -223,7 +215,7 @@ export async function generateImage(params: GenerateImageParams): Promise<Genera
 
       // Set reference image for img2img
       if (character.referenceMedia?.url) {
-        referenceImageUrl = resolvePublicUrl(character.referenceMedia.url)
+        referenceImageUrl = publicUrl(character.referenceMedia.url)
       }
     }
   }
@@ -359,14 +351,14 @@ export async function editImage(params: EditImageParams): Promise<KieImageResult
 
   log.info('[KIE] editImage', { businessId, model, prompt: prompt.slice(0, 80) })
 
-  const publicUrl = resolvePublicUrl(imageUrl)
+  const srcPublicUrl = publicUrl(imageUrl)
 
   // Nano Banana 2 uses /api/v1/jobs/createTask
   const response = await kiePost('/api/v1/jobs/createTask', {
     model,
     input: {
       prompt,
-      image_input: [publicUrl],
+      image_input: [srcPublicUrl],
       resolution: '2K',
       output_format: 'png',
     },
@@ -465,12 +457,12 @@ export async function removeBackground(params: RemoveBgParams): Promise<KieImage
 
   log.info('[KIE] removeBackground', { businessId })
 
-  const publicUrl = resolvePublicUrl(imageUrl)
+  const srcPublicUrl = publicUrl(imageUrl)
 
   // POST to Jobs API
   const response = await kiePost('/api/v1/jobs/createTask', {
     model,
-    input: { image: publicUrl },
+    input: { image: srcPublicUrl },
   })
 
   const taskId = response?.data?.taskId || response?.taskId
@@ -647,10 +639,10 @@ export async function createVideoTask(params: GenerateVideoParams): Promise<Crea
   }
 
   if (referenceImageUrls && referenceImageUrls.length > 0) {
-    input.reference_image_urls = referenceImageUrls.map(u => resolvePublicUrl(u))
+    input.reference_image_urls = referenceImageUrls.map(u => publicUrl(u))
   } else if (firstFrameUrl) {
-    input.first_frame_url = resolvePublicUrl(firstFrameUrl)
-    if (lastFrameUrl) input.last_frame_url = resolvePublicUrl(lastFrameUrl)
+    input.first_frame_url = publicUrl(firstFrameUrl)
+    if (lastFrameUrl) input.last_frame_url = publicUrl(lastFrameUrl)
   }
 
   const response = await kiePost('/api/v1/jobs/createTask', { model, input })
@@ -776,7 +768,7 @@ export async function createPhotoTask(params: {
       if (character.style) enrichedPrompt += `. Стиль: ${character.style}`
 
       if (character.referenceMedia?.url) {
-        referenceImageUrl = resolvePublicUrl(character.referenceMedia.url)
+        referenceImageUrl = publicUrl(character.referenceMedia.url)
       }
     }
   }
@@ -794,7 +786,7 @@ export async function createPhotoTask(params: {
   if (referenceImageUrls?.length) {
     const maxRefs = isGptImage ? 16 : model === 'nano-banana-pro' ? 8 : 14
     for (const url of referenceImageUrls.slice(0, maxRefs)) {
-      allRefs.push(resolvePublicUrl(url))
+      allRefs.push(publicUrl(url))
     }
   }
 

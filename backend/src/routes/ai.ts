@@ -9,6 +9,7 @@ import { generateImage, editImage, removeBackground, createVideoTask, EDIT_MODEL
 import { emitEvent } from '../eventBus'
 import type { AuthUser } from '../middleware/auth'
 import { verifyPostAccess, assertBusinessAccess } from '../middleware/resource-access'
+import { publicUrl } from '../services/storage'
 import { canAfford, getMarkupPercent, getChargedRub, chargeUser } from '../services/billing'
 import { getRubricNames, getOccasionsInRange } from '../services/ai/strategy'
 import { getDataSourceAdapter } from '../services/datasource'
@@ -1001,12 +1002,8 @@ ai.post('/merge-references', async (c) => {
     throw e
   }
 
-  // Resolve URLs to public
-  const publicUrls = data.imageUrls.map(u => {
-    if (u.startsWith('http')) return u
-    const base = config.isProd ? 'https://content.yurykukin.ru' : `http://localhost:${config.PORT}`
-    return `${base}${u}`
-  })
+  // Resolve URLs to public (vision-модель скачивает картинки сама)
+  const publicUrls = data.imageUrls.map((u) => publicUrl(u))
 
   const imageLabels = data.imageUrls.map((_, i) => `@Image${i + 1}`).join(', ')
 
@@ -1063,9 +1060,7 @@ ai.post('/describe-image', async (c) => {
     location: 'Опиши эту локацию/место: обстановка, атмосфера, ключевые визуальные элементы, освещение.',
   }
 
-  const publicUrl = data.imageUrl.startsWith('/uploads/')
-    ? `${config.isProd ? 'https://content.yurykukin.ru' : `http://localhost:${config.PORT}`}${data.imageUrl}`
-    : data.imageUrl
+  const imagePublicUrl = publicUrl(data.imageUrl)
 
   // 'gallery' — описание для семантического поиска по медиатеке (единый промпт, см. prompt-builder).
   // Прочие типы — описание под AI-видео/референсы (исторический промпт).
@@ -1074,7 +1069,7 @@ ai.post('/describe-image', async (c) => {
   const result = await aiVision({
     systemPrompt: gallery?.system ?? 'Ты эксперт по визуальным описаниям для AI-видеогенерации. Напиши краткое описание на русском (2-3 предложения). Опиши всё видимое: субъекты, окружение, цвета, освещение, композицию. Никогда не отказывай — всегда описывай что видишь.',
     userPrompt: gallery?.user ?? (typeHints[data.type] || typeHints.auto),
-    imageUrls: [publicUrl],
+    imageUrls: [imagePublicUrl],
     model: config.models.vision,
     businessId: null,
     action: 'describe_reference',

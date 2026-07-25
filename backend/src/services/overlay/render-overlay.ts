@@ -87,7 +87,7 @@ export async function renderOverlay(
 
   // ─── ФОТО: satori PNG поверх фото ───
   if (isImage) {
-    const photoUri = await imageToDataUri(original.url, config.isProd, config.PORT)
+    const photoUri = await imageToDataUri(original.url)
     if (!photoUri) throw new Error('Не удалось загрузить исходное фото')
     const png = await renderToPng(nodeFromSpec(spec, photoUri), STORY_W, STORY_H)
     const saved = await savePngAsMedia(businessId, png, 'Overlay-дизайн', OVERLAY_TAGS, original.id)
