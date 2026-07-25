@@ -4,9 +4,8 @@ import { logger } from 'hono/logger'
 import { secureHeaders } from 'hono/secure-headers'
 import { HTTPException } from 'hono/http-exception'
 import { ZodError } from 'zod'
-import { join, resolve } from 'path'
 import { config } from './config'
-import { getModuleDir } from './utils/paths'
+import { getStorage, keyFromRequestPath } from './services/storage'
 import { db } from './db'
 import { requireAuth, requireRole } from './middleware/auth'
 import { requireApiKey } from './middleware/api-key'
@@ -180,33 +179,15 @@ app.route('/api/dashboard', dashboard)
 app.route('/api/sse', sse)
 
 // --- Static file serving for uploads ---
-// Security: path traversal protection — resolve and verify path stays within uploads root
-const uploadsRoot = resolve(getModuleDir(import.meta), '..', 'uploads')
-
+// Защита от path traversal — в keyFromRequestPath (валидация формы ключа) плюс
+// дублирующая проверка «не выходит за корень» внутри локального драйвера.
+// Заголовки ответа (CORS для canvas, Cache-Control) живут в storage.serve().
 app.get('/uploads/*', async (c) => {
-  // Extract relative path after /uploads/ and resolve against uploads root
-  const requestedPath = c.req.path.replace(/^\/uploads\/?/, '')
-  const filePath = resolve(uploadsRoot, requestedPath)
+  const key = keyFromRequestPath(c.req.path)
+  if (!key) return c.json({ error: 'Forbidden' }, 403)
 
-  // Block path traversal: resolved path must start with uploads root
-  if (!filePath.startsWith(uploadsRoot + '/') && filePath !== uploadsRoot) {
-    return c.json({ error: 'Forbidden' }, 403)
-  }
-
-  const file = Bun.file(filePath)
-  if (await file.exists()) {
-    // CORS: разрешаем canvas (crossOrigin='anonymous') читать пиксели без tainted-canvas.
-    // Файлы публичные, поэтому wildcard безопасен. Чинит экспорт сторис/дизайн-слоя.
-    // Cache-Control: умеренный кэш (5 мин). При повороте файла фронт добавляет ?v=<ts> —
-    // меняет URL и пробивает кэш, поэтому max-age не показывает старую версию.
-    return new Response(file, {
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Cache-Control': 'public, max-age=300',
-      },
-    })
-  }
-  return c.json({ error: 'File not found' }, 404)
+  const res = await getStorage().serve(key, c.req.raw)
+  return res ?? c.json({ error: 'File not found' }, 404)
 })
 
 // --- Global error handler ---
