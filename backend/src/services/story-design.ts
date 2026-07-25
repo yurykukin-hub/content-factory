@@ -9,7 +9,6 @@ import { join } from 'path'
 import { readFile } from 'fs/promises'
 import { getModuleDir } from '../utils/paths'
 import { getStorage, makeKey } from './storage'
-import { config } from '../config'
 import { renderToPng, imageToDataUri } from './html-render'
 import { buildStoryDesign, STORY_W, STORY_H, buildCarouselSlide, CAROUSEL_W, CAROUSEL_H, type CarouselSlideOpts } from './design-templates'
 
