@@ -5,7 +5,7 @@ import { secureHeaders } from 'hono/secure-headers'
 import { HTTPException } from 'hono/http-exception'
 import { ZodError } from 'zod'
 import { config } from './config'
-import { getStorage, keyFromRequestPath } from './services/storage'
+import { StorageSpaceError, getStorage, keyFromRequestPath } from './services/storage'
 import { db } from './db'
 import { requireAuth, requireRole } from './middleware/auth'
 import { requireApiKey } from './middleware/api-key'
@@ -70,23 +70,36 @@ app.get('/api/health', async (c) => {
     return c.json({ status: 'ok', timestamp: new Date().toISOString() })
   }
 
-  // Readiness check: DB ping
-  try {
-    await db.$queryRaw`SELECT 1`
+  // Readiness check: БД + хранилище. Хранилище проверяем отдельно, потому что при
+  // драйвере `s3` оно внешнее: с недоступным бакетом сервис формально жив, но всё
+  // медиа отдаёт ошибками — без этой проверки такое состояние выглядело бы «healthy».
+  const [dbRes, storageRes] = await Promise.allSettled([
+    db.$queryRaw`SELECT 1`,
+    getStorage().ping(),
+  ])
+
+  const dbOk = dbRes.status === 'fulfilled'
+  const storageOk = storageRes.status === 'fulfilled'
+  const errorOf = (r: PromiseSettledResult<unknown>) =>
+    r.status === 'rejected' ? String((r.reason as Error)?.message || r.reason) : undefined
+
+  if (dbOk && storageOk) {
     return c.json({
       status: 'ok',
       timestamp: new Date().toISOString(),
       db: 'connected',
+      storage: getStorage().kind,
       uptime: Math.floor(process.uptime()),
     })
-  } catch (err) {
-    return c.json({
-      status: 'degraded',
-      timestamp: new Date().toISOString(),
-      db: 'disconnected',
-      error: err instanceof Error ? err.message : 'Unknown DB error',
-    }, 503)
   }
+
+  return c.json({
+    status: 'degraded',
+    timestamp: new Date().toISOString(),
+    db: dbOk ? 'connected' : 'disconnected',
+    storage: storageOk ? getStorage().kind : 'unavailable',
+    error: errorOf(dbRes) ?? errorOf(storageRes),
+  }, 503)
 })
 
 // --- Public routes (no auth) ---
@@ -198,6 +211,12 @@ app.onError((err, c) => {
       error: 'Validation error',
       details: err.flatten().fieldErrors,
     }, 400)
+  }
+
+  // Нехватка места под ffmpeg-времянку — это перегрузка, а не ошибка запроса:
+  // 503 говорит клиенту «повтори позже», 500 звал бы разбираться с багом.
+  if (err instanceof StorageSpaceError) {
+    return c.json({ error: err.message }, 503)
   }
 
   // Hono HTTP exceptions (thrown manually via throw new HTTPException)

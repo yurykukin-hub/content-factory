@@ -14,6 +14,7 @@ import { config } from '../../config'
 import { log } from '../../utils/logger'
 import type { StorageKey } from './keys'
 import { LocalStorageDriver } from './local'
+import { S3StorageDriver } from './s3'
 
 export type StorageKind = 'local' | 's3'
 
@@ -79,13 +80,26 @@ export interface StorageDriver {
   /** Размер в байтах или `null`, если объекта нет. Заменяет пару `existsSync()` + `stat()`. */
   size(key: StorageKey): Promise<number | null>
 
-  /** Best-effort: никогда не бросает. `true` — объект действительно удалён. */
+  /**
+   * Best-effort: никогда не бросает. `true` — «запрос удаления прошёл».
+   *
+   * ⚠️ Не «объект существовал»: у S3 `DeleteObject` по несуществующему ключу отвечает
+   * успехом (204), поэтому проверить факт существования по возвращаемому значению нельзя.
+   * У локального драйвера `false` означает в том числе «файла и не было».
+   */
   delete(key: StorageKey): Promise<boolean>
 
   /**
+   * Проверка доступности хранилища для health-чека. Бросает, если оно недоступно.
+   * `describe()` для этого не годится — он синхронный и ничего не проверяет,
+   * из-за чего сервис рапортовал бы «healthy» при полностью нерабочем бакете.
+   */
+  ping(): Promise<void>
+
+  /**
    * Ответ для `GET /uploads/*`. `null` — объекта нет (роут отдаёт 404).
-   * local: `Bun.file` (Range и Content-Type бесплатно). s3 (Фаза 2): 302 на presigned URL,
-   * поэтому в сигнатуре есть `req` — из него будет проксироваться Range.
+   * local: `Bun.file` (Range и Content-Type бесплатно). s3: прокси-стрим с проксированием
+   * `Range`/`If-None-Match` — отсюда `req` в сигнатуре.
    */
   serve(key: StorageKey, req: Request): Promise<Response | null>
 
@@ -105,9 +119,7 @@ export function createStorage(kind: StorageKind): StorageDriver {
     case 'local':
       return new LocalStorageDriver()
     case 's3':
-      // Фаза 2 миграции на Beget S3. Шов существует, реализации ещё нет —
-      // лучше упасть на старте, чем тихо писать в локальный диск при STORAGE_DRIVER=s3.
-      throw new Error('S3 storage driver not implemented (Phase 2)')
+      return new S3StorageDriver()
     default:
       throw new Error(`Unknown storage driver: ${String(kind)}`)
   }

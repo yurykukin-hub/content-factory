@@ -8,7 +8,7 @@ import { Resvg } from '@resvg/resvg-js'
 import { readFile } from 'fs/promises'
 import { join } from 'path'
 import { getModuleDir } from '../utils/paths'
-import { publicUrl } from './storage'
+import { getStorage, keyFromUrl, publicUrl } from './storage'
 
 const FONT_DIR = join(getModuleDir(import.meta), '../assets/fonts')
 
@@ -32,13 +32,22 @@ async function loadFonts() {
 
 /**
  * Скачать изображение (URL или /uploads-путь) и вернуть data URI для встраивания в satori.
- * Для /uploads-пути это self-fetch по своему же HTTP-адресу, поэтому база берётся
- * из config.publicBaseUrl — как и у остальных внешних потребителей медиа.
+ *
+ * Своё медиа берём НАПРЯМУЮ из хранилища. Раньше здесь был self-fetch по собственному
+ * публичному адресу, то есть backend → публичный DNS → Caddy → backend → раздача → диск.
+ * С объектным хранилищем к этому добавился бы ещё и поход в S3 из собственного же
+ * обработчика — пять хопов ради байтов, которые лежат в одном вызове. Заодно уходит
+ * целый класс отказов: self-deadlock при исчерпании воркеров, таймауты Caddy, DNS.
+ * Внешние `http(s)://` (KIE CDN и прочее) по-прежнему качаются через fetch.
  */
 export async function imageToDataUri(src: string): Promise<string | null> {
   try {
-    const url = publicUrl(src)
-    const res = await fetch(url)
+    const key = keyFromUrl(src)
+    if (key) {
+      const buf = await getStorage().get(key)
+      return `data:${mimeFromKey(key)};base64,${buf.toString('base64')}`
+    }
+    const res = await fetch(publicUrl(src))
     if (!res.ok) return null
     const buf = Buffer.from(await res.arrayBuffer())
     const mime = res.headers.get('content-type') || 'image/jpeg'
@@ -46,6 +55,15 @@ export async function imageToDataUri(src: string): Promise<string | null> {
   } catch {
     return null
   }
+}
+
+/** MIME по расширению ключа: раздача его больше не сообщает, а satori тип нужен. */
+function mimeFromKey(key: string): string {
+  const ext = key.slice(key.lastIndexOf('.') + 1).toLowerCase()
+  if (ext === 'png') return 'image/png'
+  if (ext === 'webp') return 'image/webp'
+  if (ext === 'gif') return 'image/gif'
+  return 'image/jpeg'
 }
 
 /**

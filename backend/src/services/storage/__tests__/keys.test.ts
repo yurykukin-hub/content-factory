@@ -162,7 +162,21 @@ describe('keyFromRequestPath', () => {
   })
 
   it('percent-кодирование НЕ декодируется (иначе появился бы %2e%2e-траверсал)', () => {
-    expect(keyFromRequestPath('/uploads/..%2f..%2fetc/passwd')).toBe('..%2f..%2fetc/passwd')
+    // Слэш в кодировке остаётся частью ИМЕНИ, а не разделителем: ключ односегментный.
+    expect(keyFromRequestPath('/uploads/biz%2fsecret.jpg')).toBe('biz%2fsecret.jpg')
+    // А закодированный traversal просто не находится на диске — он не превращается в путь.
+    expect(keyFromRequestPath('/uploads/x%2e%2e%2fetc/passwd')).toBe('x%2e%2e%2fetc/passwd')
+  })
+
+  it('отвергает служебные dot-каталоги (.tmp, .google-photos-thumbs) → 403', () => {
+    // Только для HTTP-поверхности: внутри uploads живут каталоги, которые раздавать
+    // нельзя — времянки ffmpeg (`.tmp`, Фаза 2) и превью каталогизатора.
+    expect(keyFromRequestPath('/uploads/.tmp/cf-abc/video.mp4')).toBeNull()
+    expect(keyFromRequestPath('/uploads/.google-photos-thumbs/x.webp')).toBeNull()
+    expect(keyFromRequestPath('/uploads/biz/.hidden')).toBeNull()
+    // ...при этом в keyFromUrl тот же путь остаётся ВАЛИДНЫМ ключом: там запрет сломал бы
+    // контракт колонок БД (см. тест про .google-photos-thumbs выше).
+    expect(keyFromUrl('/uploads/.google-photos-thumbs/x.webp')).toBe('.google-photos-thumbs/x.webp')
   })
 })
 

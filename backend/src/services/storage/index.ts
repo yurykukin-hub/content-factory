@@ -31,6 +31,10 @@ export {
   type StorageWritable,
 } from './base'
 
+export { isMissingObjectError } from './errors'
+
 export { LocalFileScope } from './scope'
 
-export { localBizDir, uploadsRoot } from './local'
+export { uploadsRoot } from './local'
+
+export { StorageSpaceError, cleanTmpRootOnBoot, tmpRoot, withTempDir } from './tmp'

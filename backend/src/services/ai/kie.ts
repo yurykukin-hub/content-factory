@@ -5,7 +5,8 @@ import { getMarkupPercent, getChargedRub, chargeUser } from '../billing'
 import { nanoid } from 'nanoid'
 import sharp from 'sharp'
 import { join } from 'path'
-import { getStorage, localBizDir, makeKey, publicUrl } from '../storage'
+import { getStorage, makeKey, publicUrl, withTempDir } from '../storage'
+import { writeStreamedFile } from '../storage/fsio'
 import { log } from '../../utils/logger'
 
 const KIE_BASE = 'https://api.kie.ai'
@@ -581,20 +582,22 @@ async function downloadAndSaveVideo(
   const videoKey = makeKey(businessId, `${prefix}_${fileId}.mp4`)
   const saved = await storage.put(videoKey, videoBuffer, { contentType: 'video/mp4' })
 
-  // Превью первого кадра: ffmpeg работает только с файлами на диске, поэтому
-  // объект материализуется, а результат заливается обратно как отдельный объект.
+  // Превью первого кадра: ffmpeg работает только с файлами на диске. Материализуем
+  // НЕ объект хранилища (это означало бы скачать только что залитое видео обратно),
+  // а тот же буфер, который у нас уже в руках после загрузки с CDN.
   const { extractVideoThumbnail } = await import('../../utils/video-thumbnail')
-  const thumbUrl = await storage.withLocalFile(videoKey, async (videoPath) => {
-    const bizDir = await localBizDir(businessId) // PHASE-2 DEBT: ffmpeg пишет превью рядом
-    const thumbFile = await extractVideoThumbnail(videoPath, bizDir, `${prefix}_${fileId}`)
+  const thumbUrl = await withTempDir(async (dir) => {
+    const videoPath = join(dir, `${prefix}_${fileId}.mp4`)
+    await writeStreamedFile(videoPath, videoBuffer)
+    const thumbFile = await extractVideoThumbnail(videoPath, dir, `${prefix}_${fileId}`)
     if (!thumbFile) return null
     const savedThumb = await storage.putFromLocalFile(
       makeKey(businessId, thumbFile),
-      join(bizDir, thumbFile),
+      join(dir, thumbFile),
       { contentType: 'image/webp' },
     )
     return savedThumb.url
-  })
+  }, { estimatedBytes: videoBuffer.length })
 
   return { url: saved.url, thumbUrl, videoBuffer }
 }

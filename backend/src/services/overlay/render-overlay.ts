@@ -7,7 +7,7 @@ import { db } from '../../db'
 import { nanoid } from 'nanoid'
 import sharp from 'sharp'
 import { join } from 'path'
-import { copyFile, unlink } from 'fs/promises'
+import { copyFile } from 'fs/promises'
 import { log } from '../../utils/logger'
 import { renderToPng, imageToDataUri } from '../html-render'
 import { buildStoryDesign, STORY_W, STORY_H } from '../design-templates'
@@ -15,7 +15,8 @@ import { savePngAsMedia } from '../story-design'
 import { overlayImageOnVideo, overlayAudioOnVideo } from '../video-overlay'
 import { extractVideoThumbnail } from '../../utils/video-thumbnail'
 import type { OverlaySpec } from './overlay-spec'
-import { LocalFileScope, getStorage, localBizDir, makeKey } from '../storage'
+import { LocalFileScope, getStorage, makeKey, withTempDir } from '../storage'
+import { writeStreamedFile } from '../storage/fsio'
 
 const THUMB_SIZE = 200
 const OVERLAY_TAGS = ['overlay', 'ai-generated']
@@ -96,12 +97,8 @@ export async function renderOverlay(
   // ─── ВИДЕО: прозрачный satori-слой → ffmpeg overlay (+опц. музыка) ───
   const layerPng = await renderToPng(nodeFromSpec(spec, null), STORY_W, STORY_H)
 
-  const bizDir = await localBizDir(businessId)
   const fileId = nanoid(12)
-  const layerTmpPath = join(bizDir, `overlay_${fileId}.png`)
   const outFilename = `design_${fileId}.mp4`
-  const outPath = join(bizDir, outFilename)
-  const audioTmpPath = join(bizDir, `overlay_${fileId}_a.mp4`)
 
   // ffmpeg принимает только файлы на диске → входы через scope, освобождаются в finally.
   const inputs = new LocalFileScope()
@@ -113,45 +110,50 @@ export async function renderOverlay(
 
   const storage = getStorage()
   try {
-    await Bun.write(layerTmpPath, layerPng) // временный слой для ffmpeg (PHASE-2 DEBT: локальный tmp)
-    await overlayImageOnVideo(srcVideoPath, layerTmpPath, outPath)
+    // Промежуточные артефакты (слой, озвученная версия, результат, превью) живут
+    // в одном временном каталоге и сносятся одним `rm -rf` в любой ветке выхода.
+    return await withTempDir(async (dir) => {
+      const layerTmpPath = join(dir, `overlay_${fileId}.png`)
+      const outPath = join(dir, outFilename)
+      const audioTmpPath = join(dir, `overlay_${fileId}_a.mp4`)
 
-    // Опциональная музыка (парити с overlay-video)
-    const audioPath = await resolveAudioPath(businessId, inputs, opts)
-    if (audioPath) {
-      await overlayAudioOnVideo(outPath, audioPath, audioTmpPath)
-      await copyFile(audioTmpPath, outPath) // заменяем результат озвученным (потоком, без подъёма в память)
-    }
+      await writeStreamedFile(layerTmpPath, layerPng)
+      await overlayImageOnVideo(srcVideoPath, layerTmpPath, outPath)
 
-    // Результаты ffmpeg — файлы на диске; регистрируем их как объекты хранилища.
-    const thumbFile = await extractVideoThumbnail(outPath, bizDir, `design_${fileId}`)
-    const savedOut = await storage.putFromLocalFile(makeKey(businessId, outFilename), outPath, { contentType: 'video/mp4' })
-    const thumbUrl = thumbFile
-      ? (await storage.putFromLocalFile(makeKey(businessId, thumbFile), join(bizDir, thumbFile), { contentType: 'image/webp' })).url
-      : original.thumbUrl
+      // Опциональная музыка (парити с overlay-video)
+      const audioPath = await resolveAudioPath(businessId, inputs, opts)
+      if (audioPath) {
+        await overlayAudioOnVideo(outPath, audioPath, audioTmpPath)
+        await copyFile(audioTmpPath, outPath) // заменяем результат озвученным (потоком, без подъёма в память)
+      }
 
-    const mf = await db.mediaFile.create({
-      data: {
-        businessId,
-        filename: `Overlay: ${(original.filename || 'video').slice(0, 40)}`,
-        url: savedOut.url,
-        thumbUrl,
-        mimeType: 'video/mp4',
-        sizeBytes: savedOut.size,
-        durationSec: original.durationSec ?? null,
-        tags: OVERLAY_TAGS,
-        sortOrder: 0,
-        sourceMediaId: original.id,
-      },
-    })
-    return { id: mf.id, url: mf.url, thumbUrl: mf.thumbUrl, mimeType: 'video/mp4' }
+      // Результаты ffmpeg — файлы на диске; регистрируем их как объекты хранилища.
+      const thumbFile = await extractVideoThumbnail(outPath, dir, `design_${fileId}`)
+      const savedOut = await storage.putFromLocalFile(makeKey(businessId, outFilename), outPath, { contentType: 'video/mp4' })
+      const thumbUrl = thumbFile
+        ? (await storage.putFromLocalFile(makeKey(businessId, thumbFile), join(dir, thumbFile), { contentType: 'image/webp' })).url
+        : original.thumbUrl
+
+      const mf = await db.mediaFile.create({
+        data: {
+          businessId,
+          filename: `Overlay: ${(original.filename || 'video').slice(0, 40)}`,
+          url: savedOut.url,
+          thumbUrl,
+          mimeType: 'video/mp4',
+          sizeBytes: savedOut.size,
+          durationSec: original.durationSec ?? null,
+          tags: OVERLAY_TAGS,
+          sortOrder: 0,
+          sourceMediaId: original.id,
+        },
+      })
+      return { id: mf.id, url: mf.url, thumbUrl: mf.thumbUrl, mimeType: 'video/mp4' }
+    }, { estimatedBytes: original.sizeBytes ?? 0 })
   } catch (e: any) {
-    await unlink(outPath).catch(() => {})
     log.warn('[render-overlay] video bake failed', { error: String(e?.message || e).slice(0, 200) })
     throw e
   } finally {
-    await unlink(layerTmpPath).catch(() => {})
-    await unlink(audioTmpPath).catch(() => {})
     await inputs.dispose()
   }
 }

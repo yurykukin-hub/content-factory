@@ -93,10 +93,19 @@ export function requireKeyFromUrl(url: string | null | undefined): StorageKey {
 /**
  * HTTP-путь запроса (`c.req.path`, уже без query-строки) → ключ.
  * `null` ⇒ роут отдаёт 403 (как и прежняя проверка префикса после `resolve()`).
+ *
+ * Дополнительно к `keyFromUrl` отвергает сегменты, начинающиеся с точки. Это только
+ * про HTTP-поверхность: внутри uploads живут служебные каталоги, которые раздавать
+ * нельзя — `.tmp` (времянки ffmpeg с Фазы 2) и `.google-photos-thumbs` (превью
+ * каталогизатора). В `keyFromUrl` тот же запрет ставить НЕЛЬЗЯ: там он сломал бы
+ * контракт колонок БД, где dot-каталог — легальный ключ.
  */
 export function keyFromRequestPath(reqPath: string): StorageKey | null {
   if (!reqPath.startsWith(UPLOADS_URL_PREFIX)) return null
-  return normalizeKey(reqPath.slice(UPLOADS_URL_PREFIX.length))
+  const key = normalizeKey(reqPath.slice(UPLOADS_URL_PREFIX.length))
+  if (key === null) return null
+  if (key.split('/').some((seg) => seg.startsWith('.'))) return null
+  return key
 }
 
 /**

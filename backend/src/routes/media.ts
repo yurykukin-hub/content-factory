@@ -5,6 +5,7 @@ import sharp from 'sharp'
 import { join, extname } from 'path'
 import { unlink } from 'fs/promises'
 import { log } from '../utils/logger'
+import { extensionToMime, mimeExtension } from '../utils/mime'
 import type { AuthUser } from '../middleware/auth'
 import { verifyMediaAccess, assertBusinessAccess } from '../middleware/resource-access'
 import { extractVideoThumbnail } from '../utils/video-thumbnail'
@@ -12,7 +13,8 @@ import { overlayImageOnVideo, overlayAudioOnVideo } from '../services/video-over
 import { renderAndSaveStoryDesign, renderAndSaveCarousel } from '../services/story-design'
 import { renderOverlay } from '../services/overlay/render-overlay'
 import { normalizeOverlaySpec } from '../services/overlay/overlay-spec'
-import { LocalFileScope, getStorage, keyFromUrl, localBizDir, makeKey } from '../services/storage'
+import { LocalFileScope, StorageSpaceError, getStorage, isMissingObjectError, keyFromUrl, makeKey, withTempDir } from '../services/storage'
+import { writeStreamedFile } from '../services/storage/fsio'
 
 const media = new Hono()
 
@@ -20,7 +22,11 @@ const THUMB_SIZE = 200
 
 /**
  * Удалить объект и его превью. БД — источник правды, файлы best-effort: даже если
- * объект не удалился, запись убираем, а сироту логируем (warn), чтобы вычистить диск.
+ * объект не удалился, запись убираем, а неудачу логируем (warn), чтобы вычистить хранилище.
+ *
+ * ⚠️ `delete()` возвращает «запрос удаления прошёл», а НЕ «объект существовал»: у S3
+ * удаление несуществующего ключа — успех (204). Поэтому отсутствие warn не доказывает,
+ * что файл был; warn же означает реальный отказ хранилища.
  */
 async function deleteMediaObjects(
   file: { url: string; thumbUrl: string | null },
@@ -35,10 +41,30 @@ async function deleteMediaObjects(
       continue
     }
     if (!(await storage.delete(key))) {
-      log.warn(`${context}: orphan ${label} left on disk`, { key })
+      log.warn(`${context}: не удалось удалить ${label} из хранилища`, { key })
     }
   }
 }
+/**
+ * Маркер «хранилище не ответило» — в отличие от `null` = «объекта действительно нет».
+ * Раньше здесь стоял `.catch(() => null)`, и при сетевом сбое пользователь получал
+ * «файл отсутствует» — сообщение, которое провоцирует удалить живую запись.
+ */
+const STORAGE_ERROR = Symbol('storage-error')
+
+async function readObject(
+  storage: ReturnType<typeof getStorage>,
+  key: string,
+): Promise<Buffer | null | typeof STORAGE_ERROR> {
+  try {
+    return await storage.get(key)
+  } catch (e) {
+    if (isMissingObjectError(e)) return null
+    log.error('[media] хранилище недоступно при чтении объекта', { key, error: String(e) })
+    return STORAGE_ERROR
+  }
+}
+
 const MAX_FILE_SIZE = 500 * 1024 * 1024 // 500 MB (рилз/видео туров с телефона)
 
 // POST /api/media/upload — загрузка файла (multipart/form-data)
@@ -80,22 +106,65 @@ media.post('/upload', async (c) => {
   const storage = getStorage()
   const key = makeKey(businessId, filename)
 
-  // Save original file. Blob уходит в хранилище ПОТОКОМ — НЕ материализуем через
-  // Buffer.from(arrayBuffer()), который держал ВТОРУЮ полную копию файла в памяти поверх blob.
-  // На больших видео (до 500 МБ) это снимает риск OOM на Docker-лимите памяти.
-  const saved = await storage.put(key, blob, { contentType: mimeType })
+  const isImage = mimeType.startsWith('image/')
+  const isVideo = mimeType.startsWith('video/')
+
+  // Изображению источник всё равно нужен в буфере (sharp), поэтому читаем blob ОДИН раз
+  // и им же пишем объект. Иначе сразу после записи пришлось бы читать объект обратно —
+  // на локальном диске это дёшево, а на объектном хранилище означало бы полную выкачку
+  // только что залитого файла. Видео не буферизуем никогда: 500 МБ в память не поднимаем.
+  const imageBuf = isImage ? Buffer.from(await blob.arrayBuffer()) : null
+
+  let thumbKey: string | null = null
+  let thumbUrl: string | null = null
+  let saved: { url: string; size: number }
+  let normalizedSize: number
+
+  if (isVideo) {
+    // Порядок «времянка → превью → объект» осознан: ffmpeg умеет только пути на диске,
+    // и раньше путь брался у УЖЕ сохранённого объекта (`withLocalFile`). На S3 это
+    // означало бы скачать только что залитые 500 МБ ради одного кадра. Локальный драйвер
+    // при этом ничего не теряет: `putFromLocalFile` перемещает файл `rename`-ом в пределах
+    // тома, так что байты по-прежнему пишутся на диск ровно один раз.
+    // Побочный выигрыш: если превью упадёт, объекта-сироты не остаётся — его ещё нет.
+    const res = await withTempDir(async (dir) => {
+      const srcPath = join(dir, filename)
+      await writeStreamedFile(srcPath, blob)
+
+      let thumb: { key: string; url: string } | null = null
+      const thumbFile = await extractVideoThumbnail(srcPath, dir, fileId)
+      if (thumbFile) {
+        const k = makeKey(businessId, thumbFile)
+        const put = await storage.putFromLocalFile(k, join(dir, thumbFile), {
+          contentType: 'image/webp',
+        })
+        thumb = { key: k, url: put.url }
+      }
+
+      const put = await storage.putFromLocalFile(key, srcPath, { contentType: mimeType })
+      return { put, thumb }
+    }, { estimatedBytes: blob.size })
+    saved = res.put
+    normalizedSize = res.put.size
+    if (res.thumb) {
+      thumbKey = res.thumb.key
+      thumbUrl = res.thumb.url
+    }
+  } else {
+    // Blob уходит в хранилище ПОТОКОМ — НЕ материализуем через Buffer.from(arrayBuffer()),
+    // который держал бы ВТОРУЮ полную копию файла в памяти поверх blob.
+    saved = await storage.put(key, imageBuf ?? blob, { contentType: mimeType })
+    normalizedSize = saved.size
+  }
 
   // Generate thumbnail for images. Пайплайн целиком в буфере: sharp умеет буферы, и только
   // эта форма переносима на объектное хранилище (файловых путей там нет).
   // Плюс НОРМАЛИЗУЕМ ОРИЕНТАЦИЮ самого оригинала: телефоны пишут EXIF-orientation вместо реального
   // поворота пикселей. Соцсети и часть вьюверов EXIF игнорируют → фото «на боку». Запекаем поворот
   // в пиксели ОДИН раз при загрузке, чтобы фото было верным везде (сетка, превью, публикация).
-  let thumbKey: string | null = null
-  let thumbUrl: string | null = null
-  let normalizedSize = saved.size
-  if (mimeType.startsWith('image/')) {
+  if (isImage) {
     try {
-      let srcBuf: Buffer = await storage.get(key)
+      let srcBuf: Buffer = imageBuf!
       const meta = await sharp(srcBuf).metadata()
       // orientation 2..8 = есть EXIF-поворот. Перекодируем только jpeg/png/webp; HEIC/HEIF не трогаем
       // (иначе JPEG-байты окажутся в .heic-файле) — для него нормализуем лишь WebP-thumbnail.
@@ -123,22 +192,6 @@ media.post('/upload', async (c) => {
       thumbKey = k
     } catch (e) {
       console.error('Image normalize/thumbnail failed:', e)
-    }
-  }
-
-  // Generate thumbnail for videos (first frame via ffmpeg — ему нужен файл на диске)
-  if (mimeType.startsWith('video/')) {
-    const thumb = await storage.withLocalFile(key, async (videoPath) => {
-      const bizDir = await localBizDir(businessId) // PHASE-2 DEBT: ffmpeg пишет превью рядом
-      const thumbFile = await extractVideoThumbnail(videoPath, bizDir, fileId)
-      if (!thumbFile) return null
-      const k = makeKey(businessId, thumbFile)
-      const put = await storage.putFromLocalFile(k, join(bizDir, thumbFile), { contentType: 'image/webp' })
-      return { key: k, url: put.url }
-    })
-    if (thumb) {
-      thumbKey = thumb.key
-      thumbUrl = thumb.url
     }
   }
 
@@ -224,64 +277,62 @@ media.post('/overlay-video', async (c) => {
     if (sess && sess.businessId === businessId) audioPath = await inputs.resolve(sess.audioUrl)
   }
 
-  const bizDir = await localBizDir(businessId)
-
   const fileId = nanoid(12)
-  const overlayTmpPath = join(bizDir, `overlay_${fileId}.png`)
   const outFilename = `story_video_${fileId}.mp4`
-  const outPath = join(bizDir, outFilename)
 
   try {
-    // 1. Сохранить временный PNG-слой
-    // PHASE-2 DEBT: временный слой для ffmpeg — локальный файл, не объект хранилища.
-    await Bun.write(overlayTmpPath, Buffer.from(await overlayBlob.arrayBuffer()))
+    // Все промежуточные артефакты ffmpeg живут в одном временном каталоге и сносятся
+    // одним `rm -rf` — включая падение на середине. Раньше каждый из них требовал
+    // собственного `unlink` в `finally`, и часть утекала при исключении между шагами.
+    const mediaFile = await withTempDir(async (dir) => {
+      const overlayTmpPath = join(dir, `overlay_${fileId}.png`)
+      const outPath = join(dir, outFilename)
 
-    // 2. ffmpeg: наложить текст-слой на видео (синхронно, ~3-12 сек)
-    if (audioPath) {
-      // С музыкой: сначала текст в промежуточный файл, затем вшиваем аудио ("bake once")
-      const txtPath = join(bizDir, `story_video_${fileId}_txt.mp4`)
-      try {
+      // 1. Сохранить временный PNG-слой
+      await writeStreamedFile(overlayTmpPath, Buffer.from(await overlayBlob.arrayBuffer()))
+
+      // 2. ffmpeg: наложить текст-слой на видео (синхронно, ~3-12 сек)
+      if (audioPath) {
+        // С музыкой: сначала текст в промежуточный файл, затем вшиваем аудио ("bake once")
+        const txtPath = join(dir, `story_video_${fileId}_txt.mp4`)
         await overlayImageOnVideo(videoPath, overlayTmpPath, txtPath)
         await overlayAudioOnVideo(txtPath, audioPath, outPath)
-      } finally {
-        await unlink(txtPath).catch(() => {})
+      } else {
+        await overlayImageOnVideo(videoPath, overlayTmpPath, outPath)
       }
-    } else {
-      await overlayImageOnVideo(videoPath, overlayTmpPath, outPath)
-    }
 
-    // 3. Thumbnail из готового видео (текст виден на превью)
-    const thumbFile = await extractVideoThumbnail(outPath, bizDir, `story_video_${fileId}`)
+      // 3. Thumbnail из готового видео (текст виден на превью)
+      const thumbFile = await extractVideoThumbnail(outPath, dir, `story_video_${fileId}`)
 
-    // 4. Результат ffmpeg — файл на диске; регистрируем его (и превью) как объекты хранилища
-    const storage = getStorage()
-    const savedOut = await storage.putFromLocalFile(makeKey(businessId, outFilename), outPath, { contentType: 'video/mp4' })
-    const savedThumb = thumbFile
-      ? await storage.putFromLocalFile(makeKey(businessId, thumbFile), join(bizDir, thumbFile), { contentType: 'image/webp' })
-      : null
+      // 4. Результат ffmpeg — файл на диске; регистрируем его (и превью) как объекты хранилища
+      const storage = getStorage()
+      const savedOut = await storage.putFromLocalFile(makeKey(businessId, outFilename), outPath, { contentType: 'video/mp4' })
+      const savedThumb = thumbFile
+        ? await storage.putFromLocalFile(makeKey(businessId, thumbFile), join(dir, thumbFile), { contentType: 'image/webp' })
+        : null
 
-    // 5. MediaFile (тег story — попадёт в историю + превью поста)
-    const mediaFile = await db.mediaFile.create({
-      data: {
-        businessId,
-        filename: `Stories video: ${(videoMf.filename || 'video').slice(0, 40)}`,
-        url: savedOut.url,
-        thumbUrl: savedThumb ? savedThumb.url : videoMf.thumbUrl,
-        mimeType: 'video/mp4',
-        sizeBytes: savedOut.size,
-        durationSec: videoMf.durationSec ?? null,
-        tags: ['story'],
-        sortOrder: 0,
-      },
-    })
+      // 5. MediaFile (тег story — попадёт в историю + превью поста)
+      return await db.mediaFile.create({
+        data: {
+          businessId,
+          filename: `Stories video: ${(videoMf.filename || 'video').slice(0, 40)}`,
+          url: savedOut.url,
+          thumbUrl: savedThumb ? savedThumb.url : videoMf.thumbUrl,
+          mimeType: 'video/mp4',
+          sizeBytes: savedOut.size,
+          durationSec: videoMf.durationSec ?? null,
+          tags: ['story'],
+          sortOrder: 0,
+        },
+      })
+    }, { estimatedBytes: videoMf.sizeBytes ?? 0 })
 
     return c.json(mediaFile, 201)
   } catch (e: any) {
-    await unlink(outPath).catch(() => {}) // подчистить частичный результат
+    if (e instanceof StorageSpaceError) return c.json({ error: e.message }, 503)
     console.error('[overlay-video] failed:', e)
     return c.json({ error: 'Ошибка наложения текста на видео: ' + String(e?.message || e).slice(0, 200) }, 500)
   } finally {
-    await unlink(overlayTmpPath).catch(() => {}) // временный PNG всегда удаляем
     await inputs.dispose()
   }
 })
@@ -439,8 +490,9 @@ media.post('/fit', async (c) => {
 
   const storage = getStorage()
   const srcKey = keyFromUrl(mf.url)
-  const srcBuf = srcKey ? await storage.get(srcKey).catch(() => null) : null
-  if (!srcBuf) return c.json({ error: 'Файл отсутствует на диске' }, 404)
+  const srcBuf = srcKey ? await readObject(storage, srcKey) : null
+  if (srcBuf === STORAGE_ERROR) return c.json({ error: 'Хранилище недоступно' }, 503)
+  if (!srcBuf) return c.json({ error: 'Файл отсутствует в хранилище' }, 404)
 
   const [w, h] = dims
   const fileId = nanoid(12)
@@ -506,8 +558,9 @@ media.post('/:id/rotate', async (c) => {
 
   const storage = getStorage()
   const srcKey = keyFromUrl(file.url)
-  const srcBuf = srcKey ? await storage.get(srcKey).catch(() => null) : null
-  if (!srcKey || !srcBuf) return c.json({ error: 'Файл отсутствует на диске' }, 404)
+  const srcBuf = srcKey ? await readObject(storage, srcKey) : null
+  if (srcBuf === STORAGE_ERROR) return c.json({ error: 'Хранилище недоступно' }, 503)
+  if (!srcKey || !srcBuf) return c.json({ error: 'Файл отсутствует в хранилище' }, 404)
 
   try {
     // Порядок важен: сначала .rotate() (EXIF-ориентацию → в пиксели), затем .rotate(angle) (наш доворот).
@@ -724,28 +777,5 @@ media.post('/:id/attach', async (c) => {
   })
   return c.json(file)
 })
-
-function mimeExtension(mime: string): string {
-  const map: Record<string, string> = {
-    'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp',
-    'image/gif': '.gif', 'image/svg+xml': '.svg', 'image/heic': '.heic',
-    'video/mp4': '.mp4', 'video/webm': '.webm', 'video/quicktime': '.mov',
-    'video/x-msvideo': '.avi', 'video/x-matroska': '.mkv',
-    'audio/mpeg': '.mp3', 'audio/ogg': '.ogg', 'audio/wav': '.wav',
-  }
-  return map[mime] || '.bin'
-}
-
-function extensionToMime(ext: string): string | null {
-  const map: Record<string, string> = {
-    '.mov': 'video/quicktime', '.mp4': 'video/mp4', '.webm': 'video/webm',
-    '.avi': 'video/x-msvideo', '.mkv': 'video/x-matroska', '.m4v': 'video/x-m4v',
-    '.wmv': 'video/x-ms-wmv', '.3gp': 'video/3gpp',
-    '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png',
-    '.webp': 'image/webp', '.gif': 'image/gif', '.heic': 'image/heic',
-    '.mp3': 'audio/mpeg', '.ogg': 'audio/ogg', '.wav': 'audio/wav',
-  }
-  return map[ext.toLowerCase()] || null
-}
 
 export { media }

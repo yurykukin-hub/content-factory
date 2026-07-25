@@ -1,14 +1,16 @@
 /**
- * Локальный драйвер хранилища — текущее поведение (файлы в uploads-volume),
- * завёрнутое в интерфейс `StorageDriver`. Это единственная реализация в Фазе 1;
- * `s3.ts` появится в Фазе 2 и заменит её переключением `STORAGE_DRIVER`.
+ * Локальный драйвер хранилища: файлы в uploads-volume, завёрнутые в интерфейс
+ * `StorageDriver`. Второй драйвер — `s3.ts`; какой из них активен, решает
+ * `STORAGE_DRIVER`. Локальный остаётся путём отката на время миграции.
  */
 
 import { createReadStream } from 'fs'
-import { copyFile, mkdir, readFile, stat, unlink } from 'fs/promises'
+import { copyFile, mkdir, readFile, rename, stat, unlink } from 'fs/promises'
 import { Readable } from 'stream'
-import { dirname, join, resolve, sep } from 'path'
+import { dirname, resolve, sep } from 'path'
 import { getModuleDir } from '../../utils/paths'
+import { isMissingObjectError as isMissing } from './errors'
+import { bunFile, writeStreamedFile, writerKind } from './fsio'
 import { urlFromKey, type StorageKey } from './keys'
 import type {
   LocalFileHandle,
@@ -18,23 +20,6 @@ import type {
   StorageKind,
   StorageWritable,
 } from './base'
-
-/**
- * `Bun.write(path, blob)` пишет Blob потоком, не поднимая вторую полную копию в память —
- * это осознанный анти-OOM выбор для видео до 500 МБ при лимите контейнера 2 ГБ
- * (см. историю `routes/media.ts` POST /upload). Прод работает на Bun, поэтому байт-путь
- * остаётся прежним; фолбэк нужен только для Node/Vitest, где `Bun.write` не полифиллен
- * (`vitest-setup.ts` подменяет лишь `Bun.password` и `Bun.file`).
- *
- * Детект один раз на импорте модуля и попадает в boot-лог: если в проде вдруг
- * окажется `writer: "node"`, это видно сразу, а не по OOM под нагрузкой.
- */
-type BunLike = {
-  write?: (path: string, data: unknown) => Promise<number>
-  file?: (path: string) => { exists(): Promise<boolean>; stream?(): ReadableStream<Uint8Array> }
-}
-const bun = (globalThis as { Bun?: BunLike }).Bun
-const hasBunWrite = typeof bun?.write === 'function'
 
 /** Корень по умолчанию: `<backend>/uploads` (в Docker — `/app/uploads`, WORKDIR=/app). */
 const DEFAULT_UPLOADS_ROOT = resolve(getModuleDir(import.meta), '../../../uploads')
@@ -50,57 +35,11 @@ export function uploadsRoot(): string {
   return override ? resolve(override) : DEFAULT_UPLOADS_ROOT
 }
 
-/**
- * PHASE-2 DEBT. Локальный каталог бизнеса. Нужен местам, где ffmpeg пишет ВРЕМЕННЫЕ
- * файлы рядом с результатом (`overlay_*.png`, `*_txt.mp4`, `*_raw.png`): у S3 такого
- * каталога не существует, поэтому метод намеренно НЕ на интерфейсе `StorageDriver`.
- *
- * В Фазе 2 заменяется на выделенный temp-каталог. Сейчас перенос в `os.tmpdir()`
- * был бы регрессией: сегодня temp живёт на uploads-volume, а `/tmp` в контейнере —
- * это overlay-фс корневого диска (занят на 81%, там же postgres), и промежуточный
- * файл от 500-МБ видео дал бы туда 0.5–1 ГБ.
- *
- * Вызывающие: routes/media.ts (overlay-video), services/overlay/render-overlay.ts.
- */
-export async function localBizDir(businessId: string): Promise<string> {
-  const dir = join(uploadsRoot(), businessId)
-  await mkdir(dir, { recursive: true })
-  return dir
-}
-
-/** Запись байтов: прод — `Bun.write`, Node/Vitest — стримовый фолбэк (тоже без буферизации Blob). */
-async function writeBytes(absPath: string, data: StorageWritable): Promise<number> {
-  if (hasBunWrite) return await bun!.write!(absPath, data)
-
-  if (data instanceof Blob) {
-    // Стрим и в фолбэке — чтобы его нельзя было случайно сделать прод-путём
-    // и незаметно получить материализацию 500 МБ в памяти.
-    const { pipeline } = await import('stream/promises')
-    const { createWriteStream } = await import('fs')
-    await pipeline(Readable.fromWeb(data.stream() as never), createWriteStream(absPath))
-    return data.size
-  }
-
-  const { writeFile } = await import('fs/promises')
-  const buf =
-    typeof data === 'string'
-      ? Buffer.from(data)
-      : data instanceof ArrayBuffer
-        ? Buffer.from(data)
-        : Buffer.from(data as Uint8Array)
-  await writeFile(absPath, buf)
-  return buf.length
-}
-
-function isMissing(err: unknown): boolean {
-  return (err as { code?: string })?.code === 'ENOENT'
-}
-
 export class LocalStorageDriver implements StorageDriver {
   readonly kind: StorageKind = 'local'
 
   describe(): Record<string, unknown> {
-    return { driver: 'local', root: uploadsRoot(), writer: hasBunWrite ? 'bun' : 'node' }
+    return { driver: 'local', root: uploadsRoot(), writer: writerKind() }
   }
 
   /**
@@ -118,19 +57,42 @@ export class LocalStorageDriver implements StorageDriver {
     return abs
   }
 
+  /**
+   * Локальный аналог `HeadBucket`: корень должен быть доступен на запись.
+   * Именно `mkdir`, а не `stat`: отсутствие каталога — не поломка (его создаёт любая
+   * запись), а вот пустой том или права только на чтение — как раз то, что нужно поймать.
+   */
+  async ping(): Promise<void> {
+    const root = uploadsRoot()
+    await mkdir(root, { recursive: true })
+    const st = await stat(root)
+    if (!st.isDirectory()) throw new Error(`Uploads root не каталог: ${root}`)
+  }
+
   async put(key: StorageKey, data: StorageWritable, _opts?: PutOpts): Promise<PutResult> {
     const absPath = this.pathFor(key)
     await mkdir(dirname(absPath), { recursive: true })
-    const size = await writeBytes(absPath, data)
+    const size = await writeStreamedFile(absPath, data)
     return { key, url: urlFromKey(key), size }
   }
 
   async putFromLocalFile(key: StorageKey, sourcePath: string, _opts?: PutOpts): Promise<PutResult> {
     const absPath = this.pathFor(key)
     await mkdir(dirname(absPath), { recursive: true })
-    // Источник уже лежит по целевому пути (ffmpeg писал сразу в него) — копировать нечего.
+    // Источник уже лежит по целевому пути — копировать нечего.
     if (resolve(sourcePath) !== absPath) {
-      await copyFile(sourcePath, absPath) // потоком внутри, без подъёма файла в память
+      // Сначала `rename`: с Фазы 2 ffmpeg пишет в `<uploadsRoot>/.tmp`, то есть на тот же
+      // том, и перемещение там — операция над метаданными, а не перекладывание 166 МБ.
+      // Раньше копирования не было вовсе (ffmpeg писал прямо в целевой путь), и без этой
+      // ветки локальный режим — то есть режим ОТКАТА — стал бы медленнее прежнего.
+      // `EXDEV` возможен, если `STORAGE_TMP_DIR` увели на другую файловую систему.
+      try {
+        await rename(sourcePath, absPath)
+      } catch (err) {
+        if ((err as { code?: string })?.code !== 'EXDEV') throw err
+        await copyFile(sourcePath, absPath) // потоком внутри, без подъёма файла в память
+        await unlink(sourcePath).catch(() => {})
+      }
     }
     const { size } = await stat(absPath)
     return { key, url: urlFromKey(key), size }
@@ -173,7 +135,7 @@ export class LocalStorageDriver implements StorageDriver {
   async serve(key: StorageKey, _req: Request): Promise<Response | null> {
     const absPath = this.pathFor(key)
     // Bun.file как Response даёт Range и Content-Type бесплатно — как и до рефактора.
-    const file = bun?.file?.(absPath)
+    const file = bunFile(absPath)
     if (!file || !(await file.exists())) return null
     return new Response(file as unknown as BodyInit, {
       headers: {

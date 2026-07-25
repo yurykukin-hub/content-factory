@@ -4,6 +4,7 @@
  */
 
 import { db } from './db'
+import { config } from './config'
 import { join, resolve } from 'path'
 import { existsSync } from 'fs'
 import { extractVideoThumbnail } from './utils/video-thumbnail'
@@ -13,6 +14,16 @@ import { nanoid } from 'nanoid'
 // Support both dev (../../uploads) and Docker (/app/uploads)
 const devPath = join(getModuleDir(import.meta), '../../uploads')
 const UPLOAD_DIR = existsSync('/app/uploads') ? '/app/uploads' : devPath
+
+// Скрипт работает НАПРЯМУЮ с локальными путями, минуя абстракцию хранилища. При
+// STORAGE_DRIVER=s3 он отработал бы «успешно» по устаревшей локальной копии и обновил
+// бы БД — успех без эффекта, самый неприятный класс отказа. Поэтому запрещаем явно.
+if (config.STORAGE_DRIVER !== 'local') {
+  console.error(
+    `Этот одноразовый скрипт поддерживает только STORAGE_DRIVER=local (сейчас: ${config.STORAGE_DRIVER}).`,
+  )
+  process.exit(1)
+}
 
 async function main() {
   const videos = await db.mediaFile.findMany({

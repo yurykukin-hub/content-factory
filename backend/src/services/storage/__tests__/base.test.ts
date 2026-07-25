@@ -6,6 +6,8 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { createStorage, getStorage, resetStorageForTests, type StorageDriver } from '../base'
 import { LocalStorageDriver, uploadsRoot } from '../local'
+import { S3StorageDriver } from '../s3'
+import { config } from '../../../config'
 
 /** Все методы интерфейса. Ловит забытую реализацию при добавлении s3-адаптера. */
 const DRIVER_METHODS = [
@@ -20,6 +22,7 @@ const DRIVER_METHODS = [
   'serve',
   'localFile',
   'withLocalFile',
+  'ping',
 ] as const
 
 describe('createStorage', () => {
@@ -29,8 +32,28 @@ describe('createStorage', () => {
     expect(driver.kind).toBe('local')
   })
 
-  it('s3 → внятная ошибка вместо тихого падения в локальный диск (шов Фазы 2)', () => {
-    expect(() => createStorage('s3')).toThrow(/not implemented/i)
+  it('s3 без обязательных env → внятная ошибка вместо тихой записи в локальный диск', () => {
+    // Падать на старте с перечислением недостающих переменных лучше, чем поднять
+    // сервис, который молча пишет мимо хранилища.
+    expect(() => createStorage('s3')).toThrow(/S3_BUCKET/)
+  })
+
+  it('s3 с заданными env → S3StorageDriver', () => {
+    // `config` — обычный объект, поэтому подменяем поля напрямую и возвращаем обратно.
+    const saved = { ...config }
+    Object.assign(config, {
+      S3_ENDPOINT: 'https://s3.example.test',
+      S3_BUCKET: 'bucket',
+      S3_ACCESS_KEY: 'ak',
+      S3_SECRET_KEY: 'sk',
+    })
+    try {
+      const driver = createStorage('s3')
+      expect(driver).toBeInstanceOf(S3StorageDriver)
+      expect(driver.kind).toBe('s3')
+    } finally {
+      Object.assign(config, saved)
+    }
   })
 
   it('неизвестный драйвер → ошибка', () => {

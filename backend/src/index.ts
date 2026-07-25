@@ -6,6 +6,20 @@ import { startVideoPoller } from './services/video-poller'
 import { startPhotoCataloger } from './services/photo-cataloger'
 import { startImageDescriber } from './services/image-describer'
 import { setupTelegramWebhook } from './services/telegram-approval'
+import { cleanTmpRootOnBoot, getStorage } from './services/storage'
+import { log } from './utils/logger'
+
+// --- Storage: проверка доступности и уборка времянок ---
+// Пинг на старте, потому что `describe()` в boot-логе ничего не проверяет: при неверных
+// ключах или недоступном бакете сервис поднялся бы «здоровым» и начал 404-ить всё медиа.
+getStorage()
+  .ping()
+  .then(() => log.info('[storage] доступно'))
+  .catch((e) => log.error('[storage] НЕДОСТУПНО', { error: String(e?.message || e) }))
+
+// Остатки в каталоге времянок после падения/рестарта — заведомо сироты: процесс,
+// который их держал, уже мёртв. Инстанс единственный, поэтому чистим всё разом.
+cleanTmpRootOnBoot()
 
 // --- Start schedulers ---
 const publishInterval = startPublishScheduler()

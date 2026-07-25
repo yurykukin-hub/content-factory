@@ -12,6 +12,7 @@ import { readFile } from 'fs/promises'
 import { existsSync } from 'fs'
 import { getPublisher } from './publishers/base'
 import { join } from 'path'
+import { contentTypeFor } from '../utils/mime'
 import { getStorage, makeKey } from './storage'
 
 const TG_API = 'https://api.telegram.org'
@@ -293,7 +294,11 @@ async function handleApprove(token: string, task: any, message: any, callbackId:
 
     // Copy file (источник — read-only монтирование google-photos, вне хранилища медиа)
     const srcBuffer = await readFile(photo.filePath)
-    const saved = await storage.put(makeKey(business.id, fileName), srcBuffer, { contentType: photo.mimeType })
+    // MIME от каталогизатора по умолчанию `application/octet-stream`; в объектном
+    // хранилище он стал бы Content-Type объекта, а с глобальным `nosniff` такое фото
+    // просто не отрисуется в браузере. Подстраховываемся расширением.
+    const contentType = contentTypeFor(photo.mimeType, fileName)
+    const saved = await storage.put(makeKey(business.id, fileName), srcBuffer, { contentType })
 
     // Generate thumbnail
     let thumbUrl: string | null = null

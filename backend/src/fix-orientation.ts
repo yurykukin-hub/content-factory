@@ -11,6 +11,7 @@
  */
 
 import { db } from './db'
+import { config } from './config'
 import { join } from 'path'
 import { existsSync } from 'fs'
 import sharp from 'sharp'
@@ -19,6 +20,16 @@ import { getModuleDir } from './utils/paths'
 // Поддержка dev (../../uploads) и Docker (/app/uploads) — как в fix-video-thumbs.ts
 const devPath = join(getModuleDir(import.meta), '../../uploads')
 const UPLOAD_DIR = existsSync('/app/uploads') ? '/app/uploads' : devPath
+
+// Скрипт работает НАПРЯМУЮ с локальными путями, минуя абстракцию хранилища. При
+// STORAGE_DRIVER=s3 он отработал бы «успешно» по устаревшей локальной копии и обновил
+// бы БД — успех без эффекта, самый неприятный класс отказа. Поэтому запрещаем явно.
+if (config.STORAGE_DRIVER !== 'local') {
+  console.error(
+    `Этот одноразовый скрипт поддерживает только STORAGE_DRIVER=local (сейчас: ${config.STORAGE_DRIVER}).`,
+  )
+  process.exit(1)
+}
 
 const THUMB_SIZE = 200 // совпадает с THUMB_SIZE в routes/media.ts (там module-local, не экспортируется)
 
