@@ -21,26 +21,19 @@ services:
           memory: 512M
           cpus: '0.5'
 
-  backend:
+  # Сервис назван cf-backend, а не backend, ОСОЗНАННО: compose автоматически заводит
+  # DNS-алиас по имени сервиса в КАЖДОЙ сети, включая общую с Caddy. Имя `backend`
+  # там уже занято бэкендом KB ERP (Caddyfile проксирует `backend:3000` в 8 местах),
+  # и второй такой алиас превращал резолв в две A-записи → трафик KB ERP мог уйти в CF.
+  cf-backend:
     build: ./backend
     restart: unless-stopped
     env_file: .env.prod
-    ports:
-      # Наружу отдаёт Caddy (он же терминирует TLS). Docker обходит UFW,
-      # поэтому "3800:3800" открыл бы порт в интернет — так нельзя.
-      #
-      # Но и "127.0.0.1:3800" нельзя: Caddy на СПб живёт В КОНТЕЙНЕРЕ
-      # (kukin-erp-caddy-1, сеть kukin-erp_internal) и обращается к
-      # `172.18.0.1:3800` — это адрес ХОСТА в его сети, а не loopback.
-      # Биндинг на localhost делал бэкенд недостижимым → 502 на /api и /uploads
-      # (проявилось 25.07 при первом пересоздании контейнера после b111f53).
-      #
-      # 172.18.0.1 = шлюз bridge-сети kukin-erp_internal на хосте: публично
-      # порт не открыт, но контейнеру Caddy доступен.
-      # ⚠️ Связь хрупкая: пересоздание сети kukin-erp может сменить подсеть.
-      # Правильное решение — вынести CF в общую с Caddy сеть и проксировать по
-      # имени контейнера (тогда порт на хост не публикуется вовсе).
-      - "172.18.0.1:3800:3800"
+    # ports НЕ публикуем: Caddy достаёт бэкенд по внутренней сети (см. networks ниже).
+    # Docker обходит UFW, поэтому любая публикация порта — риск открыть его в интернет.
+    # История: "127.0.0.1:3800" делал бэкенд недостижимым для Caddy (он в контейнере,
+    # loopback хоста ему не виден) → 502; "172.18.0.1:3800" работал, но привязывался
+    # к подсети чужой сети и сломался бы при её пересоздании.
     environment:
       DATABASE_URL: postgresql://contentfactory:${DB_PASSWORD}@postgres:5432/contentfactory
       JWT_SECRET: ${JWT_SECRET}
@@ -55,7 +48,10 @@ services:
       postgres:
         condition: service_healthy
     networks:
-      - internal
+      internal:
+      # Сеть общего Caddy (проект kukin-erp). Caddy проксирует на `cf-backend:3800`
+      # по DNS Docker — ни порта на хосте, ни привязки к IP-подсети.
+      caddy:
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:3800/api/health || exit 1"]
       interval: 30s
@@ -74,3 +70,8 @@ volumes:
 
 networks:
   internal:
+  # Внешняя сеть общего Caddy: создаётся проектом kukin-erp, CF только подключается.
+  # ⚠️ Если её пересоздать, CF нужно перезапустить (`up -d cf-backend`).
+  caddy:
+    external: true
+    name: kukin-erp_internal

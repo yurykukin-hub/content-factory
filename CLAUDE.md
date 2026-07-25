@@ -4,10 +4,12 @@
 AI-контент-фабрика для автоматизации SMM. Генерирует контент-планы, тексты постов, адаптирует под платформы (VK, Telegram, Instagram), публикует автоматически. Мультибизнес: KB, НаWоде, Inpulse, личный бренд.
 
 ## Production
-- **URL:** https://content.yurykukin.ru
-- **VPS:** Латвия (91.193.25.104), Docker Compose + Caddy
-- **Деплой:** `bash /home/dev/projects/content-factory/scripts/deploy.sh`
-- **Бэкапы:** cron 2x/день, `/opt/backups/content-factory/`
+- **URL:** https://content.yurykukin.ru (A-запись → СПб)
+- **VPS: СПб `155.212.219.88`, `/opt/content-factory`** (переехал с Латвии 25.07.2026). Docker Compose + общий Caddy.
+- **Сеть:** порт на хост **НЕ публикуется**. Caddy живёт в контейнере `kukin-erp-caddy-1` (сеть `kukin-erp_internal`) и проксирует на `cf-backend:3800` по DNS Docker; CF подключён к этой сети как external. Сервис назван `cf-backend`, а не `backend`, — иначе авто-алиас по имени сервиса столкнулся бы с бэкендом KB ERP (`reverse_proxy backend:3000` в Caddyfile, 8 мест) и трафик KB ERP мог бы уйти в CF.
+- **Caddyfile — server-managed:** `/opt/kukin-erp/Caddyfile`, вне git (`8287bc7`), общий для KB/Inpulse/НаWоде/Autosouz/Sales/CF. ⚠️ Он **bind-mount отдельным файлом** → править ТОЛЬКО с сохранением inode (`cat new > Caddyfile`), НЕ `sed -i`/`mv`: иначе контейнер продолжит видеть старую версию (проверять `docker exec kukin-erp-caddy-1 grep ... /etc/caddy/Caddyfile`, а не файл на хосте). Валидация чужого файла без риска: `docker run --rm -v /opt/kukin-erp/Caddyfile:/etc/caddy/Caddyfile:ro caddy:2-alpine caddy validate --config /etc/caddy/Caddyfile`.
+- **Деплой:** ⚠️ `scripts/deploy.sh` УСТАРЕЛ — он локальный (rsync внутри одной машины), остался от Латвии; запуск с dev-ноды залил бы код в мёртвый стек Латвии. Актуально: `rsync -a --exclude=node_modules --exclude=.env* --exclude=uploads --exclude=dist --exclude=.git ./ root@155.212.219.88:/opt/content-factory/` затем на СПб `docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --build cf-backend`. Фронт пересобирать только если менялся `src/` (`dist` монтируется в Caddy как `/www-content-factory`).
+- **Бэкапы:** cron 2x/день (03:00/15:00 UTC) → `/opt/backups/content-factory/`, скрипт `scripts/backup-db.sh` (обращается к сервису `postgres`).
 
 ## Стек
 - **Backend:** Bun + Hono + TypeScript
