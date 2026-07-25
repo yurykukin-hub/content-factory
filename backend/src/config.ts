@@ -18,6 +18,19 @@ const envSchema = z.object({
   KIE_API_KEY: z.string().default(''),            // KIE.ai — image editing, video generation
   OPENAI_API_KEY: z.string().default(''),          // OpenAI Whisper (voice transcription)
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
+
+  // --- Хранилище медиа (services/storage) ---
+  // Драйвер: 'local' — файлы в uploads-volume (текущее поведение). 's3' появится в Фазе 2
+  // миграции на Beget S3 (сейчас фабрика на него бросает).
+  STORAGE_DRIVER: z.enum(['local', 's3']).default('local'),
+  // Override корня локального хранилища. Пусто = <backend>/uploads. Нужен тестам
+  // и снимает причину хака `existsSync('/app/uploads')` в одноразовых fix-*.ts.
+  UPLOADS_DIR: z.string().default(''),
+  // База абсолютных URL медиа для ВНЕШНИХ потребителей: KIE.ai скачивает по ней
+  // референсы, vision-модели — картинки, satori — фон сторис (self-fetch).
+  // Пусто = прежнее поведение (prod-домен / localhost:PORT), поэтому переменную
+  // не обязательно заводить в .env.prod. В Фазе 2 сюда встанет S3/CDN-домен.
+  PUBLIC_BASE_URL: z.string().default(''),
 })
 
 const parsed = envSchema.safeParse(process.env)
@@ -40,6 +53,14 @@ if (parsed.data.NODE_ENV === 'production') {
 export const config = {
   ...parsed.data,
   isProd: parsed.data.NODE_ENV === 'production',
+
+  // База публичных URL медиа. Пусто в env => та же формула, что была захардкожена
+  // в 5 местах (kie.ts, image-describer.ts, html-render.ts, routes/ai.ts ×2).
+  publicBaseUrl:
+    parsed.data.PUBLIC_BASE_URL.replace(/\/+$/, '') ||
+    (parsed.data.NODE_ENV === 'production'
+      ? 'https://content.yurykukin.ru'
+      : `http://localhost:${parsed.data.PORT}`),
 
   // LLM-канал (см. services/ai/openrouter.ts). baseUrl задан => чат идёт через
   // EU-шлюз и ключ берём из env (master-key шлюза), а НЕ из БД: в БД лежит
