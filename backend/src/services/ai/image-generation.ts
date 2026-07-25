@@ -51,7 +51,7 @@ export async function generateImage(params: GenerateImageParams): Promise<Genera
 
   // 1. Call OpenRouter with image generation
   const apiKey = await getApiKey()
-  const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+  const response = await fetch(config.llm.chatUrl, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${apiKey}`,

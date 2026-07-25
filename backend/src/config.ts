@@ -5,6 +5,16 @@ const envSchema = z.object({
   JWT_SECRET: z.string().min(32),
   PORT: z.coerce.number().default(3800),
   OPENROUTER_API_KEY: z.string().default(''),  // Можно задать через UI (Settings → AI)
+
+  // LLM-канал. Из РФ-ноды (СПб) openrouter.ai отдаёт 403 (Cloudflare geo-block),
+  // Anthropic/OpenAI недопустимы по ToS → чат идёт через litellm-шлюз на EU-ноде.
+  // Пусто = прежнее прямое поведение. На шлюзе wildcard-passthrough, поэтому
+  // id моделей и таблица MODEL_PRICING остаются без изменений.
+  LLM_BASE_URL: z.string().default(''),
+  LLM_API_KEY: z.string().default(''),          // на шлюзе это LITELLM_MASTER_KEY
+  // Отдельный канал для OpenRouter-специфичных ручек (/credits — баланса у litellm нет).
+  // Через Caddy-шлюз это passthrough-путь: https://gw.yurykukin.ru/api/v1
+  OPENROUTER_PASSTHROUGH_URL: z.string().default('https://openrouter.ai/api/v1'),
   KIE_API_KEY: z.string().default(''),            // KIE.ai — image editing, video generation
   OPENAI_API_KEY: z.string().default(''),          // OpenAI Whisper (voice transcription)
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
@@ -30,6 +40,15 @@ if (parsed.data.NODE_ENV === 'production') {
 export const config = {
   ...parsed.data,
   isProd: parsed.data.NODE_ENV === 'production',
+
+  // LLM-канал (см. services/ai/openrouter.ts). baseUrl задан => чат идёт через
+  // EU-шлюз и ключ берём из env (master-key шлюза), а НЕ из БД: в БД лежит
+  // прямой ключ OpenRouter, шлюз его не примет.
+  llm: {
+    baseUrl: parsed.data.LLM_BASE_URL || '',
+    apiKey: parsed.data.LLM_API_KEY || '',
+    chatUrl: (parsed.data.LLM_BASE_URL || 'https://openrouter.ai/api/v1') + '/chat/completions',
+  },
 
   // AI models
   models: {

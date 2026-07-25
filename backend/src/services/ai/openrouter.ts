@@ -3,15 +3,27 @@ import { db } from '../../db'
 import { getMarkupPercent, getChargedRub, chargeUser } from '../billing'
 
 /**
- * Получить OpenRouter API key: сначала из БД (AppConfig), потом fallback на .env
+ * Получить API key для чат-вызовов.
+ *
+ * Если настроен EU-шлюз (LLM_BASE_URL) — ключ берём строго из env: это master-key
+ * шлюза, а в БД (AppConfig) лежит прямой ключ OpenRouter, который шлюз не примет.
+ * Иначе — прежнее поведение: сначала БД (задаётся через UI Settings → AI), затем .env.
  */
 export async function getApiKey(): Promise<string> {
+  if (config.llm.baseUrl) return config.llm.apiKey
+  return getOpenRouterDirectKey()
+}
+
+/**
+ * Прямой ключ OpenRouter (БД → .env), без подмены на master-key шлюза.
+ * Нужен для OpenRouter-специфичных ручек вроде /credits, которых у litellm нет.
+ */
+async function getOpenRouterDirectKey(): Promise<string> {
   try {
     const dbKey = await db.appConfig.findUnique({ where: { key: 'openrouter_api_key' } })
     if (dbKey?.value) return dbKey.value
-  } catch (err) {
+  } catch {
     // DB may be unavailable — fallback to env is fine
-    console.warn('[AI] Failed to read API key from DB, using env fallback')
   }
   return config.OPENROUTER_API_KEY
 }
@@ -38,9 +50,11 @@ export function calculateCost(model: string, tokensIn: number, tokensOut: number
  */
 export async function fetchOpenRouterBalance(): Promise<{ balanceUsd: number; limitUsd: number | null } | null> {
   try {
-    const apiKey = await getApiKey()
+    // Баланс — ручка самого OpenRouter, у litellm её нет: идём напрямую/через
+    // passthrough-путь шлюза и прямым ключом OpenRouter, не master-key шлюза.
+    const apiKey = await getOpenRouterDirectKey()
     if (!apiKey) return null
-    const res = await fetch('https://openrouter.ai/api/v1/credits', {
+    const res = await fetch(`${config.OPENROUTER_PASSTHROUGH_URL}/credits`, {
       headers: { 'Authorization': `Bearer ${apiKey}` },
     })
     if (!res.ok) return null
@@ -138,7 +152,7 @@ export async function aiComplete(params: AiCompleteParams): Promise<AiCompleteRe
   const apiKey = await getApiKey()
   const start = Date.now()
 
-  const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+  const response = await fetch(config.llm.chatUrl, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${apiKey}`,
@@ -216,7 +230,7 @@ export async function aiVision(params: {
     userContent.push({ type: 'image_url', image_url: { url } })
   }
 
-  const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+  const response = await fetch(config.llm.chatUrl, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${apiKey}`,
@@ -277,7 +291,7 @@ export async function aiChat(params: AiChatParams): Promise<AiCompleteResult> {
   const apiKey = await getApiKey()
   const start = Date.now()
 
-  const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+  const response = await fetch(config.llm.chatUrl, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${apiKey}`,
