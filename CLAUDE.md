@@ -16,7 +16,7 @@ AI-контент-фабрика для автоматизации SMM. Гене
 - **AI:** OpenRouter (Haiku 4.5 для адаптации, **Sonnet 4.6** для генерации, Gemini Flash для vision) + KIE.ai (Nano Banana 2 + **Nano Banana Pro** + **GPT Image 2** для text2img/img2img, FLUX Kontext Pro для img2img, recraft для удаления фона, Seedance 2 для видео, **Suno V4/V4_5/V5_5 для музыки — API v2**) + **OpenAI Whisper** (голосовой ввод)
 - **Audio:** wavesurfer.js v7 (waveform visualization)
 - **Дизайн-слой:** satori + @resvg/resvg-js (HTML-узлы→SVG→PNG, без браузера; сторис/карусели — Ф2). Шрифты Montserrat/Cormorant + лого из print-kit (`src/assets/`)
-- **Testing:** Vitest (359 тестов — 32 файла)
+- **Testing:** Vitest (413 тестов — 33 файла). ⚠️ Запускать `bun run test`, НЕ `bun test` (Bun-раннер не умеет `vi.stubGlobal`/`vi.hoisted` → ложные падения)
 - **Deploy:** Docker Compose + Caddy (SSL auto)
 
 ## Порты
@@ -33,6 +33,7 @@ AI-контент-фабрика для автоматизации SMM. Гене
 - `middleware/` — `auth` (JWT httpOnly cookie + requireRole), `section-access` (requireSection), `business-access` (requireBusinessAccess + getUserBusinessIds), `resource-access` (verify{Post,Plan,Media,PostVersion}Access).
 - `routes/` (~18) — auth, users, businesses (+brand profile, +booking-links), platforms, posts (+versions), content-plans, ai (generate post/image/video/scenario, adapt, hashtags, rewrite, describe, transcribe), publish, media (upload+EXIF, rotate, overlay-video), auto-post (дайджест), settings, vk-oauth, ideas, characters, scenarios, sessions, music, photos, dashboard, ai-logs, analytics, sse.
 - `services/` — scheduler (отложка + триггеры digest/metrics/analysis/competitor), video-poller (video+music+photo KIE, 10с), metrics-poller, competitor-poller, vk-oauth; `analytics/` (vk/postmypost/metrika adapters + collector + analyst-agent); `ai/` (openrouter +cost, prompt-builder, suno, image-generation, fal, whisper, strategy/nawode-strategy); `datasource/` (NawodeErpAdapter); `promo/` (red-lines, promo-block, weather-flash); `publishers/` (base — getPublisher VK-гибрид; postmypost, vk +Stories, telegram, instagram).
+- `storage/` — **абстракция хранилища медиа (Фаза 1 миграции на Beget S3, 2026-07-25).** `keys.ts` (чистые `keyFromUrl`/`urlFromKey`/`makeKey`/`keyFromRequestPath`/`publicUrl` — ЕДИНСТВЕННОЕ место преобразования url⇄ключ и построения абсолютных URL), `base.ts` (интерфейс `StorageDriver` + фабрика `getStorage()` по `STORAGE_DRIVER`, паттерн скопирован с `publishers/base.ts`), `local.ts` (`LocalStorageDriver` + `uploadsRoot()` + `localBizDir()`), `scope.ts` (`LocalFileScope` — материализация входов ffmpeg с групповой очисткой). Правило: наружу только ключи и байты; файловый путь отдают ТОЛЬКО `localFile()`/`putFromLocalFile()` (для ffmpeg — он не умеет буферы, в отличие от sharp). `s3.ts` — Фаза 2, фабрика на `STORAGE_DRIVER=s3` пока бросает.
 - `utils/` — paths (Bun/Node compat), logger.
 
 **Frontend `src/`** (Vue 3): `api/client` (auto-refresh 401), `router` (16 routes + auth/section guards), `stores/` (auth+sectionAccess, businesses, theme, sidebar), `composables/` (useToast/Formatters/Status/Platform/SectionAccess/Rates/VoiceInput), `views/` (Businesses, BusinessDetail, PostEditor, StoryEditor, MediaLibrary, VideoStudio, PhotoStudio, Dashboard, Login, Settings), `components/` (layout, ai/ImageEditModal; `video/` Vs*, `sound/` Ss*, `photo/` Ps* — каждая студия: ModeTabs/AgentChat/Gallery/EnhanceMenu(8 modes)/SettingsPanel/SessionBar/PreGenModal + Video: PromptConstructor/RichPrompt; `shared/` SharedCharacterCarousel+RefModal; `businesses/` StoryTemplatesPanel+AccessPanel+ChannelsManager (вынесены из BusinessDetail, Фаза D); `settings/` VkOAuth/Profile/Ai/Users).
@@ -76,7 +77,7 @@ cd backend && bun run db:reset                   # Сброс БД + мигра�
 cd backend && bun run db:fresh                   # Сброс + миграции + seed-демо (dev)
 
 # Tests
-cd backend && bun run test              # 359 tests (32 files)
+cd backend && bun run test              # 413 tests (33 files) — НЕ `bun test`
 cd backend && bun run test:watch        # Watch mode
 
 # Deploy
@@ -186,6 +187,26 @@ API keys: OpenRouter — из БД (AppConfig) или .env. FAL — из .env (F
 - **Tab persistence** — v-show (не v-if) для Agent/Editor, немедленный flush при переключении таба, onDeactivated flush при навигации
 - **Session type isolation** — PhotoStudio: `&type=photo`
 - **Generate payload mapping:** frontend sends `model`/`resolution`/`aspectRatio` (не photoModel/photoResolution/photoAspectRatio) чтобы совпадать с Zod schema
+
+## Хранилище медиа (services/storage) — Фаза 1 миграции на Beget S3, 2026-07-25
+
+**Зачем:** медиа занимает 9.6 ГБ в volume `content-factory_uploads_data` на СПб (диск 38 ГБ, 81%). Beget S3 ~2.1 ₽/ГБ/мес (≈20 ₽) против ~500–1000 ₽ за апгрейд VPS. Бакет создан: endpoint `https://s3.ru1.storage.beget.cloud`, bucket `73c241bab1be-content-factory-media`, приватный.
+
+**Что сделано (только рефакторинг, поведение 1:1):** до этого 13 файлов объявляли свой `UPLOAD_DIR`, 35 мест руками собирали `` `/uploads/${businessId}/${filename}` ``, 26 мест делали обратное `url.replace('/uploads/','')` — без якоря `^` и без валидации. Всё сведено в `services/storage/`.
+
+- **Ключ объекта** = `url` без префикса `/uploads/` = `{businessId}/{filename}`. Формат колонок `MediaFile.url`/`thumbUrl`/`GenerationSession.audioUrl` НЕ менялся (на проде 2054 записи, все ровно этой формы — краевых нет).
+- **`keyFromUrl` строже прежнего `.replace`:** `https://evil.com/uploads/x.jpg` и `/x/uploads/y.jpg` → `null` (раньше давали путь вне uploads). `null` обрабатывается на каждом сайте: роуты → 404, best-effort-удаление → `log.warn`, паблишеры → `requireKeyFromUrl` бросает (как раньше бросал ENOENT).
+- **`Bun.write` остался прод-путём записи** (рантайм-детект в `local.ts`): `put(key, blob)` стримит Blob, не материализуя вторую копию — критично для видео до 500 МБ при лимите контейнера 2 ГБ. Фолбэк на `fs` нужен только Node/Vitest (в `vitest-setup.ts` полифиллены лишь `Bun.password`/`Bun.file`) и тоже стримовый. **Boot-лог `[storage] driver ready {driver,root,writer}`** — по нему на проде сразу видно активацию фолбэка (`writer:"node"` = риск OOM) и неверный корень.
+- **Thumbnail'ы теперь через `.toBuffer()` + `put()`**, а не `sharp().toFile()`: файловых путей на объектном хранилище нет. Размеры/качество сохранены (200×200 q80; 400×400 q70 в `/fit`; q70 в telegram-approval).
+- **Перезапись «на месте»** (`/rotate`, EXIF-нормализация в upload) — одна операция `put` по тому же ключу из готового буфера. URL не меняется, `?v=<ts>` на фронте по-прежнему пробивает кэш.
+- **ffmpeg** (единственный, кто требует локальные пути): входы — через `LocalFileScope.resolve()` с групповым `dispose()` в `finally`; выходы — `putFromLocalFile()`. **`localBizDir()` помечен PHASE-2 DEBT** — временные слои (`overlay_*.png`, `*_txt.mp4`, `*_raw.png`) остаются на uploads-volume. Переносить их в `os.tmpdir()` НЕЛЬЗЯ: это overlay-фс корневого диска (81%, там же postgres), а промежуточный файл от 500-МБ видео дал бы туда 0.5–1 ГБ.
+- **Публичные URL** — одна функция `publicUrl()` вместо 5 копий (`kie.ts`, `image-describer.ts`, `html-render.ts`, `routes/ai.ts` ×2). База — `config.publicBaseUrl`. Заодно **починен латентный баг**: в `kie.ts` не было guard-а, и внешний `referenceImageUrls` склеивался в `https://content.yurykukin.ruhttps://cdn…` → KIE 4xx.
+- **Env (все с пустыми дефолтами = текущее поведение):** `STORAGE_DRIVER` (`local`|`s3`), `UPLOADS_DIR` (override корня; читается из `process.env` напрямую — нужно тестам), `PUBLIC_BASE_URL`. В `.env.prod`/`docker-compose.prod.yml` заводить НЕ обязательно.
+- **Вне области Фазы 1:** `photo-cataloger.ts` (свой namespace `.google-photos-thumbs`, абсолютные пути в `PhotoCatalog.thumbPath` — контракт БД), одноразовые `fix-video-thumbs.ts`/`fix-orientation.ts` (их формула `existsSync('/app/uploads')` обязательна), не-медийные хардкоды домена (CORS, HTTP-Referer, webhook Telegram, `CALLBACK_URL` Suno — последние два зарегистрированы у внешних провайдеров).
+- **Единственная дельта поведения раздачи:** запрос каталога `/uploads/` отдавал 404, теперь 403. Файлов каталог не раздавал ни до, ни после. **Range не поддерживался и не поддерживается** (Bun не отдаёт 206 для `new Response(BunFile)`) — конструкция ответа не менялась.
+- **Инвариант «фаза завершена»:** `UPLOAD_DIR`, `replace('/uploads/')` и темплейты `/uploads/${...}` остались ТОЛЬКО в двух `fix-*.ts`; `Bun.write` вне storage — только два временных слоя ffmpeg с меткой PHASE-2 DEBT.
+- **Гейты:** `bunx tsc --noEmit` чист, `bun run test` 413 pass (было 359; +54 юнит-теста на ключи и фабрику). ⚠️ Раннер проекта — `bun run test` (vitest). `bun test` Bun-раннером даёт ложные 24 fail (не умеет `vi.stubGlobal`/`vi.hoisted`).
+- **Фаза 2 (дальше):** `s3.ts` (`@aws-sdk/client-s3` + `lib-storage` multipart + presigner, `forcePathStyle:true`), перенос объектов `rclone`, `serve()` → 302 на presigned для видео, `STORAGE_TMP_DIR` вместо `localBizDir`, переключение `STORAGE_DRIVER=s3` через `up -d --force-recreate` (⚠️ `restart` НЕ перечитывает env_file). Фаза 3 — освободить volume. План: `~/.claude/plans/cf-s3-migration.md`.
 
 ## Media Library
 - **Upload MIME detection**: extensionToMime() fallback when blob.type is empty/octet-stream (MOV, AVI, MKV etc.)

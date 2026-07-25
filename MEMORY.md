@@ -52,10 +52,6 @@
 - **Добавить бизнес = данные (сидер/UI) + адаптер**, не ветки `if erpType` в коде
 - HTTP-контракт `GET /public/daily-summary` (ERP-сторона, auth Business.erpApiKey) + NawodeHttpAdapter — Deferred (кросс-репо nawode-erp)
 
-## SaaS-Ready (2026-04-11)
-- RBAC (UserBusiness), Section Access (14 секций), refresh tokens, health endpoint
-- Security: resource-access, CSRF X-Tab-ID, rate limiting, path traversal, Zod, 167 тестов
-
 ## Photo Studio (2026-04-18, updated 19.04)
 - GenerationSession type='photo', 5 полей (photoModel, photoResolution, batchSize, photoAspectRatio, batchTaskIds)
 - Модели: nano-banana-2 ($0.04-0.09) + nano-banana-pro ($0.07-0.12) + gpt-image-2. Batch 1/2/4. 10 aspect ratios. 3 resolutions
@@ -64,17 +60,10 @@
 - Reference images: VideoStudio-style UI (56x56 thumbs, @N метки, dropdown загрузить/медиатека, preview popup с AI-описание). MediaPickerModal multi-select. До 14 refs NB2, 8 Pro
 - **ВАЖНО:** Generate payload — фронтенд шлёт `model`/`resolution`/`aspectRatio` (НЕ photoModel/photoResolution/photoAspectRatio)
 
-## AI Agent + Sound Studio + Voice Input + Reference System v2 — детали в CLAUDE.md
-- AI Agent (Haiku/Sonnet, chatHistory per-session). Sound Studio (suno.ts, 13 Ss*, MusicPersona voice clone, 8 enhance modes). Voice Input (Whisper STT, AppConfig openai_api_key).
-- Reference: **CharacterImage** (галерея фото на персонажа) + SharedCharacterCarousel/SharedRefModal + @CharName автокомплит + Character Sheet (4 views). ВАЖНО: Character.referenceMediaId/additionalAngles НЕ удалены (backward compat).
-
 ## Prisma Migrations — КРИТИЧНЫЕ ПРАВИЛА (2026-04-20)
 - **НИКОГДА** не использовать `db push` на dev-БД с историей миграций. Только `bunx prisma migrate dev --name описание`
 - **НИКОГДА** не редактировать SQL файл миграции ПОСЛЕ apply (ломает checksum → drift)
 - Если миграция упала "already exists" → `bunx prisma migrate resolve --applied имя_миграции` (НЕ правка SQL)
-
-## Видео-сторис + дизайн-слой (ffmpeg/sharp overlay) — детали в CLAUDE.md
-- "bake once": фото → Seedance оживляет → текст статично поверх (ffmpeg `scale2ref`+`overlay`, `services/video-overlay.ts`) → публикация VK+IG. scheduler догружает mediaFiles+skipOverlay для scheduled STORIES. Единый дизайн-слой: `design-layer.ts` + `/media/bake-design-layer` (фото→sharp, видео→ffmpeg).
 
 ## Архитектурные решения
 - Async generation: video-poller.ts (10 сек) обрабатывает video+music+photo. kieTaskId в PostgreSQL (deploy-safe)
@@ -98,3 +87,9 @@
 - **Медиатека:** `position:sticky` НЕ липнет при скролле `<body>` (а не контейнера) → `Teleport`+`fixed`; **Set в ref ПЕРЕПРИСВАИВАТЬ** (не мутировать) — иначе computed не пересчитывается; EXIF авто-норм. только для orient>1; concurrent upload worker-pool лимит 3 (sharp/ffmpeg синхронны → бережём VPS от OOM); серверные `counts` в `/library` (не 3× O(n) filter).
 - **API-факт:** подписей к сторис в API НЕТ (ни IG, ни VK) — только вшитый оверлей + VK CTA-кнопка/стикеры.
 - **Единый источник публикации:** `services/publish-runner.ts` (`publishPostVersion`/`schedulePostVersion`) — для роутов И прямой публикации из дайджеста (чтобы 3 копии логики не разошлись).
+- **[2026-07-25] Хранилище медиа абстрагировано (Фаза 1 → Beget S3):** `services/storage/` = единственная точка url⇄ключ + публичных URL. Было 13 копий `UPLOAD_DIR`, 35 темплейтов `/uploads/${biz}/${file}`, 26 `replace('/uploads/','')` БЕЗ якоря `^`. Поведение 1:1, схема БД не тронута, драйвер один (`local`). 7 коммитов, гейты: tsc чист + 413 тестов (было 359).
+- **[2026-07-25] `bun test` ≠ `bun run test`:** Bun-раннер игнорирует `vitest.config.ts` и не умеет `vi.stubGlobal`/`vi.hoisted` → показывал «170 pass / 24 fail» и это попало в план как «предсуществующий техдолг». Реально `vitest run` = 359/359 зелёных. Правило: сверять baseline ТЕМ раннером, что в `package.json`.
+- **[2026-07-25] `Bun.write` не полифиллен в `vitest-setup.ts`** (там только `Bun.password`/`Bun.file`, причём `file().exists()` жёстко `false`). Любой код записи на `Bun.write` нетестируем под Vitest → в storage рантайм-детект: прод стримит через `Bun.write`, Node/Vitest — через `pipeline(Readable.fromWeb(blob.stream()))`. Оба стримовые: фолбэк не должен уметь тихо съесть 500 МБ в RAM. Способ записи печатается в boot-лог.
+- **[2026-07-25] ffmpeg — единственная причина, по которой абстракция хранилища «протекает»:** sharp умеет буферы (сводится к `get()`), ffmpeg только файлы → `LocalFileScope` (входы, групповой `dispose()`) + `putFromLocalFile()` (выходы) + `localBizDir()` PHASE-2 DEBT для tmp. Переносить tmp в `os.tmpdir()` нельзя: в контейнере это overlay-фс корневого диска (81% занят, там же postgres), а промежуточный файл от 500-МБ видео = 0.5–1 ГБ.
+- **[2026-07-25] Латентный баг в `kie.ts`:** `resolvePublicUrl` не проверял, что URL уже абсолютный, а `routes/ai.ts` валидирует `referenceImageUrls` как `z.array(z.string())` без префикса → внешний URL склеивался в `https://content.yurykukin.ruhttps://cdn…` и KIE отдавал 4xx. Унифицированный `publicUrl()` пропускает `^https?://` как есть.
+- **[2026-07-25] Range на `/uploads/*` НЕ работает** (Bun не отдаёт 206 для `new Response(BunFile)`) — не регрессия рефактора, так было всегда; перемотка видео в браузере тянет файл целиком. Кандидат в отдельную задачу.
