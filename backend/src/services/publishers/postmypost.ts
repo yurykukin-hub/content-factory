@@ -1,8 +1,6 @@
 import type { Publisher, PublishParams, PublishResult } from './base'
 import type { PlatformAccount } from '@prisma/client'
-import { join } from 'path'
-import { readFile } from 'fs/promises'
-import { getModuleDir } from '../../utils/paths'
+import { getStorage, requireKeyFromUrl } from '../storage'
 
 /**
  * PostmypostPublisher — generic-паблишер через сервис Postmypost (postmypost.io).
@@ -28,8 +26,6 @@ import { getModuleDir } from '../../utils/paths'
  * Доступы в PlatformAccount: accessToken=токен, config.postmypostProjectId=project_id,
  * accountId/config.postmypostAccountId=postmypost account_id. Fallback .env (POSTMYPOST_API_TOKEN/PROJECT_ID).
  */
-
-const UPLOAD_DIR = join(getModuleDir(import.meta), '../../../uploads')
 
 const PUB_TYPE = { POST: 1, STORY: 2, REELS: 4 } as const
 const PUB_STATUS_PENDING = 5
@@ -208,8 +204,7 @@ export class PostmypostPublisher implements Publisher {
     normalizeFeed = false,
     forceRatio?: number,
   ): Promise<number | null> {
-    const filePath = join(UPLOAD_DIR, mf.url.replace('/uploads/', ''))
-    let buf = await readFile(filePath)
+    let buf = await getStorage().get(requireKeyFromUrl(mf.url))
 
     // IG-лента: привести соотношение к 0.8…1.91, иначе IG/Postmypost добавит белые поля.
     if (normalizeFeed) {

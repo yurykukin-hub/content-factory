@@ -1,10 +1,6 @@
 import type { Publisher, PublishParams, PublishResult } from './base'
 import type { PlatformAccount } from '@prisma/client'
-import { join } from 'path'
-import { readFile } from 'fs/promises'
-import { getModuleDir } from '../../utils/paths'
-
-const UPLOAD_DIR = join(getModuleDir(import.meta), '../../../uploads')
+import { getStorage, requireKeyFromUrl } from '../storage'
 
 /**
  * Telegram Publisher — публикация через Telegram Bot API.
@@ -68,8 +64,7 @@ export class TelegramPublisher implements Publisher {
     media: { url: string; mimeType: string; filename: string },
     caption: string
   ): Promise<PublishResult> {
-    const filePath = join(UPLOAD_DIR, media.url.replace('/uploads/', ''))
-    const buffer = await readFile(filePath)
+    const buffer = await getStorage().get(requireKeyFromUrl(media.url))
 
     const formData = new FormData()
     formData.append('chat_id', chatId)
@@ -89,8 +84,7 @@ export class TelegramPublisher implements Publisher {
     media: { url: string; mimeType: string; filename: string },
     caption: string
   ): Promise<PublishResult> {
-    const filePath = join(UPLOAD_DIR, media.url.replace('/uploads/', ''))
-    const buffer = await readFile(filePath)
+    const buffer = await getStorage().get(requireKeyFromUrl(media.url))
 
     const formData = new FormData()
     formData.append('chat_id', chatId)
@@ -111,8 +105,7 @@ export class TelegramPublisher implements Publisher {
     media: { url: string; mimeType: string; filename: string },
     caption: string
   ): Promise<PublishResult> {
-    const filePath = join(UPLOAD_DIR, media.url.replace('/uploads/', ''))
-    const buffer = await readFile(filePath)
+    const buffer = await getStorage().get(requireKeyFromUrl(media.url))
 
     const formData = new FormData()
     formData.append('chat_id', chatId)
@@ -139,8 +132,7 @@ export class TelegramPublisher implements Publisher {
 
     for (let i = 0; i < Math.min(mediaItems.length, 10); i++) {
       const mf = mediaItems[i]
-      const filePath = join(UPLOAD_DIR, mf.url.replace('/uploads/', ''))
-      const buffer = await readFile(filePath)
+      const buffer = await getStorage().get(requireKeyFromUrl(mf.url))
       const fieldName = `file${i}`
 
       formData.append(fieldName, new Blob([buffer], { type: mf.mimeType }), mf.filename)

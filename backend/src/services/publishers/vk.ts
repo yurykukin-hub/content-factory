@@ -1,11 +1,7 @@
 import type { Publisher, PublishParams, PublishResult } from './base'
 import type { PlatformAccount } from '@prisma/client'
-import { join } from 'path'
-import { readFile } from 'fs/promises'
-import { getModuleDir } from '../../utils/paths'
+import { getStorage, requireKeyFromUrl } from '../storage'
 import { log } from '../../utils/logger'
-
-const UPLOAD_DIR = join(getModuleDir(import.meta), '../../../uploads')
 
 // VK Stories link_text принимает только константы из фикс. списка (VK сам локализует надпись),
 // а не произвольный текст. Маппим русские варианты → константу, дефолт 'open' (Открыть).
@@ -184,8 +180,7 @@ export class VkPublisher implements Publisher {
       const uploadUrl = serverData.response.upload_url
 
       // 2. Read file and upload
-      const filePath = join(UPLOAD_DIR, mf.url.replace('/uploads/', ''))
-      const fileBuffer = await readFile(filePath)
+      const fileBuffer = await getStorage().get(requireKeyFromUrl(mf.url))
 
       const formData = new FormData()
       formData.append('photo', new Blob([fileBuffer], { type: mf.mimeType }), mf.filename)
@@ -258,8 +253,7 @@ export class VkPublisher implements Publisher {
       const videoId = saveData.response.video_id
 
       // 2. Upload video file
-      const filePath = join(UPLOAD_DIR, mf.url.replace('/uploads/', ''))
-      const fileBuffer = await readFile(filePath)
+      const fileBuffer = await getStorage().get(requireKeyFromUrl(mf.url))
 
       const formData = new FormData()
       formData.append('video_file', new Blob([fileBuffer], { type: mf.mimeType }), mf.filename)
@@ -327,8 +321,7 @@ export class VkPublisher implements Publisher {
       const uploadUrl = serverData.response.upload_url
 
       // 2. Read file and optionally overlay text
-      const filePath = join(UPLOAD_DIR, mf.url.replace('/uploads/', ''))
-      let fileBuffer: Buffer = await readFile(filePath)
+      let fileBuffer: Buffer = await getStorage().get(requireKeyFromUrl(mf.url))
 
       // Авто-resize фото под 1080x1920 (9:16) для Stories (skip if pre-rendered by client canvas)
       if (!isVideo && !storiesOptions?.skipOverlay) {

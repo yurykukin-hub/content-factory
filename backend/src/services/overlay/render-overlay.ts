@@ -7,9 +7,7 @@ import { db } from '../../db'
 import { nanoid } from 'nanoid'
 import sharp from 'sharp'
 import { join } from 'path'
-import { mkdir, unlink, stat } from 'fs/promises'
-import { existsSync } from 'fs'
-import { getModuleDir } from '../../utils/paths'
+import { unlink, stat } from 'fs/promises'
 import { config } from '../../config'
 import { log } from '../../utils/logger'
 import { renderToPng, imageToDataUri } from '../html-render'
@@ -18,8 +16,8 @@ import { savePngAsMedia } from '../story-design'
 import { overlayImageOnVideo, overlayAudioOnVideo } from '../video-overlay'
 import { extractVideoThumbnail } from '../../utils/video-thumbnail'
 import type { OverlaySpec } from './overlay-spec'
+import { LocalFileScope, localBizDir } from '../storage'
 
-const UPLOAD_DIR = join(getModuleDir(import.meta), '../../../uploads')
 const THUMB_SIZE = 200
 const OVERLAY_TAGS = ['overlay', 'ai-generated']
 
@@ -53,21 +51,19 @@ function nodeFromSpec(spec: OverlaySpec, photoUri: string | null): any {
   })
 }
 
-/** Резолвит абсолютный путь к аудио для видео (media или sound-сессия). */
-async function resolveAudioPath(businessId: string, opts?: RenderOverlayOpts): Promise<string | null> {
+/** Материализует аудио для видео (media или sound-сессия) в локальный файл для ffmpeg. */
+async function resolveAudioPath(
+  businessId: string,
+  inputs: LocalFileScope,
+  opts?: RenderOverlayOpts,
+): Promise<string | null> {
   if (!opts) return null
   if (opts.audioMediaFileId) {
     const af = await db.mediaFile.findUnique({ where: { id: opts.audioMediaFileId } })
-    if (af && af.businessId === businessId) {
-      const p = join(UPLOAD_DIR, af.url.replace('/uploads/', ''))
-      if (existsSync(p)) return p
-    }
+    if (af && af.businessId === businessId) return await inputs.resolve(af.url)
   } else if (opts.musicSessionId) {
     const sess = await db.generationSession.findUnique({ where: { id: opts.musicSessionId } })
-    if (sess && sess.businessId === businessId && sess.audioUrl) {
-      const p = join(UPLOAD_DIR, sess.audioUrl.replace('/uploads/', ''))
-      if (existsSync(p)) return p
-    }
+    if (sess && sess.businessId === businessId) return await inputs.resolve(sess.audioUrl)
   }
   return null
 }
@@ -101,23 +97,27 @@ export async function renderOverlay(
   // ─── ВИДЕО: прозрачный satori-слой → ffmpeg overlay (+опц. музыка) ───
   const layerPng = await renderToPng(nodeFromSpec(spec, null), STORY_W, STORY_H)
 
-  const bizDir = join(UPLOAD_DIR, businessId)
-  await mkdir(bizDir, { recursive: true })
+  const bizDir = await localBizDir(businessId)
   const fileId = nanoid(12)
   const layerTmpPath = join(bizDir, `overlay_${fileId}.png`)
   const outFilename = `design_${fileId}.mp4`
   const outPath = join(bizDir, outFilename)
   const audioTmpPath = join(bizDir, `overlay_${fileId}_a.mp4`)
 
-  const srcVideoPath = join(UPLOAD_DIR, original.url.replace('/uploads/', ''))
-  if (!existsSync(srcVideoPath)) throw new Error('Файл видео отсутствует на диске')
+  // ffmpeg принимает только файлы на диске → входы через scope, освобождаются в finally.
+  const inputs = new LocalFileScope()
+  const srcVideoPath = await inputs.resolve(original.url)
+  if (!srcVideoPath) {
+    await inputs.dispose()
+    throw new Error('Файл видео отсутствует на диске')
+  }
 
   try {
     await Bun.write(layerTmpPath, layerPng)
     await overlayImageOnVideo(srcVideoPath, layerTmpPath, outPath)
 
     // Опциональная музыка (парити с overlay-video)
-    const audioPath = await resolveAudioPath(businessId, opts)
+    const audioPath = await resolveAudioPath(businessId, inputs, opts)
     if (audioPath) {
       await overlayAudioOnVideo(outPath, audioPath, audioTmpPath)
       await Bun.write(outPath, Bun.file(audioTmpPath)) // заменяем результат озвученным
@@ -149,5 +149,6 @@ export async function renderOverlay(
   } finally {
     await unlink(layerTmpPath).catch(() => {})
     await unlink(audioTmpPath).catch(() => {})
+    await inputs.dispose()
   }
 }

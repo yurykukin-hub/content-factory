@@ -79,6 +79,18 @@ export function keyFromUrl(url: string | null | undefined): StorageKey | null {
 }
 
 /**
+ * То же, что `keyFromUrl`, но бросает вместо `null`. Для мест, где у «не наш URL»
+ * нет осмысленной ветки и ошибка всё равно поднимется выше: раньше там формировался
+ * мусорный путь и `readFile` падал с ENOENT, который перехватывался тем же catch.
+ * Так что бросок сохраняет прежнее поведение, но с внятным сообщением.
+ */
+export function requireKeyFromUrl(url: string | null | undefined): StorageKey {
+  const key = keyFromUrl(url)
+  if (key === null) throw new Error(`Медиафайл недоступен: ${JSON.stringify(url)}`)
+  return key
+}
+
+/**
  * HTTP-путь запроса (`c.req.path`, уже без query-строки) → ключ.
  * `null` ⇒ роут отдаёт 403 (как и прежняя проверка префикса после `resolve()`).
  */

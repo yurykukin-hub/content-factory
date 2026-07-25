@@ -14,6 +14,7 @@ export {
   keyFromUrl,
   makeKey,
   publicUrl,
+  requireKeyFromUrl,
   urlFromKey,
   type StorageKey,
 } from './keys'
@@ -29,5 +30,7 @@ export {
   type StorageKind,
   type StorageWritable,
 } from './base'
+
+export { LocalFileScope } from './scope'
 
 export { localBizDir, uploadsRoot } from './local'

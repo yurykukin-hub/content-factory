@@ -136,7 +136,7 @@ export class LocalStorageDriver implements StorageDriver {
     return { key, url: urlFromKey(key), size }
   }
 
-  async get(key: StorageKey): Promise<Buffer> {
+  async get(key: StorageKey): Promise<Buffer<ArrayBuffer>> {
     return await readFile(this.pathFor(key))
   }
 

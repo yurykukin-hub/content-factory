@@ -14,11 +14,34 @@ import { overlayImageOnVideo, overlayAudioOnVideo } from '../services/video-over
 import { renderAndSaveStoryDesign, renderAndSaveCarousel } from '../services/story-design'
 import { renderOverlay } from '../services/overlay/render-overlay'
 import { normalizeOverlaySpec } from '../services/overlay/overlay-spec'
+import { LocalFileScope, getStorage, keyFromUrl, localBizDir } from '../services/storage'
 
 const media = new Hono()
 
 const UPLOAD_DIR = join(getModuleDir(import.meta), '../../uploads')
 const THUMB_SIZE = 200
+
+/**
+ * Удалить объект и его превью. БД — источник правды, файлы best-effort: даже если
+ * объект не удалился, запись убираем, а сироту логируем (warn), чтобы вычистить диск.
+ */
+async function deleteMediaObjects(
+  file: { url: string; thumbUrl: string | null },
+  context: string,
+): Promise<void> {
+  const storage = getStorage()
+  for (const [label, url] of [['file', file.url], ['thumb', file.thumbUrl]] as const) {
+    if (!url) continue
+    const key = keyFromUrl(url)
+    if (!key) {
+      log.warn(`${context}: unrecognized media url`, { url })
+      continue
+    }
+    if (!(await storage.delete(key))) {
+      log.warn(`${context}: orphan ${label} left on disk`, { key })
+    }
+  }
+}
 const MAX_FILE_SIZE = 500 * 1024 * 1024 // 500 MB (рилз/видео туров с телефона)
 
 // POST /api/media/upload — загрузка файла (multipart/form-data)
@@ -174,27 +197,26 @@ media.post('/overlay-video', async (c) => {
   }
   if (overlayBlob.size > 8 * 1024 * 1024) return c.json({ error: 'overlay слишком большой' }, 400)
 
-  const videoPath = join(UPLOAD_DIR, videoMf.url.replace('/uploads/', ''))
-  if (!existsSync(videoPath)) return c.json({ error: 'Файл видео отсутствует на диске' }, 404)
+  // ffmpeg принимает только файлы на диске → материализуем входы через scope,
+  // он же освободит их в finally (в Фазе 2 это будут временные копии из S3).
+  const inputs = new LocalFileScope()
+  const videoPath = await inputs.resolve(videoMf.url)
+  if (!videoPath) {
+    await inputs.dispose()
+    return c.json({ error: 'Файл видео отсутствует на диске' }, 404)
+  }
 
   // Резолвим аудио (опц.): из медиатеки или из музыкальной сессии Sound Studio
   let audioPath: string | null = null
   if (audioMediaFileId) {
     const af = await db.mediaFile.findUnique({ where: { id: audioMediaFileId } })
-    if (af && af.businessId === businessId) {
-      const p = join(UPLOAD_DIR, af.url.replace('/uploads/', ''))
-      if (existsSync(p)) audioPath = p
-    }
+    if (af && af.businessId === businessId) audioPath = await inputs.resolve(af.url)
   } else if (musicSessionId) {
     const sess = await db.generationSession.findUnique({ where: { id: musicSessionId } })
-    if (sess && sess.businessId === businessId && sess.audioUrl) {
-      const p = join(UPLOAD_DIR, sess.audioUrl.replace('/uploads/', ''))
-      if (existsSync(p)) audioPath = p
-    }
+    if (sess && sess.businessId === businessId) audioPath = await inputs.resolve(sess.audioUrl)
   }
 
-  const bizDir = join(UPLOAD_DIR, businessId)
-  await mkdir(bizDir, { recursive: true })
+  const bizDir = await localBizDir(businessId)
 
   const fileId = nanoid(12)
   const overlayTmpPath = join(bizDir, `overlay_${fileId}.png`)
@@ -247,6 +269,7 @@ media.post('/overlay-video', async (c) => {
     return c.json({ error: 'Ошибка наложения текста на видео: ' + String(e?.message || e).slice(0, 200) }, 500)
   } finally {
     await unlink(overlayTmpPath).catch(() => {}) // временный PNG всегда удаляем
+    await inputs.dispose()
   }
 })
 
@@ -626,14 +649,7 @@ media.delete('/:id', async (c) => {
   const file = await db.mediaFile.findUnique({ where: { id } })
   if (!file) return c.json({ error: 'Файл не найден' }, 404)
 
-  // Delete physical files. DB — источник правды, файл best-effort: даже если unlink упал,
-  // запись удаляем. Но логируем путь сироты (warn), чтобы можно было вычистить диск VPS.
-  const filePath = join(UPLOAD_DIR, file.url.replace('/uploads/', ''))
-  await unlink(filePath).catch((e) => log.warn('media delete: orphan file left on disk', { path: filePath, error: String(e?.message || e) }))
-  if (file.thumbUrl) {
-    const thumbPath = join(UPLOAD_DIR, file.thumbUrl.replace('/uploads/', ''))
-    await unlink(thumbPath).catch((e) => log.warn('media delete: orphan thumb left on disk', { path: thumbPath, error: String(e?.message || e) }))
-  }
+  await deleteMediaObjects(file, 'media delete')
 
   // Delete DB record
   await db.mediaFile.delete({ where: { id } })
@@ -656,12 +672,7 @@ media.post('/bulk-delete', async (c) => {
     } catch {
       continue // нет доступа к этому файлу — пропускаем
     }
-    const filePath = join(UPLOAD_DIR, file.url.replace('/uploads/', ''))
-    await unlink(filePath).catch((e) => log.warn('bulk-delete: orphan file left on disk', { path: filePath, error: String(e?.message || e) }))
-    if (file.thumbUrl) {
-      const thumbPath = join(UPLOAD_DIR, file.thumbUrl.replace('/uploads/', ''))
-      await unlink(thumbPath).catch((e) => log.warn('bulk-delete: orphan thumb left on disk', { path: thumbPath, error: String(e?.message || e) }))
-    }
+    await deleteMediaObjects(file, 'bulk-delete')
     await db.mediaFile.delete({ where: { id: file.id } })
     deleted++
   }

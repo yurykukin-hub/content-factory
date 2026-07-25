@@ -62,8 +62,14 @@ export interface StorageDriver {
    */
   putFromLocalFile(key: StorageKey, sourcePath: string, opts?: PutOpts): Promise<PutResult>
 
-  /** Весь объект в память (паблишеры → FormData, sharp → pipeline). Бросает, если объекта нет. */
-  get(key: StorageKey): Promise<Buffer>
+  /**
+   * Весь объект в память (паблишеры → FormData, sharp → pipeline). Бросает, если объекта нет.
+   *
+   * Тип намеренно `Buffer<ArrayBuffer>`, а не просто `Buffer`: именно его отдаёт
+   * `fs.readFile`, и только он присваивается в `BlobPart` без каста. Широкий
+   * `Buffer<ArrayBufferLike>` заставил бы кастовать в каждом паблишере.
+   */
+  get(key: StorageKey): Promise<Buffer<ArrayBuffer>>
 
   /** Поток на чтение — без материализации (большие видео). */
   getStream(key: StorageKey): Promise<ReadableStream<Uint8Array>>
