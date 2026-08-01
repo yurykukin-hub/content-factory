@@ -36,6 +36,17 @@ vi.mock('../../services/scheduler', () => ({ startPublishScheduler: vi.fn() }))
 vi.mock('../../services/ai/openrouter', () => ({ aiRequest: vi.fn() }))
 vi.mock('../../eventBus', () => ({ emitEvent: vi.fn(), eventBus: { on: vi.fn(), off: vi.fn() } }))
 
+const { mockStorage } = vi.hoisted(() => ({
+  mockStorage: {
+    put: vi.fn().mockResolvedValue({ url: '/uploads/biz-1/x.jpg', size: 1024, key: 'biz-1/x.jpg' }),
+    delete: vi.fn().mockResolvedValue(true),
+  },
+}))
+vi.mock('../../services/storage', async (orig) => ({
+  ...(await orig<Record<string, unknown>>()),
+  getStorage: () => mockStorage,
+}))
+
 import { app } from '../../app'
 
 async function makeToken(role: 'ADMIN' | 'EDITOR' | 'VIEWER' = 'ADMIN', userId = 'admin-1') {
@@ -145,6 +156,65 @@ describe('POST /api/tickets — автоконтекст режется по р�
       const res = await postTicket({ ...validBody, context }, token)
       expect(res.status).toBe(201)
     }
+  })
+})
+
+describe('POST /api/tickets/:id/attachments — вложения', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockStorage.put.mockResolvedValue({ url: '/uploads/biz-1/x.jpg', size: 1024, key: 'biz-1/x.jpg' })
+    mockDb.ticket.findUnique.mockResolvedValue({ id: 't1', businessId: 'biz-1', reporterName: 'Миша' })
+    mockDb.ticketAttachment.count.mockResolvedValue(0)
+  })
+
+  async function upload(kind: string, file: File, token: string) {
+    const form = new FormData()
+    form.append('kind', kind)
+    form.append('file', file)
+    return app.request('/api/tickets/t1/attachments', {
+      method: 'POST',
+      headers: { Cookie: `token=${token}`, 'X-Tab-ID': 'test' },
+      body: form,
+    })
+  }
+
+  it('принимает скриншот', async () => {
+    const token = await makeToken('ADMIN')
+    const res = await upload('image', new File(['png-bytes'], 'shot.png', { type: 'image/png' }), token)
+    expect(res.status).toBe(201)
+    expect(mockDb.ticketAttachment.create).toHaveBeenCalled()
+  })
+
+  it('не пускает видео под видом скриншота (400)', async () => {
+    const token = await makeToken('ADMIN')
+    // Иначе в мультимодальный промпт агента приедет что угодно под видом картинки
+    const res = await upload('image', new File(['mp4'], 'clip.mp4', { type: 'video/mp4' }), token)
+    expect(res.status).toBe(400)
+    expect(mockStorage.put).not.toHaveBeenCalled()
+  })
+
+  it('отклоняет неизвестный тип вложения (400)', async () => {
+    const token = await makeToken('ADMIN')
+    const res = await upload('archive', new File(['zip'], 'a.zip', { type: 'application/zip' }), token)
+    expect(res.status).toBe(400)
+  })
+
+  it('держит потолок вложений на тикет (400)', async () => {
+    const token = await makeToken('ADMIN')
+    mockDb.ticketAttachment.count.mockResolvedValue(10)
+    const res = await upload('image', new File(['png'], 'shot.png', { type: 'image/png' }), token)
+    expect(res.status).toBe(400)
+    expect(mockStorage.put).not.toHaveBeenCalled()
+  })
+
+  it('удаляет объект, если строка в базе не записалась', async () => {
+    const token = await makeToken('ADMIN')
+    mockDb.ticketAttachment.create.mockRejectedValue(new Error('db down'))
+    const res = await upload('image', new File(['png'], 'shot.png', { type: 'image/png' }), token)
+    expect(res.status).toBe(500)
+    // Компенсация: файл-сирота в хранилище не остаётся
+    expect(mockStorage.delete).toHaveBeenCalledTimes(1)
+    expect(String(mockStorage.delete.mock.calls[0][0])).toContain('ticket-')
   })
 })
 

@@ -12,11 +12,15 @@
  */
 import { Hono } from 'hono'
 import { z } from 'zod'
+import { nanoid } from 'nanoid'
+import { extname } from 'path'
 import type { Prisma } from '@prisma/client'
 import { db } from '../db'
 import type { AuthUser } from '../middleware/auth'
 import { emitEvent } from '../eventBus'
 import { canEdit } from '../shared/section-access'
+import { getStorage, makeKey } from '../services/storage'
+import { extensionToMime, mimeExtension } from '../utils/mime'
 
 export const tickets = new Hono()
 
@@ -235,6 +239,87 @@ tickets.patch('/:id', async (c) => {
 
   emitEvent({ type: 'ticket_updated', tabId: c.req.header('X-Tab-ID') || '', ticketId: id })
   return c.json(ticket)
+})
+
+/**
+ * Лимиты вложений по типу. Разные, потому что природа разная: скриншот приходит
+ * уже сжатым приложением, голос — короткая реплика, запись экрана — самая тяжёлая
+ * и потому самая ограниченная (60 секунд 720p укладываются примерно в 15 МБ).
+ */
+const ATTACHMENT_LIMITS: Record<string, { maxBytes: number; mimePrefix: string }> = {
+  image: { maxBytes: 12 * 1024 * 1024, mimePrefix: 'image/' },
+  audio: { maxBytes: 15 * 1024 * 1024, mimePrefix: 'audio/' },
+  screen: { maxBytes: 60 * 1024 * 1024, mimePrefix: 'video/' },
+}
+
+/** Больше вложений тикету не нужно, а промпт ночного агента не резиновый. */
+const MAX_ATTACHMENTS_PER_TICKET = 10
+
+// POST /api/tickets/:id/attachments — скриншот, голос или запись экрана (multipart)
+tickets.post('/:id/attachments', async (c) => {
+  const { id } = c.req.param()
+  const ticket = await db.ticket.findUnique({
+    where: { id },
+    select: { id: true, businessId: true, reporterName: true },
+  })
+  if (!ticket) return c.json({ error: 'Тикет не найден' }, 404)
+
+  const body = await c.req.parseBody()
+  const file = body['file']
+  const kind = String(body['kind'] || 'image')
+
+  if (!file || typeof file === 'string') return c.json({ error: 'Файл не найден' }, 400)
+
+  const limits = ATTACHMENT_LIMITS[kind]
+  if (!limits) return c.json({ error: `Неизвестный тип вложения: ${kind}` }, 400)
+
+  const existing = await db.ticketAttachment.count({ where: { ticketId: id } })
+  if (existing >= MAX_ATTACHMENTS_PER_TICKET) {
+    return c.json({ error: `Максимум ${MAX_ATTACHMENTS_PER_TICKET} вложений на тикет` }, 400)
+  }
+
+  const blob = file as File
+  if (blob.size > limits.maxBytes) {
+    return c.json({ error: `Файл слишком большой (макс. ${Math.round(limits.maxBytes / 1024 / 1024)} МБ)` }, 400)
+  }
+
+  const rawExt = extname(blob.name || '.bin').toLowerCase()
+  const rawMime = blob.type || ''
+  const mimeType =
+    rawMime && rawMime !== 'application/octet-stream'
+      ? rawMime
+      : extensionToMime(rawExt) || 'application/octet-stream'
+
+  // Тип файла обязан соответствовать заявленному виду: иначе «скриншотом» приедет
+  // что угодно и попадёт в мультимодальный промпт агента.
+  if (!mimeType.startsWith(limits.mimePrefix)) {
+    return c.json({ error: `Для «${kind}» ожидается ${limits.mimePrefix}*, а пришло ${mimeType}` }, 400)
+  }
+
+  const key = makeKey(ticket.businessId, `ticket-${nanoid(12)}${rawExt || mimeExtension(mimeType)}`)
+  const storage = getStorage()
+  const saved = await storage.put(key, blob, { contentType: mimeType })
+
+  try {
+    const attachment = await db.ticketAttachment.create({
+      data: {
+        ticketId: id,
+        kind,
+        storageKey: key,
+        mime: mimeType,
+        sizeBytes: saved.size,
+        durationSec: body['durationSec'] ? Number(body['durationSec']) : null,
+        transcript: body['transcript'] ? String(body['transcript']) : null,
+        sortOrder: existing,
+      },
+    })
+    emitEvent({ type: 'ticket_updated', tabId: c.req.header('X-Tab-ID') || '', ticketId: id })
+    return c.json(attachment, 201)
+  } catch (e) {
+    // Компенсация: не оставляем объект в хранилище без строки в базе.
+    await storage.delete(key)
+    throw e
+  }
 })
 
 const commentSchema = z.object({
