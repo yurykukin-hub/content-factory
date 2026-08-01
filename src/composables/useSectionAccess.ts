@@ -19,6 +19,7 @@ export type Section =
   | 'settings'
   | 'publishing'
   | 'aiLogs'
+  | 'tickets'
 
 export type AccessLevel = 'full' | 'view' | 'none'
 
@@ -39,6 +40,7 @@ export const SECTION_LABELS: Record<Section, string> = {
   settings: 'Настройки',
   publishing: 'Публикация',
   aiLogs: 'AI Логи',
+  tickets: 'Тикеты',
 }
 
 export const SECTIONS: Section[] = Object.keys(SECTION_LABELS) as Section[]

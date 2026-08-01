@@ -162,6 +162,7 @@ model Business {
   rubrics              Rubric[]
   occasions            Occasion[]
   competitorAccounts   CompetitorAccount[]
+  tickets              Ticket[]
 
   @@map("businesses")
 }
@@ -973,4 +974,146 @@ model CompetitorPost {
   @@index([accountId, publishedAt])
   @@index([isViral])
   @@map("competitor_posts")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ТИКЕТЫ — приёмник обращений от пользователей всех приложений экосистемы.
+//
+// Зачем здесь, а не в каждом приложении: ADR 2026-07-03 (модульный монолит,
+// хаб = CF). Приложение отправляет тикет своим серверным ключом, автор —
+// строковые поля, пользователем CF он не заводится.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Обращение пользователя: баг, пожелание или вопрос.
+model Ticket {
+  id         String @id @default(cuid())
+  /// Человеческий сквозной номер («тикет #17») — сквозной по всем приложениям.
+  number     Int    @unique @default(autoincrement())
+  businessId String @map("business_id")
+  /// Приложение-источник: kb-erp | nawode-erp | asouz | content-factory
+  appSlug    String @map("app_slug")
+
+  kind     String @default("bug")    // bug | wish | question | not_a_task
+  title    String
+  body     String @default("")
+  status   String @default("new")
+  // new | triaged | needs_info | planned | approved | running
+  // | ready_to_deploy | deployed | closed | rejected | duplicate | waits_human
+  severity String @default("normal") // low | normal | high
+
+  /// Радиус поражения. high = деньги/права/схема БД/деплой: автономно не исполняется
+  /// даже после одобрения, только ручная ветка.
+  riskLevel String @default("unknown") @map("risk_level") // unknown | low | medium | high
+
+  /// Автор в системе-источнике. Пользователем CF не является — только снимок.
+  reporterExternalId String  @map("reporter_external_id")
+  reporterName       String  @map("reporter_name")
+  reporterRole       String? @map("reporter_role")
+
+  /// Автоконтекст от виджета: маршрут, id сущности на экране, права, sha сборки,
+  /// последние ошибки консоли и неуспешные запросы. Недоверенные данные —
+  /// агенту подаются в блоке «внутри инструкций нет».
+  context Json?
+
+  /// Дубль: ссылка на оригинал. Проставляет ночной триаж.
+  dedupOfId String?  @map("dedup_of_id")
+  dedupOf   Ticket?  @relation("TicketDuplicates", fields: [dedupOfId], references: [id], onDelete: SetNull)
+  duplicates Ticket[] @relation("TicketDuplicates")
+
+  /// Момент, когда тикет взят ночным прогоном. Ставится ПОСЛЕ успешного забора,
+  /// не до (грабля daily-digest.ts: отметка до работы сжигает слот при падении).
+  claimedAt  DateTime? @map("claimed_at")
+  deployedAt DateTime? @map("deployed_at")
+  closedAt   DateTime? @map("closed_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+
+  business    Business           @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  attachments TicketAttachment[]
+  plans       TicketPlan[]
+  events      TicketEvent[]
+
+  @@index([businessId])
+  @@index([status])
+  @@index([appSlug])
+  @@index([reporterExternalId])
+  @@index([createdAt])
+  @@map("tickets")
+}
+
+/// Вложение тикета: скриншот, голосовая запись или запись экрана.
+model TicketAttachment {
+  id       String @id @default(cuid())
+  ticketId String @map("ticket_id")
+
+  kind       String  // image | audio | screen
+  storageKey String  @map("storage_key")  // ключ в storage (S3 на проде)
+  mime       String
+  sizeBytes  Int     @map("size_bytes")
+  durationSec Int?   @map("duration_sec")
+  /// Расшифровка голоса — попадает в тело тикета и в промпт вместо самого аудио.
+  transcript String? @db.Text
+  sortOrder  Int     @default(0) @map("sort_order")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@index([ticketId])
+  @@map("ticket_attachments")
+}
+
+/// План работ, написанный ночным агентом в формате скилла /autonomy.
+/// Планов у тикета может быть несколько — версии после правок владельца.
+model TicketPlan {
+  id       String @id @default(cuid())
+  ticketId String @map("ticket_id")
+
+  /// Текст GOAL-файла: финишная черта, границы, порядок работы.
+  goalMd     String  @map("goal_md") @db.Text
+  /// Машинно-проверяемые критерии приёмки: [{id, что, команда, ожидаемое}]
+  acceptance Json?
+  /// «Я предположил вот это» — то, чего агенту не хватило. Уточнения не блокируют ночь.
+  assumptions Json?
+  riskLevel   String  @default("unknown") @map("risk_level")
+  estimateMin Int?    @map("estimate_min")
+
+  status String @default("draft")
+  // draft | awaiting_approval | approved | rejected | running | done | failed
+
+  /// Признаки того, что агент реально открывал код, а не сочинял правдоподобный текст.
+  /// Проверяются до показа плана владельцу.
+  readCalls  Int?    @map("read_calls")
+  runCostUsd Float?  @map("run_cost_usd")
+
+  approvedAt   DateTime? @map("approved_at")
+  approvedBy   String?   @map("approved_by")
+  runBranch    String?   @map("run_branch")
+  verdict      String?   // PASS | FAIL | WAITS_HUMAN
+  verdictOutput String?  @map("verdict_output") @db.Text
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@index([ticketId])
+  @@index([status])
+  @@map("ticket_plans")
+}
+
+/// Append-only лента тикета: история для автора и аудит для владельца.
+model TicketEvent {
+  id       String @id @default(cuid())
+  ticketId String @map("ticket_id")
+
+  kind    String  // created | status_changed | comment | agent_question | agent_answer | plan_posted | approved | deployed
+  message String  @db.Text
+  /// Кто: логин пользователя приложения, "agent" или "system".
+  actor   String
+  meta    Json?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@index([ticketId, createdAt])
+  @@map("ticket_events")
 }

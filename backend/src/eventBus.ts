@@ -9,6 +9,7 @@ export type ContentEvent =
   | { type: 'settings_changed'; tabId: string; entity: string }
   | { type: 'session_updated'; tabId: string; sessionId: string; status: string }
   | { type: 'media_described'; tabId: string; mediaId: string; businessId: string; altText: string | null; status: 'done' | 'failed' }
+  | { type: 'ticket_created' | 'ticket_updated'; tabId: string; ticketId: string }
 
 class ContentEventBus extends EventEmitter {}
 export const eventBus = new ContentEventBus()

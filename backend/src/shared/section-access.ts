@@ -18,6 +18,7 @@ export const SECTIONS = [
   'settings',
   'publishing',
   'aiLogs',
+  'tickets',
 ] as const
 
 export type Section = (typeof SECTIONS)[number]
@@ -91,4 +92,5 @@ export const SECTION_LABELS: Record<Section, string> = {
   settings: 'Настройки',
   publishing: 'Публикация',
   aiLogs: 'AI Логи',
+  tickets: 'Тикеты',
 }

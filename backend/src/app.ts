@@ -38,6 +38,7 @@ import { apiKeys } from './routes/api-keys'
 import { telegramBot } from './routes/telegram-bot'
 import { autoPost } from './routes/auto-post'
 import { feed } from './routes/feed'
+import { tickets } from './routes/tickets'
 import { analytics } from './routes/analytics'
 
 const app = new Hono()
@@ -160,6 +161,7 @@ app.use('/api/settings/*', requireSection('settings'))
 app.use('/api/music/*', requireSection('soundStudio'))
 app.use('/api/photos/*', requireSection('photoStudio'))
 app.use('/api/ai-logs/*', requireSection('aiLogs'))
+app.use('/api/tickets/*', requireSection('tickets'))
 
 app.route('/api/businesses', businesses)
 app.route('/api/businesses', platformsByBiz) // GET/POST /api/businesses/:bizId/platforms
@@ -189,6 +191,7 @@ app.route('/api/auto-posts', autoPost)
 app.route('/api/feed', feed)
 app.route('/api/analytics', analytics)
 app.route('/api/dashboard', dashboard)
+app.route('/api/tickets', tickets)
 app.route('/api/sse', sse)
 
 // --- Static file serving for uploads ---
