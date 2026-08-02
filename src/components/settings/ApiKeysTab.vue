@@ -10,7 +10,7 @@ import { http } from '@/api/client'
 import { useToast } from '@/composables/useToast'
 import { useConfirm } from '@/composables/useConfirm'
 import { SECTIONS, SECTION_LABELS, type Section, type AccessLevel } from '@/composables/useSectionAccess'
-import { KeyRound, Plus, Copy, Check, Ban, ShieldAlert, X } from 'lucide-vue-next'
+import { KeyRound, Plus, Copy, Check, Ban, ShieldAlert, X, ChevronRight, ChevronDown } from 'lucide-vue-next'
 
 const toast = useToast()
 const { confirm } = useConfirm()
@@ -38,39 +38,68 @@ const loading = ref(true)
 const creating = ref(false)
 const showForm = ref(false)
 
-const form = ref({ name: '', userId: '', scope: {} as Record<string, AccessLevel> })
+/** Пустая карта разделов — все выключены. Иначе селекты рисуются пустыми. */
+function emptyScope(): Record<string, AccessLevel> {
+  return Object.fromEntries(SECTIONS.map((s) => [s, 'none' as AccessLevel]))
+}
 
-/** Заготовки под частые случаи — чтобы не кликать по пятнадцати разделам. */
-const PRESETS: { key: string; label: string; hint: string; build: () => Record<string, AccessLevel> }[] = [
+const form = ref({ name: '', userId: '', preset: 'tickets', scope: emptyScope() })
+const showAdvanced = ref(false)
+
+/**
+ * Готовые варианты обычными словами. Ручной выбор разделов — редкий случай,
+ * поэтому он спрятан за отдельным вариантом, а не висит перед глазами.
+ */
+const PRESETS = [
   {
     key: 'tickets',
-    label: 'Только обращения',
-    hint: 'для приёмника тикетов из ERP и ночного разбора',
-    build: () => ({ tickets: 'full' }),
+    label: 'Принимать обращения',
+    hint: 'для кнопки «Сообщить о проблеме» в приложениях и ночного разбора',
+    build: () => ({ ...emptyScope(), tickets: 'full' as AccessLevel }),
   },
   {
     key: 'readonly',
-    label: 'Только чтение',
-    hint: 'аналитика и выгрузки, ничего менять нельзя',
+    label: 'Только смотреть',
+    hint: 'выгрузки и аналитика: читать можно всё, менять — ничего',
     build: () => Object.fromEntries(SECTIONS.map((s) => [s, 'view' as AccessLevel])),
   },
   {
     key: 'inherit',
-    label: 'Как у пользователя',
-    hint: 'без ограничений — ключ получает все права владельца',
-    build: () => ({}),
+    label: 'Полный доступ',
+    hint: 'ключ может всё то же, что и его владелец. Осторожно',
+    build: () => emptyScope(),
   },
-]
+  {
+    key: 'custom',
+    label: 'Выбрать разделы',
+    hint: 'ручная настройка — если ни один вариант выше не подходит',
+    build: () => emptyScope(),
+  },
+] as const
 
-function applyPreset(key: string) {
-  const preset = PRESETS.find((p) => p.key === key)
-  if (preset) form.value.scope = preset.build()
+function openForm() {
+  showForm.value = !showForm.value
+  // Открываем всегда на самом частом варианте, а не на пустой матрице разделов.
+  if (showForm.value) choosePreset('tickets')
 }
 
+function choosePreset(key: string) {
+  form.value.preset = key
+  const preset = PRESETS.find((p) => p.key === key)
+  if (preset) form.value.scope = preset.build() as Record<string, AccessLevel>
+}
+
+/** Что реально уедет на сервер: пусто = права владельца целиком. */
+const effectiveScope = computed(() => {
+  if (form.value.preset === 'inherit') return {}
+  return Object.fromEntries(Object.entries(form.value.scope).filter(([, v]) => v !== 'none'))
+})
+
 const scopeSummary = computed(() => {
-  const entries = Object.entries(form.value.scope).filter(([, v]) => v !== 'none')
-  if (!entries.length) return 'все права выбранного пользователя'
-  return entries.map(([s, v]) => `${SECTION_LABELS[s as Section]} (${v === 'full' ? 'полный' : 'чтение'})`).join(', ')
+  const entries = Object.entries(effectiveScope.value)
+  if (!entries.length) return 'всё, что доступно владельцу ключа'
+  if (entries.length > 4) return `${entries.length} разделов`
+  return entries.map(([s, v]) => `${SECTION_LABELS[s as Section]} — ${v === 'full' ? 'полный' : 'чтение'}`).join(', ')
 })
 
 /** Что умеет уже созданный ключ — одной строкой для таблицы. */
@@ -117,7 +146,7 @@ async function create() {
   if (!form.value.name.trim()) return
   creating.value = true
   try {
-    const scope = Object.fromEntries(Object.entries(form.value.scope).filter(([, v]) => v !== 'none'))
+    const scope = effectiveScope.value
     const res = await http.post<ApiKeyItem & { key: string }>('/api-keys', {
       name: form.value.name.trim(),
       userId: form.value.userId || undefined,
@@ -125,6 +154,7 @@ async function create() {
     })
     freshKey.value = { name: res.name, key: res.key }
     form.value.name = ''
+    choosePreset('tickets')
     showForm.value = false
     await load()
   } catch (e: any) {
@@ -181,7 +211,7 @@ onMounted(load)
       </div>
       <button
         class="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-brand-700"
-        @click="showForm = !showForm"
+        @click="openForm"
       >
         <Plus :size="16" /> Новый ключ
       </button>
@@ -219,78 +249,100 @@ onMounted(load)
 
     <!-- Форма создания -->
     <div v-if="showForm" class="rounded-xl border border-gray-200 p-4 dark:border-gray-700">
-      <div class="grid gap-3 sm:grid-cols-2">
-        <div>
-          <label class="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">Для чего ключ</label>
+      <label class="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">Для чего этот ключ</label>
+      <input
+        v-model="form.name"
+        type="text"
+        maxlength="100"
+        placeholder="Например: KB ERP — обращения"
+        class="w-full max-w-lg rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 dark:border-gray-600 dark:bg-gray-800"
+        @keyup.enter="create"
+      />
+
+      <!-- Что ключ сможет делать: обычные слова, ручной выбор — отдельным вариантом -->
+      <p class="mb-2 mt-5 text-sm font-medium text-gray-700 dark:text-gray-300">Что ключ сможет делать</p>
+      <div class="max-w-lg space-y-2">
+        <label
+          v-for="p in PRESETS"
+          :key="p.key"
+          class="flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition"
+          :class="form.preset === p.key
+            ? 'border-brand-500 bg-brand-50 dark:border-brand-400 dark:bg-brand-950/30'
+            : 'border-gray-200 hover:border-gray-300 dark:border-gray-700 dark:hover:border-gray-600'"
+        >
           <input
-            v-model="form.name"
-            type="text"
-            maxlength="100"
-            placeholder="Например: KB ERP — обращения"
-            class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 dark:border-gray-600 dark:bg-gray-800"
-            @keyup.enter="create"
+            type="radio"
+            :value="p.key"
+            :checked="form.preset === p.key"
+            class="mt-1 accent-brand-600"
+            @change="choosePreset(p.key)"
           />
-        </div>
-        <div>
-          <label class="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">От имени пользователя</label>
-          <select
-            v-model="form.userId"
-            class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 dark:border-gray-600 dark:bg-gray-800"
-          >
-            <option v-for="u in users" :key="u.id" :value="u.id">
-              {{ u.name }} ({{ u.login }}) · {{ u.role }}
-            </option>
-          </select>
-          <p v-if="selectedUser?.role === 'ADMIN' && !Object.keys(form.scope).length" class="mt-1 text-xs text-amber-600 dark:text-amber-400">
-            Это администратор: без ограничений ниже ключ получит полный доступ ко всему.
-          </p>
-        </div>
+          <span>
+            <span class="block text-sm font-medium text-gray-900 dark:text-gray-100">{{ p.label }}</span>
+            <span class="block text-xs text-gray-500 dark:text-gray-400">{{ p.hint }}</span>
+          </span>
+        </label>
       </div>
 
-      <!-- Область действия ключа -->
-      <div class="mt-4 border-t border-gray-200 pt-4 dark:border-gray-700">
-        <div class="mb-2 flex flex-wrap items-center gap-2">
-          <span class="text-sm font-medium text-gray-700 dark:text-gray-300">Что ключу разрешено</span>
-          <button
-            v-for="p in PRESETS"
-            :key="p.key"
-            class="rounded-full border border-gray-300 px-3 py-1 text-xs text-gray-600 transition hover:border-brand-400 hover:text-brand-600 dark:border-gray-600 dark:text-gray-300"
-            :title="p.hint"
-            @click="applyPreset(p.key)"
-          >
-            {{ p.label }}
-          </button>
-        </div>
-        <p class="mb-3 text-xs text-gray-500 dark:text-gray-400">
-          Ключ может только <b>сузить</b> права владельца, но не расширить.
-          Итог: {{ scopeSummary }}
-        </p>
-
-        <div class="grid gap-x-4 gap-y-1 sm:grid-cols-2 lg:grid-cols-3">
+      <!-- Разделы показываем, только если человек сам этого попросил -->
+      <div v-if="form.preset === 'custom'" class="mt-3 max-w-2xl rounded-xl bg-gray-50 p-3 dark:bg-gray-800/50">
+        <div class="grid gap-x-6 gap-y-1 sm:grid-cols-2">
           <label
             v-for="s in SECTIONS"
             :key="s"
-            class="flex items-center justify-between gap-2 rounded-lg px-2 py-1 text-sm hover:bg-gray-50 dark:hover:bg-gray-800"
+            class="flex items-center justify-between gap-2 rounded-lg px-2 py-1 text-sm"
           >
             <span class="truncate text-gray-700 dark:text-gray-300">{{ SECTION_LABELS[s] }}</span>
             <select
               v-model="form.scope[s]"
               class="shrink-0 rounded border border-gray-300 bg-white px-1.5 py-0.5 text-xs dark:border-gray-600 dark:bg-gray-800"
             >
-              <option value="none">—</option>
-              <option value="view">чтение</option>
-              <option value="full">полный</option>
+              <option value="none">нельзя</option>
+              <option value="view">смотреть</option>
+              <option value="full">менять</option>
             </select>
           </label>
         </div>
       </div>
-      <div class="mt-3 flex gap-2">
+
+      <p class="mt-3 max-w-lg rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-600 dark:bg-gray-800/60 dark:text-gray-400">
+        Ключ получит: <b>{{ scopeSummary }}</b>. Больше, чем может владелец ключа, он всё равно не сможет.
+      </p>
+
+      <!-- Владелец нужен редко — прячем, чтобы не отвлекал -->
+      <button
+        class="mt-3 flex items-center gap-1 text-xs text-gray-500 transition hover:text-gray-700 dark:hover:text-gray-300"
+        @click="showAdvanced = !showAdvanced"
+      >
+        <component :is="showAdvanced ? ChevronDown : ChevronRight" :size="14" />
+        Дополнительно: от чьего имени работает ключ
+      </button>
+      <div v-if="showAdvanced" class="mt-2 max-w-lg rounded-lg bg-gray-50 p-3 dark:bg-gray-800/50">
+        <p class="mb-2 text-xs text-gray-500 dark:text-gray-400">
+          Ключ всегда закреплён за человеком — это видно в списке и нужно, чтобы понимать,
+          кто его выпустил. Обычно оставляйте себя.
+        </p>
+        <select
+          v-model="form.userId"
+          class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-800"
+        >
+          <option v-for="u in users" :key="u.id" :value="u.id">
+            {{ u.name }} ({{ u.login }})
+          </option>
+        </select>
+        <p v-if="selectedUser?.role === 'ADMIN' && form.preset === 'inherit'" class="mt-2 text-xs text-amber-600 dark:text-amber-400">
+          Владелец — администратор, а доступ выбран «Полный». Такой ключ сможет всё,
+          включая выпуск новых ключей. Лучше выбрать вариант поуже.
+        </p>
+      </div>
+
+      <div class="mt-4 flex gap-2">
         <button
           class="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-brand-700 disabled:opacity-50"
           :disabled="!form.name.trim() || creating"
           @click="create"
         >
-          {{ creating ? 'Создаю…' : 'Создать' }}
+          {{ creating ? 'Создаю…' : 'Создать ключ' }}
         </button>
         <button
           class="rounded-lg px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
