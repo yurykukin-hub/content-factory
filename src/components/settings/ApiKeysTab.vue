@@ -9,6 +9,7 @@ import { ref, onMounted, computed } from 'vue'
 import { http } from '@/api/client'
 import { useToast } from '@/composables/useToast'
 import { useConfirm } from '@/composables/useConfirm'
+import { SECTIONS, SECTION_LABELS, type Section, type AccessLevel } from '@/composables/useSectionAccess'
 import { KeyRound, Plus, Copy, Check, Ban, ShieldAlert, X } from 'lucide-vue-next'
 
 const toast = useToast()
@@ -20,7 +21,8 @@ interface ApiKeyItem {
   isActive: boolean
   lastUsed: string | null
   createdAt: string
-  user: { id: string; name: string }
+  sectionAccess: Record<string, AccessLevel> | null
+  user: { id: string; name: string; role?: string }
 }
 
 interface UserOption {
@@ -36,7 +38,49 @@ const loading = ref(true)
 const creating = ref(false)
 const showForm = ref(false)
 
-const form = ref({ name: '', userId: '' })
+const form = ref({ name: '', userId: '', scope: {} as Record<string, AccessLevel> })
+
+/** Заготовки под частые случаи — чтобы не кликать по пятнадцати разделам. */
+const PRESETS: { key: string; label: string; hint: string; build: () => Record<string, AccessLevel> }[] = [
+  {
+    key: 'tickets',
+    label: 'Только обращения',
+    hint: 'для приёмника тикетов из ERP и ночного разбора',
+    build: () => ({ tickets: 'full' }),
+  },
+  {
+    key: 'readonly',
+    label: 'Только чтение',
+    hint: 'аналитика и выгрузки, ничего менять нельзя',
+    build: () => Object.fromEntries(SECTIONS.map((s) => [s, 'view' as AccessLevel])),
+  },
+  {
+    key: 'inherit',
+    label: 'Как у пользователя',
+    hint: 'без ограничений — ключ получает все права владельца',
+    build: () => ({}),
+  },
+]
+
+function applyPreset(key: string) {
+  const preset = PRESETS.find((p) => p.key === key)
+  if (preset) form.value.scope = preset.build()
+}
+
+const scopeSummary = computed(() => {
+  const entries = Object.entries(form.value.scope).filter(([, v]) => v !== 'none')
+  if (!entries.length) return 'все права выбранного пользователя'
+  return entries.map(([s, v]) => `${SECTION_LABELS[s as Section]} (${v === 'full' ? 'полный' : 'чтение'})`).join(', ')
+})
+
+/** Что умеет уже созданный ключ — одной строкой для таблицы. */
+function keyScopeLabel(k: ApiKeyItem): string {
+  const scope = k.sectionAccess
+  if (!scope || !Object.keys(scope).length) return `все права: ${k.user?.name ?? '—'}`
+  const allowed = Object.entries(scope).filter(([, v]) => v !== 'none')
+  if (allowed.length > 3) return `${allowed.length} разделов`
+  return allowed.map(([s]) => SECTION_LABELS[s as Section] ?? s).join(', ')
+}
 
 /** Показывается один раз после создания — потом значение не восстановить. */
 const freshKey = ref<{ name: string; key: string } | null>(null)
@@ -73,9 +117,11 @@ async function create() {
   if (!form.value.name.trim()) return
   creating.value = true
   try {
+    const scope = Object.fromEntries(Object.entries(form.value.scope).filter(([, v]) => v !== 'none'))
     const res = await http.post<ApiKeyItem & { key: string }>('/api-keys', {
       name: form.value.name.trim(),
       userId: form.value.userId || undefined,
+      sectionAccess: Object.keys(scope).length ? scope : undefined,
     })
     freshKey.value = { name: res.name, key: res.key }
     form.value.name = ''
@@ -129,8 +175,8 @@ onMounted(load)
         </h2>
         <p class="mt-1 max-w-2xl text-sm text-gray-500 dark:text-gray-400">
           Доступ для программ, а не для людей: MCP-сервер, приёмник обращений из ERP, интеграции.
-          Ключ работает <b>от имени выбранного пользователя</b> и имеет ровно его права —
-          чтобы ограничить доступ, заведите отдельного пользователя с нужными разделами.
+          У ключа своя область действия — выдавайте ровно те разделы, которые нужны.
+          Расширить права владельца ключ не может, только сузить.
         </p>
       </div>
       <button
@@ -195,10 +241,47 @@ onMounted(load)
               {{ u.name }} ({{ u.login }}) · {{ u.role }}
             </option>
           </select>
-          <p v-if="selectedUser?.role === 'ADMIN'" class="mt-1 text-xs text-amber-600 dark:text-amber-400">
-            У администратора полный доступ ко всему — для интеграции лучше завести
-            отдельного пользователя с нужными разделами.
+          <p v-if="selectedUser?.role === 'ADMIN' && !Object.keys(form.scope).length" class="mt-1 text-xs text-amber-600 dark:text-amber-400">
+            Это администратор: без ограничений ниже ключ получит полный доступ ко всему.
           </p>
+        </div>
+      </div>
+
+      <!-- Область действия ключа -->
+      <div class="mt-4 border-t border-gray-200 pt-4 dark:border-gray-700">
+        <div class="mb-2 flex flex-wrap items-center gap-2">
+          <span class="text-sm font-medium text-gray-700 dark:text-gray-300">Что ключу разрешено</span>
+          <button
+            v-for="p in PRESETS"
+            :key="p.key"
+            class="rounded-full border border-gray-300 px-3 py-1 text-xs text-gray-600 transition hover:border-brand-400 hover:text-brand-600 dark:border-gray-600 dark:text-gray-300"
+            :title="p.hint"
+            @click="applyPreset(p.key)"
+          >
+            {{ p.label }}
+          </button>
+        </div>
+        <p class="mb-3 text-xs text-gray-500 dark:text-gray-400">
+          Ключ может только <b>сузить</b> права владельца, но не расширить.
+          Итог: {{ scopeSummary }}
+        </p>
+
+        <div class="grid gap-x-4 gap-y-1 sm:grid-cols-2 lg:grid-cols-3">
+          <label
+            v-for="s in SECTIONS"
+            :key="s"
+            class="flex items-center justify-between gap-2 rounded-lg px-2 py-1 text-sm hover:bg-gray-50 dark:hover:bg-gray-800"
+          >
+            <span class="truncate text-gray-700 dark:text-gray-300">{{ SECTION_LABELS[s] }}</span>
+            <select
+              v-model="form.scope[s]"
+              class="shrink-0 rounded border border-gray-300 bg-white px-1.5 py-0.5 text-xs dark:border-gray-600 dark:bg-gray-800"
+            >
+              <option value="none">—</option>
+              <option value="view">чтение</option>
+              <option value="full">полный</option>
+            </select>
+          </label>
         </div>
       </div>
       <div class="mt-3 flex gap-2">
@@ -229,6 +312,7 @@ onMounted(load)
         <thead>
           <tr class="border-b border-gray-200 text-left text-xs uppercase text-gray-400 dark:border-gray-700">
             <th class="pb-2 pr-4 font-medium">Назначение</th>
+            <th class="pb-2 pr-4 font-medium">Что умеет</th>
             <th class="pb-2 pr-4 font-medium">От имени</th>
             <th class="pb-2 pr-4 font-medium">Создан</th>
             <th class="pb-2 pr-4 font-medium">Последний раз</th>
@@ -245,6 +329,16 @@ onMounted(load)
             <td class="py-3 pr-4">
               <span class="font-medium">{{ k.name }}</span>
               <span v-if="!k.isActive" class="ml-2 rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-500 dark:bg-gray-800">отозван</span>
+            </td>
+            <td class="py-3 pr-4">
+              <span
+                class="rounded-full px-2 py-0.5 text-xs"
+                :class="k.sectionAccess && Object.keys(k.sectionAccess).length
+                  ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
+                  : 'bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'"
+              >
+                {{ keyScopeLabel(k) }}
+              </span>
             </td>
             <td class="py-3 pr-4 text-gray-600 dark:text-gray-400">{{ k.user?.name ?? '—' }}</td>
             <td class="py-3 pr-4 text-gray-500">{{ fmtWhen(k.createdAt) }}</td>

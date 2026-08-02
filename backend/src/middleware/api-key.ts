@@ -2,6 +2,7 @@ import { Context, Next } from 'hono'
 import { createHash } from 'crypto'
 import { db } from '../db'
 import type { AuthUser } from './auth'
+import { intersectAccess, type SectionAccess } from '../shared/section-access'
 
 function hashKey(key: string): string {
   return createHash('sha256').update(key).digest('hex')
@@ -47,6 +48,15 @@ export async function requireApiKey(c: Context, next: Next) {
     name: apiKey.user.name,
     role: apiKey.user.role as AuthUser['role'],
     sectionAccess: apiKey.user.sectionAccess as AuthUser['sectionAccess'],
+  }
+
+  // У ключа есть собственный скоуп — сужаем права до пересечения с правами
+  // владельца. Роль обязательно понижаем: у ADMIN в resolveAccess стоит байпас,
+  // и без этого скоуп не значил бы ничего.
+  const keyScope = apiKey.sectionAccess as SectionAccess | null
+  if (keyScope && Object.keys(keyScope).length > 0) {
+    user.sectionAccess = intersectAccess(apiKey.user.role, apiKey.user.sectionAccess as SectionAccess | null, keyScope)
+    user.role = 'EDITOR'
   }
 
   c.set('user', user)

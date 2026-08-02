@@ -76,6 +76,35 @@ export function canEdit(
   return resolveAccess(role, section, sectionAccess) === 'full'
 }
 
+const LEVEL_RANK: Record<AccessLevel, number> = { none: 0, view: 1, full: 2 }
+
+/**
+ * Права API-ключа = пересечение прав его владельца и собственного скоупа ключа.
+ *
+ * Ключ может только СУЗИТЬ доступ. Иначе выдача ключа стала бы способом обойти
+ * ограничения пользователя: завёл ключ с полными правами — и обошёл свою роль.
+ *
+ * Скоуп — белый список: раздел, не упомянутый в нём, недоступен ключу вовсе.
+ * Для машинного доступа это правильное умолчание — интеграция получает ровно
+ * то, что ей выдали, и ничего сверх.
+ *
+ * Возвращает готовую карту разделов; вызывающий обязан также понизить роль,
+ * иначе ADMIN-байпас в resolveAccess сделает скоуп бессмысленным.
+ */
+export function intersectAccess(
+  ownerRole: string,
+  ownerAccess: SectionAccess | null | undefined,
+  keyScope: SectionAccess,
+): SectionAccess {
+  const merged: SectionAccess = {}
+  for (const section of SECTIONS) {
+    const ownerLevel = resolveAccess(ownerRole, section, ownerAccess)
+    const keyLevel = keyScope[section] ?? 'none'
+    merged[section] = LEVEL_RANK[keyLevel] < LEVEL_RANK[ownerLevel] ? keyLevel : ownerLevel
+  }
+  return merged
+}
+
 /** Русские лейблы для UI */
 export const SECTION_LABELS: Record<Section, string> = {
   dashboard: 'Dashboard',
