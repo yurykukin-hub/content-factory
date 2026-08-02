@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { User, Sparkles, Link, Users } from 'lucide-vue-next'
+import { User, Sparkles, Link, Users, KeyRound } from 'lucide-vue-next'
 import { useAuthStore } from '@/stores/auth'
 import { useSectionAccess } from '@/composables/useSectionAccess'
 import VkOAuthTab from '@/components/settings/VkOAuthTab.vue'
 import ProfileTab from '@/components/settings/ProfileTab.vue'
 import AiTab from '@/components/settings/AiTab.vue'
 import UsersTab from '@/components/settings/UsersTab.vue'
+import ApiKeysTab from '@/components/settings/ApiKeysTab.vue'
 
 const auth = useAuthStore()
 const { canEdit } = useSectionAccess()
@@ -17,6 +18,7 @@ const allTabs = [
   { key: 'users', label: 'Пользователи', icon: Users, adminOnly: true },
   { key: 'profile', label: 'Профиль и тема', icon: User, adminOnly: false },
   { key: 'ai', label: 'AI', icon: Sparkles, adminOnly: true },
+  { key: 'api-keys', label: 'API-ключи', icon: KeyRound, adminOnly: true },
 ] as const
 
 type TabKey = typeof allTabs[number]['key']
@@ -55,5 +57,6 @@ const tabs = computed(() => allTabs.filter(t =>
     <ProfileTab v-if="activeTab === 'profile'" />
     <UsersTab v-if="activeTab === 'users'" />
     <AiTab v-if="activeTab === 'ai'" />
+    <ApiKeysTab v-if="activeTab === 'api-keys'" />
   </div>
 </template>

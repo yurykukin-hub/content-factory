@@ -7,6 +7,7 @@ import TheSidebar from '@/components/layout/TheSidebar.vue'
 import TheHeader from '@/components/layout/TheHeader.vue'
 import ToastContainer from '@/components/ToastContainer.vue'
 import CreateContentModal from '@/components/posts/CreateContentModal.vue'
+import { UiConfirmDialog } from '@/components/ui'
 
 const auth = useAuthStore()
 const businesses = useBusinessesStore()
@@ -58,4 +59,7 @@ function handleUnauthorized() {
 
   <CreateContentModal v-if="auth.user" />
   <ToastContainer />
+  <!-- Один на всё приложение: useConfirm() — модульный синглтон и без этой
+       строки его промис не разрешался бы вовсе (диалог просто не появлялся). -->
+  <UiConfirmDialog />
 </template>
